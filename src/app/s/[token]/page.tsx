@@ -1,6 +1,7 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { Clock, Download, FileText, Files } from 'lucide-react';
 import { PasswordPrompt, PublicFrame, SenderBrand, SignInRequired } from '@/components/public';
 import { Badge, Button, Empty, Form, Muted, Panel, useNotice } from '@/components/ui';
 import { ApiError, api, enc } from '@/lib/client/api';
@@ -98,38 +99,55 @@ function Manifest({
   const [acked, setAcked] = useState(false);
   return (
     <>
-      <Panel>
+      <Panel className="share-hero">
         <SenderBrand branding={m.branding} />
+        <span className="file-icon">{m.kind === 'document' ? <FileText size={30} aria-hidden="true" /> : <Files size={30} aria-hidden="true" />}</span>
         <h1>{m.title}</h1>
         {m.message && <p className="quote">{m.message}</p>}
-        {m.kind === 'document' && (
-          <p>
-            <Badge state={m.version.mode === 'fixed' ? m.version.label : 'published'} /> {m.version.mode !== 'fixed' && m.version.label}
-            {m.version.published_at && <span className="muted"> · published {when(m.version.published_at)}</span>}
-          </p>
-        )}
+        <div className="share-meta">
+          {m.kind === 'document' && (
+            <span>
+              <Badge state={m.version.mode === 'fixed' ? m.version.label : 'published'} />
+            </span>
+          )}
+          {m.version?.published_at && <span>Published {when(m.version.published_at)}</span>}
+          {m.expires_at && (
+            <span>
+              <Clock size={14} aria-hidden="true" /> Available until {when(m.expires_at)}
+            </span>
+          )}
+          {m.downloads_remaining !== null && m.downloads_remaining !== undefined && (
+            <span>
+              <Download size={14} aria-hidden="true" /> {m.downloads_remaining} downloads left
+            </span>
+          )}
+        </div>
+        {m.kind === 'document' && m.version.mode !== 'fixed' && <p className="fine-print">{m.version.label}</p>}
         {m.version?.replacement_note && <p className="replacement">What changed: {m.version.replacement_note}</p>}
         {m.history?.length > 1 && (
-          <Muted>
+          <p className="fine-print">
             Earlier published versions:{' '}
             {m.history
               .slice(1)
               .map((h: any) => `v${h.number}`)
               .join(', ')}
-          </Muted>
+          </p>
         )}
-        {m.expires_at && <Muted>Available until {when(m.expires_at)}</Muted>}
-        {m.downloads_remaining !== null && m.downloads_remaining !== undefined && <Muted>Downloads remaining: {m.downloads_remaining}</Muted>}
       </Panel>
       <Panel title={m.kind === 'document' ? 'Document' : 'Files'}>
         {m.files.length ? (
           <ul className="file-list">
             {m.files.map((f: any) => (
               <li key={f.id}>
-                <div>
-                  <strong>{f.folder_path ? `${f.folder_path}/${f.name}` : f.name}</strong> <span className="muted">· {fmtBytes(f.size)}</span>
-                  {f.status !== 'available' && <span className="badge off">{f.status === 'processing' ? 'being checked, available shortly' : f.status}</span>}
-                  {f.replacement_note && <p className="replacement">Replaced: {f.replacement_note}</p>}
+                <div className="file-row">
+                  <span className="file-icon">
+                    <FileText size={20} aria-hidden="true" />
+                  </span>
+                  <div>
+                    <strong>{f.folder_path ? `${f.folder_path}/${f.name}` : f.name}</strong> <span className="muted">· {fmtBytes(f.size)}</span>
+                    {f.status !== 'available' && <span className="badge off">{f.status === 'processing' ? 'being checked, available shortly' : f.status}</span>}
+                    {f.replacement_note && <p className="replacement">Replaced: {f.replacement_note}</p>}
+                  </div>
                 </div>
                 <div className="actions">
                   {f.viewable && (
@@ -150,7 +168,7 @@ function Manifest({
                         if (url) window.location.assign(url);
                       }}
                     >
-                      Download
+                      <Download size={16} aria-hidden="true" /> Download
                     </Button>
                   )}
                 </div>

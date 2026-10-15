@@ -24,7 +24,9 @@
     "deploy:prepare": "tsx tools/admin.ts migrate && tsx tools/admin.ts grants"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "5.1.1",
     "@supabase/supabase-js": "^2.118.0",
+    "lucide-react": "0.468.0",
     "next": "15.5.28",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.7.284",

@@ -1,5 +1,6 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Inbox, type LucideIcon } from 'lucide-react';
 import type { UploadProgress } from '@/lib/client/uploader';
 import { fmtBytes } from '@/lib/client/format';
 
@@ -50,7 +51,15 @@ export function Panel({ title, children, actions, className }: { title?: ReactNo
     </section>
   );
 }
-export const Empty = ({ children }: { children: ReactNode }) => <p className="empty">{children}</p>;
+export function Empty({ children, icon: Icon = Inbox, action }: { children: ReactNode; icon?: LucideIcon; action?: ReactNode }) {
+  return (
+    <div className="empty">
+      <Icon size={28} aria-hidden="true" />
+      <div>{children}</div>
+      {action}
+    </div>
+  );
+}
 export const Muted = ({ children }: { children: ReactNode }) => <p className="muted">{children}</p>;
 
 const BADGE: Record<string, string> = { active: 'ok', available: 'ok', published: 'ok', open: 'ok', approved: 'ok', new: 'info' };

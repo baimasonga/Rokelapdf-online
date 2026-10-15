@@ -1,5 +1,31 @@
 'use client';
 import Link from 'next/link';
+import {
+  CloudUpload,
+  Combine,
+  Download,
+  Eraser,
+  FilePlus,
+  FileText,
+  FolderOpen,
+  Highlighter,
+  MousePointer2,
+  PenLine,
+  Redo2,
+  Save,
+  Square,
+  Type,
+  Undo2,
+  Upload,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  RotateCw,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -26,6 +52,7 @@ const TOOLS: Array<[Tool, string, string]> = [
   ['ink', 'Draw', 'Draw freehand'],
   ['whiteout', 'Whiteout', 'Covers content visually. The covered text is still in the file — this is not redaction.'],
 ];
+const TOOL_ICONS: Record<Tool, LucideIcon> = { select: MousePointer2, text: Type, highlight: Highlighter, rect: Square, ink: PenLine, whiteout: Eraser };
 const COLORS = ['#111827', '#d32f2f', '#1565c0', '#2e7d32', '#ffeb3b', '#ff9800'];
 
 interface Source {
@@ -253,9 +280,18 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
     <div className="editor">
       <div className="toolbar" role="toolbar" aria-label="Editor">
         <div className="group">
-          <Button onClick={() => openRef.current?.click()}>Open PDF</Button>
+          <span className="doc-title" title={title}>
+            <FileText size={18} aria-hidden="true" className="muted" />
+            <span>{s.pages.length ? title : 'No document'}</span>
+          </span>
+          {s.pages.length > 0 && <span className={`save-state${dirty ? ' dirty' : ''}`}>{dirty ? 'Unsaved changes' : doc ? 'Saved' : 'On this device'}</span>}
+        </div>
+        <div className="group">
+          <Button onClick={() => openRef.current?.click()} title="Open a PDF">
+            <FolderOpen size={16} aria-hidden="true" /> Open PDF
+          </Button>
           <Button onClick={() => mergeRef.current?.click()} disabled={!s.pages.length} title="Append the pages of another PDF">
-            Add PDF
+            <Combine size={16} aria-hidden="true" /> Add PDF
           </Button>
           <Button
             disabled={!s.pages.length}
@@ -266,7 +302,7 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
               await addSource(await blankPdf(info?.w, info?.h));
             }}
           >
-            Blank page
+            <FilePlus size={16} aria-hidden="true" /> Blank page
           </Button>
           <input
             ref={openRef}
@@ -292,21 +328,25 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
             }}
           />
         </div>
-        <div className="group" role="radiogroup" aria-label="Tool">
-          {TOOLS.map(([t, label, hint]) => (
-            <button
-              key={t}
-              type="button"
-              role="radio"
-              aria-checked={tool === t}
-              title={hint}
-              className={tool === t ? 'active' : ''}
-              disabled={!s.pages.length}
-              onClick={() => setTool(t)}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="group tools" role="radiogroup" aria-label="Tool">
+          {TOOLS.map(([t, label, hint]) => {
+            const Icon = TOOL_ICONS[t];
+            return (
+              <button
+                key={t}
+                type="button"
+                role="radio"
+                aria-checked={tool === t}
+                title={hint}
+                className={tool === t ? 'active' : ''}
+                disabled={!s.pages.length}
+                onClick={() => setTool(t)}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </div>
         <div className="group">
           <span className="swatches" role="radiogroup" aria-label="Colour">
@@ -369,27 +409,31 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
         </div>
         <div className="group">
           <Button kind="ghost" onClick={undo} disabled={!h.past.length} title="Undo (Ctrl+Z)">
-            Undo
+            <Undo2 size={18} aria-hidden="true" />
+            <span className="sr-only">Undo</span>
           </Button>
           <Button kind="ghost" onClick={redo} disabled={!h.future.length} title="Redo (Ctrl+Shift+Z)">
-            Redo
+            <Redo2 size={18} aria-hidden="true" />
+            <span className="sr-only">Redo</span>
           </Button>
           <Button kind="ghost" onClick={() => setZoom((z) => Math.max(0.25, z / 1.25))} title="Zoom out">
-            −
+            <ZoomOut size={18} aria-hidden="true" />
+            <span className="sr-only">Zoom out</span>
           </Button>
           <span className="zoom">{Math.round(scale * 100)}%</span>
           <Button kind="ghost" onClick={() => setZoom((z) => Math.min(4, z * 1.25))} title="Zoom in">
-            +
+            <ZoomIn size={18} aria-hidden="true" />
+            <span className="sr-only">Zoom in</span>
           </Button>
         </div>
         <div className="group end">
           <Button onClick={download} disabled={!s.pages.length}>
-            Download PDF
+            <Download size={16} aria-hidden="true" /> Download PDF
           </Button>
           {doc ? (
             <>
               <Button kind="primary" disabled={!s.pages.length} onClick={() => saveDraft(doc.orgId, doc.id)}>
-                Save draft
+                <Save size={16} aria-hidden="true" /> Save draft
               </Button>
               <Link className="button ghost" href={`/app?ws=${enc(doc.orgId)}&tab=documents&id=${enc(doc.id)}`}>
                 Export &amp; share →
@@ -397,7 +441,7 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
             </>
           ) : (
             <Button kind="primary" disabled={!s.pages.length} onClick={openSaveDialog}>
-              Save to workspace
+              <CloudUpload size={16} aria-hidden="true" /> Save to workspace
             </Button>
           )}
         </div>
@@ -422,10 +466,10 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
                 <div className="thumb-actions">
                   <span>{i + 1}</span>
                   <button type="button" title="Rotate left" aria-label={`Rotate page ${i + 1} left`} onClick={() => commit((c) => rotatePage(c, pg.id, -90))}>
-                    ↺
+                    <RotateCcw size={14} aria-hidden="true" />
                   </button>
                   <button type="button" title="Rotate right" aria-label={`Rotate page ${i + 1} right`} onClick={() => commit((c) => rotatePage(c, pg.id, 90))}>
-                    ↻
+                    <RotateCw size={14} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -434,7 +478,7 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
                     disabled={i === 0}
                     onClick={() => commit((c) => movePage(c, pg.id, i - 1))}
                   >
-                    ↑
+                    <ArrowUp size={14} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -443,7 +487,7 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
                     disabled={i === s.pages.length - 1}
                     onClick={() => commit((c) => movePage(c, pg.id, i + 1))}
                   >
-                    ↓
+                    <ArrowDown size={14} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -452,7 +496,7 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
                     disabled={s.pages.length === 1}
                     onClick={() => commit((c) => deletePage(c, pg.id))}
                   >
-                    ✕
+                    <Trash2 size={14} aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -473,10 +517,13 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
           <Progress p={progress} />
           {!s.pages.length && !busy && (
             <div className="dropzone">
+              <span className="file-icon">
+                <Upload size={30} aria-hidden="true" />
+              </span>
               <h1>{doc ? doc.title : 'Edit a PDF'}</h1>
               <p>Open a PDF or drop it here. It is processed on your device{doc ? '' : ' and nothing is uploaded unless you save it to a workspace'}.</p>
               <Button kind="primary" onClick={() => openRef.current?.click()}>
-                Open PDF
+                Choose a PDF
               </Button>
             </div>
           )}

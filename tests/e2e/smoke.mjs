@@ -109,7 +109,7 @@ async function main() {
     await p.getByLabel('Password').fill('correct horse battery');
     await p.getByRole('button', { name: 'Create account' }).click();
     await p.waitForURL(/\/app/);
-    await p.getByRole('heading', { name: /Personal workspace · usage/ }).waitFor();
+    await p.getByRole('heading', { name: /Usage this month/ }).waitFor();
     ok('account created and personal workspace shown');
 
     step('Edit a PDF in the browser');

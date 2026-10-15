@@ -1,6 +1,7 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { FileInput } from 'lucide-react';
 import { PasswordPrompt, PublicFrame, SenderBrand } from '@/components/public';
 import { Button, Form, Muted, Panel, Progress, useNotice } from '@/components/ui';
 import { ApiError, api, enc } from '@/lib/client/api';
@@ -73,8 +74,11 @@ export default function UploadRequestPage() {
   };
 
   const intro = info && (
-    <Panel>
+    <Panel className="share-hero">
       <SenderBrand branding={info.branding} />
+      <span className="file-icon">
+        <FileInput size={30} aria-hidden="true" />
+      </span>
       <h1>{info.title}</h1>
       {info.instructions && <p className="quote">{info.instructions}</p>}
       <Muted>

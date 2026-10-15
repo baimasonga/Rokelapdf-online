@@ -8,16 +8,16 @@ import { useAuth } from '@/lib/client/auth';
 /** Frame for pages opened by recipients: minimal chrome, abuse reporting, and optional workspace branding. */
 export function PublicFrame({ children }: { children: ReactNode }) {
   return (
-    <>
+    <div className="public">
       <header className="site-header">
         <Brand />
       </header>
-      <main className="narrow">{children}</main>
+      <main>{children}</main>
       <footer className="site-footer">
-        <span>Shared with Rokela PDF Pro</span>
+        <span>Shared securely with Rokela PDF Pro</span>
         <Link href="/report">Report abuse</Link>
       </footer>
-    </>
+    </div>
   );
 }
 

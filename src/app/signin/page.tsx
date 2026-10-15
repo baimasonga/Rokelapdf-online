@@ -2,8 +2,9 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { Header } from '@/components/header';
-import { Form, Panel, useNotice } from '@/components/ui';
+import { CheckCircle2, MailCheck } from 'lucide-react';
+import { Brand } from '@/components/header';
+import { Form, useNotice } from '@/components/ui';
 import { useAuth } from '@/lib/client/auth';
 import { safeNext } from '@/lib/client/next-path';
 
@@ -26,15 +27,41 @@ function SignIn() {
   }, [ready, session, mode, recovering, next, router]);
 
   if (!ready) return <p className="muted center">Loading…</p>;
-  if (configError || !supabase) return <Panel title="Sign-in unavailable">{configError}</Panel>;
+  if (configError || !supabase)
+    return (
+      <div className="auth-card">
+        <h1>Sign-in unavailable</h1>
+        <p className="muted">{configError}</p>
+      </div>
+    );
   const origin = window.location.origin;
   const fail = (e: { message: string } | null) => {
     if (e) throw new Error(e.message);
   };
 
-  if (sent) return <Panel title="Check your email">{sent}</Panel>;
+  if (sent)
+    return (
+      <div className="auth-card">
+        <span className="file-icon">
+          <MailCheck size={22} aria-hidden="true" />
+        </span>
+        <h1>Check your email</h1>
+        <p className="muted">{sent}</p>
+      </div>
+    );
   return (
-    <Panel title={{ signin: 'Sign in', signup: 'Create your account', forgot: 'Reset your password', update: 'Choose a new password' }[mode]}>
+    <div className="auth-card">
+      <h1>{{ signin: 'Welcome back', signup: 'Create your free account', forgot: 'Reset your password', update: 'Choose a new password' }[mode]}</h1>
+      <p className="muted">
+        {
+          {
+            signin: 'Sign in to your workspace.',
+            signup: 'Save documents, share them securely and collect files.',
+            forgot: 'We will email you a link to choose a new password.',
+            update: 'Use at least 10 characters.',
+          }[mode]
+        }
+      </p>
       {mode === 'signin' && (
         <Form
           fields={[
@@ -110,19 +137,41 @@ function SignIn() {
       <p className="muted">
         You can also <Link href="/edit">use the editor without an account</Link>.
       </p>
-    </Panel>
+    </div>
   );
 }
 
+const POINTS = [
+  'Edit PDFs in your browser — files stay on your device until you save',
+  'Share with passwords, expiry, download limits and named recipients',
+  'Short links and QR codes, with a full history of every change',
+  'Collect files from clients with a checklist and a deadline',
+];
+
 export default function Page() {
   return (
-    <>
-      <Header minimal />
-      <main className="narrow">
+    <div className="auth">
+      <aside className="auth-aside on-dark">
+        <Brand />
+        <div>
+          <h2>Your PDFs, finished and delivered.</h2>
+          <ul>
+            {POINTS.map((p) => (
+              <li key={p}>
+                <CheckCircle2 size={18} aria-hidden="true" /> {p}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="muted" style={{ color: '#a5b4fc' }}>
+          © Rokela PDF Pro
+        </p>
+      </aside>
+      <main className="auth-main">
         <Suspense fallback={<p className="muted center">Loading…</p>}>
           <SignIn />
         </Suspense>
       </main>
-    </>
+    </div>
   );
 }
