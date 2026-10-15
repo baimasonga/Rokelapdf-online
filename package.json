@@ -19,7 +19,8 @@
     "postinstall": "node tools/copy-pdfjs.mjs",
     "predev": "node tools/copy-pdfjs.mjs",
     "prebuild": "node tools/copy-pdfjs.mjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "e2e": "node tools/with-postgres.mjs node tests/e2e/smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -42,6 +43,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.28",
     "jsqr": "^1.4.0",
+    "playwright-core": "^1.56.1",
     "prettier": "^3.9.10",
     "typescript": "^5",
     "vitest": "^3.2.7"

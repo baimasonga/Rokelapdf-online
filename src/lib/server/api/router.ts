@@ -151,8 +151,9 @@ export function json(body: unknown, status = 200): Response {
 function errorResponse(e: unknown, requestId: string): Response {
   if (e instanceof DomainError)
     return json({ code: e.code, message: e.message, request_id: requestId, ...(e.details ? { details: e.details } : {}) }, e.status);
-  if (e instanceof ZodError) {
-    const d = zodError(e);
+  // Also a ZodError from another bundle's copy of zod (see DomainError).
+  if (e instanceof ZodError || (e instanceof Error && e.name === 'ZodError' && Array.isArray((e as ZodError).issues))) {
+    const d = zodError(e as ZodError);
     return json({ code: d.code, message: d.message, request_id: requestId, details: d.details }, 400);
   }
   console.error(JSON.stringify({ level: 'error', msg: 'unhandled error', request_id: requestId, name: (e as Error)?.name, message: (e as Error)?.message }));

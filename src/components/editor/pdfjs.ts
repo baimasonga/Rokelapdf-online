@@ -1,13 +1,16 @@
 'use client';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
+// The legacy build: the modern one relies on very recent built-ins (e.g. Map.prototype.getOrInsertComputed) that
+// many current browsers do not have yet.
+
 // pdf.js is loaded lazily in the browser only. The worker and its data files are served from this origin
 // (public/pdfjs, copied at install time), (pdf.js 5 does not use eval).
 type PdfJs = typeof import('pdfjs-dist');
 let mod: Promise<PdfJs> | undefined;
 
 export function pdfjs(): Promise<PdfJs> {
-  mod ??= import('pdfjs-dist').then((m) => {
+  mod ??= (import('pdfjs-dist/legacy/build/pdf.mjs') as Promise<PdfJs>).then((m) => {
     m.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
     return m;
   });

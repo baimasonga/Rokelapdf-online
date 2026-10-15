@@ -64,7 +64,8 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
   const [h, setH] = useState<History>({ past: [], present: EMPTY, future: [] });
   const [title, setTitle] = useState('Untitled');
   const [tool, setTool] = useState<Tool>('select');
-  const [color, setColor] = useState(COLORS[0]!);
+  // Each tool remembers its own colour (a highlight should not inherit the dark text colour).
+  const [colors, setColors] = useState<Record<string, string>>({ text: '#111827', highlight: '#ffeb3b', rect: '#d32f2f', ink: '#1565c0' });
   const [fontSize, setFontSize] = useState(14);
   const [inkWidth, setInkWidth] = useState(2);
   const [zoom, setZoom] = useState(1);
@@ -125,7 +126,7 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
     const ro = new ResizeObserver(() => {
       const first = s.pages[0] && sources[s.pages[0].src]?.info[s.pages[0].index];
       const w = first ? (first.base % 180 ? first.h : first.w) : 612;
-      setFit(Math.max(0.3, Math.min(2, (el.clientWidth - 48) / w)));
+      setFit(Math.max(0.3, Math.min(1.5, (el.clientWidth - 48) / w)));
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -233,6 +234,9 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
   };
 
   const selectedAnnot = useMemo(() => (selected ? s.annots[selected.page]?.find((a) => a.id === selected.id) : undefined), [selected, s]);
+  const colorKey = tool === 'select' ? (selectedAnnot?.kind ?? 'text') : tool;
+  const color = colors[colorKey] ?? COLORS[0]!;
+  const setColor = (c: string) => setColors((x) => ({ ...x, [colorKey]: c }));
   const pageInfo = (pageSrc: number, index: number) => sources[pageSrc]?.info[index];
   const onDropFile = async (f: File | undefined) => {
     if (!f) return;

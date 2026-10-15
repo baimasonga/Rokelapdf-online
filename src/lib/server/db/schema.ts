@@ -114,6 +114,9 @@ export async function applyGrants(client: Client, schema: string, role: string) 
   const apiRoles = (await client.query("SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated')")).rows;
   const stmts = planGrants(schema, role, tables);
   for (const a of apiRoles) stmts.push(`REVOKE ALL ON SCHEMA "${assertIdent(schema)}" FROM "${a.rolname}"`);
+  // The app's unqualified table names resolve to this schema even behind a pooler that drops startup parameters.
+  const db = (await client.query('SELECT current_database() AS d')).rows[0].d as string;
+  stmts.push(`ALTER ROLE "${assertIdent(role)}" IN DATABASE "${db.replace(/"/g, '""')}" SET search_path TO "${assertIdent(schema)}"`);
   await client.query('BEGIN');
   try {
     for (const q of stmts) await client.query(q);

@@ -37,16 +37,16 @@ export interface Overrides {
 }
 
 function poolFor(c: AppConfig): pg.Pool {
-  let settings: pg.PoolConfig = { connectionString: c.databaseUrl, max: c.dbPoolMax };
+  const schema = assertIdent(c.dbSchema);
+  // The search path is a connection startup parameter, so it is in place before the first query. `npm run db:grants`
+  // also makes it the app role's default, which covers poolers that do not forward startup parameters.
+  let settings: pg.PoolConfig = { connectionString: c.databaseUrl, max: c.dbPoolMax, options: `-c search_path=${schema}` };
   if (c.databaseCaPem) {
     const u = new URL(c.databaseUrl);
     for (const p of ['sslmode', 'ssl', 'sslrootcert', 'sslcert', 'sslkey']) u.searchParams.delete(p);
-    settings = { connectionString: u.toString(), max: c.dbPoolMax, ssl: { ca: c.databaseCaPem, rejectUnauthorized: true } };
+    settings = { ...settings, connectionString: u.toString(), ssl: { ca: c.databaseCaPem, rejectUnauthorized: true } };
   }
   const pool = new pg.Pool(settings);
-  const schema = assertIdent(c.dbSchema);
-  // Session-level search path (works through Supabase's session pooler).
-  pool.on('connect', (client) => void client.query(`SET search_path TO "${schema}"`).catch(() => undefined));
   return pool;
 }
 

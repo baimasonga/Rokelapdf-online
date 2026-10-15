@@ -58,6 +58,15 @@ export function useLoad<T>(fn: () => Promise<T>, deps: DependencyList) {
   return { data, error, reload: () => setN((x) => x + 1), setData };
 }
 
+/** Reloads every few seconds while uploaded files are still being checked, so their new status appears by itself. */
+export function usePollWhile(active: boolean, reload: () => void, ms = 2500) {
+  useEffect(() => {
+    if (!active) return;
+    const t = setTimeout(reload, ms);
+    return () => clearTimeout(t);
+  });
+}
+
 /** Owner upload with resume. `target` is the upload body without size/name. */
 export function ownerUpload<T = unknown>(
   orgId: string,

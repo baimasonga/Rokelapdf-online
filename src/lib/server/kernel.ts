@@ -19,7 +19,15 @@ export const ERROR_STATUS = {
 } as const;
 export type ErrorCode = keyof typeof ERROR_STATUS;
 
+// Next.js bundles the background worker (instrumentation) and the route handlers separately, so one process can hold
+// two copies of this class. A registered symbol makes `instanceof DomainError` hold across those copies.
+const DOMAIN_ERROR = Symbol.for('rokela.DomainError');
+
 export class DomainError extends Error {
+  static [Symbol.hasInstance](v: unknown): boolean {
+    return typeof v === 'object' && v !== null && (v as Record<symbol, unknown>)[DOMAIN_ERROR] === true;
+  }
+  readonly [DOMAIN_ERROR] = true;
   readonly code: ErrorCode;
   readonly status: number;
   readonly details: Record<string, Json> | undefined;

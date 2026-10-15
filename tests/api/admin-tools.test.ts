@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeEnv, type TestEnv } from '../support/env';
+import pg from 'pg';
 import { bootstrapOperator, setPlan, validateEntitlements } from '@/lib/server/admin';
+import { applyGrants } from '@/lib/server/db/schema';
 
 let env: TestEnv;
 afterEach(async () => env?.close());
@@ -43,5 +45,34 @@ describe('deployment tooling (owner connection)', () => {
     expect(() => validateEntitlements({ share_storage_bytes: 1.5 })).toThrow(/invalid value/);
     expect(() => validateEntitlements([])).toThrow(/object/);
     expect(validateEntitlements({ share_branding: true, share_max_file_bytes: 10 })).toEqual({ share_branding: true, share_max_file_bytes: 10 });
+  });
+});
+
+describe('database grants', () => {
+  it("make the schema the app role's default search path, so a pooled connection without startup options works", async () => {
+    env = await makeEnv();
+    const schema = (await env.admin.query('SELECT current_schema() AS s')).rows[0].s as string;
+    const role = 'rokela_sp_test';
+    const owner = new pg.Client({ connectionString: process.env['DATABASE_URL'], options: `-c search_path=${schema}` });
+    await owner.connect();
+    try {
+      if (!(await owner.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role])).rowCount)
+        await owner.query(`CREATE ROLE ${role} LOGIN PASSWORD 'test-only-password'`);
+      await applyGrants(owner, schema, role);
+      const u = new URL(process.env['DATABASE_URL']!);
+      u.username = role;
+      u.password = 'test-only-password';
+      const app = new pg.Client({ connectionString: u.toString() }); // no startup options
+      await app.connect();
+      try {
+        expect((await app.query('SHOW search_path')).rows[0].search_path).toBe(schema);
+        expect((await app.query('SELECT count(*)::int AS n FROM users')).rows[0].n).toBeGreaterThanOrEqual(0);
+        await expect(app.query('DELETE FROM audit_events')).rejects.toThrow(/permission denied/);
+      } finally {
+        await app.end();
+      }
+    } finally {
+      await owner.end();
+    }
   });
 });

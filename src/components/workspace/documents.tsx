@@ -5,7 +5,7 @@ import { Badge, Button, Details, Empty, Form, Modal, Muted, Panel, Progress, Tab
 import { api, enc } from '@/lib/client/api';
 import { when } from '@/lib/client/format';
 import type { UploadProgress } from '@/lib/client/uploader';
-import { ownerDownload, ownerUpload, useLoad, useWs } from './context';
+import { ownerDownload, ownerUpload, useLoad, usePollWhile, useWs } from './context';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DRAFT_SAVED = 'Draft saved privately. It is never visible through share links until you export and publish it.';
@@ -75,6 +75,8 @@ function DocumentDetail({ id }: { id: string }) {
     const [d, links] = await Promise.all([api(`${P}/documents/${enc(id)}`), api(`${P}/links?target_id=${enc(id)}`)]);
     return { d, links: links.items as any[] };
   }, [P, id]);
+  const checking = !!data?.d.draft_uploads?.some((u: any) => u.status === 'processing');
+  usePollWhile(checking, reload);
   if (error) return <Panel title="Document">{error.message}</Panel>;
   if (!data) return <Muted>Loading…</Muted>;
   const { d, links } = data;
@@ -122,9 +124,14 @@ function DocumentDetail({ id }: { id: string }) {
           {d.has_draft && <Button onClick={() => ownerDownload(workspace.id, 'draft', id)}>Download draft</Button>}
         </div>
         <Progress p={progress} />
-        {d.draft_uploads?.length > 0 && (
-          <Muted>Draft checks: {d.draft_uploads.map((u: any) => u.status + (u.reject_reason ? ` (${u.reject_reason})` : '')).join(', ')}</Muted>
-        )}
+        {checking && <Muted>Checking the new draft… this usually takes a few seconds.</Muted>}
+        {d.draft_uploads
+          ?.filter((u: any) => u.status === 'rejected')
+          .map((u: any) => (
+            <p key={u.upload_id} className="replacement">
+              A draft upload was rejected{u.reject_reason ? `: ${u.reject_reason}` : ''}.
+            </p>
+          ))}
       </Panel>
 
       <Panel title="Versions">
@@ -140,7 +147,7 @@ function DocumentDetail({ id }: { id: string }) {
             }}
           />
         ) : (
-          <Empty>Save a draft first.</Empty>
+          <Empty>{checking ? 'The export option appears once the draft has been checked.' : 'Save a draft first.'}</Empty>
         )}
         {d.versions.length > 0 && (
           <Table

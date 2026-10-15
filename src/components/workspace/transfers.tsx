@@ -4,7 +4,7 @@ import { Badge, Button, Details, Empty, Form, Muted, Panel, Progress, Table, ask
 import { api, enc } from '@/lib/client/api';
 import { fmtBytes, inDays, when } from '@/lib/client/format';
 import type { UploadProgress } from '@/lib/client/uploader';
-import { ownerDownload, ownerUpload, useLoad, useWs } from './context';
+import { ownerDownload, ownerUpload, useLoad, usePollWhile, useWs } from './context';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function Transfers() {
@@ -84,6 +84,7 @@ function TransferDetail({ id }: { id: string }) {
   const notice = useNotice();
   const [pending, setPending] = useState<Pending[]>([]);
   const { data: t, error, reload } = useLoad<any>(() => api(`${P}/transfers/${enc(id)}`), [P, id]);
+  usePollWhile(!!t?.files.some((f: any) => f.status === 'processing'), reload);
   if (error) return <Panel title="Transfer">{error.message}</Panel>;
   if (!t) return <Muted>Loading…</Muted>;
 

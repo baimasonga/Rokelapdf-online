@@ -10,5 +10,6 @@ const out = join(root, 'public', 'pdfjs');
 if (!existsSync(src)) throw new Error('pdfjs-dist is not installed');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-cpSync(join(src, 'build', 'pdf.worker.min.mjs'), join(out, 'pdf.worker.min.mjs'));
+// The legacy build supports the browsers our users have (the modern build needs very recent JS built-ins).
+cpSync(join(src, 'legacy', 'build', 'pdf.worker.min.mjs'), join(out, 'pdf.worker.min.mjs'));
 for (const d of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) if (existsSync(join(src, d))) cpSync(join(src, d), join(out, d), { recursive: true });

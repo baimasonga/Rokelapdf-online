@@ -2,7 +2,7 @@
 import { Badge, Button, CopyField, Details, Empty, Form, Muted, Panel, Table, confirmAction } from '@/components/ui';
 import { api, enc } from '@/lib/client/api';
 import { fmtBytes, inDays, splitList, when } from '@/lib/client/format';
-import { ownerDownload, useLoad, useWs } from './context';
+import { ownerDownload, useLoad, usePollWhile, useWs } from './context';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function Requests() {
@@ -10,60 +10,76 @@ export function Requests() {
   return nav.id ? <RequestDetail id={nav.id} /> : <RequestList />;
 }
 
+function RequestForm() {
+  const { P, go } = useWs();
+  return (
+    <Panel title="Request files">
+      <p className="muted">People you send the link to can upload files for you. They see only their own uploads.</p>
+      <Form
+        fields={[
+          { name: 'title', label: 'Title' },
+          { name: 'instructions', label: 'Instructions', type: 'textarea', optional: true },
+          { name: 'items', label: 'Files you need, comma separated', placeholder: 'Passport scan, Signed contract' },
+          {
+            name: 'accept',
+            label: 'Accepted types',
+            type: 'select',
+            options: [
+              ['pdf', 'PDF only'],
+              ['pdf,png,jpg,jpeg', 'PDF and images'],
+              ['', 'Any permitted format'],
+            ],
+          },
+          { name: 'days', label: 'Deadline in days', type: 'number', value: '14', min: 1 },
+          { name: 'max_mb', label: 'Largest file (MB)', type: 'number', value: '25', min: 1 },
+          { name: 'password', label: 'Password', type: 'password', optional: true, autoComplete: 'new-password' },
+          { name: 'notify', label: 'Email me when a submission arrives', type: 'checkbox', value: 'yes' },
+        ]}
+        submit="Create upload request"
+        onSubmit={async (f) => {
+          const labels = splitList(f.items);
+          if (!labels.length) throw new Error('List at least one file you need.');
+          const mb = Number(f.max_mb) * 1024 * 1024;
+          const r = await api(`${P}/upload-requests`, {
+            body: {
+              title: f.title,
+              ...(f.instructions ? { instructions: f.instructions } : {}),
+              requirements: labels.map((label, i) => ({
+                key: `item-${i + 1}`,
+                label: label.slice(0, 200),
+                required: true,
+                max_files: 5,
+                ...(f.accept ? { accept: f.accept.split(',') } : {}),
+              })),
+              deadline: inDays(f.days || 14),
+              max_file_bytes: mb,
+              max_total_bytes: mb * 10,
+              ...(f.password ? { password: f.password } : {}),
+              notify: f.notify === 'yes',
+            },
+          });
+          go('requests', r.id);
+        }}
+      />
+    </Panel>
+  );
+}
+
 function RequestList() {
   const { P, go } = useWs();
   const { data, error } = useLoad<any>(() => api(`${P}/upload-requests`), [P]);
+  // The server enforces the plan; this only explains it before the user fills in the form.
+  const { data: overview } = useLoad<any>(() => api(`${P}/overview`), [P]);
   return (
     <>
-      <Panel title="Request files">
-        <p className="muted">People you send the link to can upload files for you. They see only their own uploads.</p>
-        <Form
-          fields={[
-            { name: 'title', label: 'Title' },
-            { name: 'instructions', label: 'Instructions', type: 'textarea', optional: true },
-            { name: 'items', label: 'Files you need, comma separated', placeholder: 'Passport scan, Signed contract' },
-            {
-              name: 'accept',
-              label: 'Accepted types',
-              type: 'select',
-              options: [
-                ['pdf', 'PDF only'],
-                ['pdf,png,jpg,jpeg', 'PDF and images'],
-                ['', 'Any permitted format'],
-              ],
-            },
-            { name: 'days', label: 'Deadline in days', type: 'number', value: '14', min: 1 },
-            { name: 'max_mb', label: 'Largest file (MB)', type: 'number', value: '25', min: 1 },
-            { name: 'password', label: 'Password', type: 'password', optional: true, autoComplete: 'new-password' },
-            { name: 'notify', label: 'Email me when a submission arrives', type: 'checkbox', value: 'yes' },
-          ]}
-          submit="Create upload request"
-          onSubmit={async (f) => {
-            const labels = splitList(f.items);
-            if (!labels.length) throw new Error('List at least one file you need.');
-            const mb = Number(f.max_mb) * 1024 * 1024;
-            const r = await api(`${P}/upload-requests`, {
-              body: {
-                title: f.title,
-                ...(f.instructions ? { instructions: f.instructions } : {}),
-                requirements: labels.map((label, i) => ({
-                  key: `item-${i + 1}`,
-                  label: label.slice(0, 200),
-                  required: true,
-                  max_files: 5,
-                  ...(f.accept ? { accept: f.accept.split(',') } : {}),
-                })),
-                deadline: inDays(f.days || 14),
-                max_file_bytes: mb,
-                max_total_bytes: mb * 10,
-                ...(f.password ? { password: f.password } : {}),
-                notify: f.notify === 'yes',
-              },
-            });
-            go('requests', r.id);
-          }}
-        />
-      </Panel>
+      {overview &&
+        (overview.limits.upload_requests ? (
+          <RequestForm />
+        ) : (
+          <Panel title="Request files">
+            <p>Upload requests are not included in this workspace&apos;s plan. Existing requests stay available below.</p>
+          </Panel>
+        ))}
       <Panel title="Upload requests">
         {error ? (
           <p>{error.message}</p>
@@ -92,6 +108,7 @@ function RequestList() {
 function RequestDetail({ id }: { id: string }) {
   const { P, go, workspace } = useWs();
   const { data: r, error, reload } = useLoad<any>(() => api(`${P}/upload-requests/${enc(id)}`), [P, id]);
+  usePollWhile(!!r?.submissions.some((x: any) => x.files.some((f: any) => f.status === 'processing')), reload);
   if (error) return <Panel title="Upload request">{error.message}</Panel>;
   if (!r) return <Muted>Loading…</Muted>;
   return (
