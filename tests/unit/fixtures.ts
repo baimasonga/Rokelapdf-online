@@ -14,10 +14,8 @@ import type {
 
 export const T0 = new Date('2026-03-01T00:00:00Z');
 let n = 0;
-export const hex = (len = 64) =>
-  Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-const id = (p: string) =>
-  `${p}_${(++n).toString(16).padStart(6, '0')}${Math.random().toString(16).slice(2, 10)}`;
+export const hex = (len = 64) => Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+const id = (p: string) => `${p}_${(++n).toString(16).padStart(6, '0')}${Math.random().toString(16).slice(2, 10)}`;
 
 export const blob = (orgId: string, over: Partial<BlobRow> = {}): BlobRow => {
   const bid = id('blb');
@@ -49,11 +47,7 @@ export const blob = (orgId: string, over: Partial<BlobRow> = {}): BlobRow => {
   };
 };
 
-export const document = (
-  orgId: string,
-  createdBy: string,
-  over: Partial<DocumentRow> = {},
-): DocumentRow => ({
+export const document = (orgId: string, createdBy: string, over: Partial<DocumentRow> = {}): DocumentRow => ({
   id: id('doc'),
   orgId,
   title: 'Contract',
@@ -69,13 +63,7 @@ export const document = (
   ...over,
 });
 
-export const version = (
-  orgId: string,
-  documentId: string,
-  blobId: string,
-  createdBy: string,
-  over: Partial<VersionRow> = {},
-): VersionRow => ({
+export const version = (orgId: string, documentId: string, blobId: string, createdBy: string, over: Partial<VersionRow> = {}): VersionRow => ({
   id: id('ver'),
   orgId,
   documentId,
@@ -90,11 +78,7 @@ export const version = (
   ...over,
 });
 
-export const transfer = (
-  orgId: string,
-  createdBy: string,
-  over: Partial<TransferRow> = {},
-): TransferRow => ({
+export const transfer = (orgId: string, createdBy: string, over: Partial<TransferRow> = {}): TransferRow => ({
   id: id('trf'),
   orgId,
   createdBy,
@@ -108,12 +92,7 @@ export const transfer = (
   ...over,
 });
 
-export const transferFile = (
-  orgId: string,
-  transferId: string,
-  blobId: string,
-  over: Partial<TransferFileRow> = {},
-): TransferFileRow => ({
+export const transferFile = (orgId: string, transferId: string, blobId: string, over: Partial<TransferFileRow> = {}): TransferFileRow => ({
   id: id('tfl'),
   orgId,
   transferId,
@@ -131,12 +110,7 @@ export const transferFile = (
   ...over,
 });
 
-export const link = (
-  orgId: string,
-  createdBy: string,
-  targetId: string,
-  over: Partial<LinkRow> = {},
-): LinkRow => ({
+export const link = (orgId: string, createdBy: string, targetId: string, over: Partial<LinkRow> = {}): LinkRow => ({
   id: id('lnk'),
   orgId,
   salt: 'salt',
@@ -163,11 +137,7 @@ export const link = (
   ...over,
 });
 
-export const shortLink = (
-  orgId: string,
-  createdBy: string,
-  over: Partial<ShortLinkRow> = {},
-): ShortLinkRow => {
+export const shortLink = (orgId: string, createdBy: string, over: Partial<ShortLinkRow> = {}): ShortLinkRow => {
   const code = over.code ?? id('c').toLowerCase().replace(/_/g, '-');
   return {
     id: id('sln'),
@@ -196,11 +166,7 @@ export const shortLink = (
   };
 };
 
-export const uploadRequest = (
-  orgId: string,
-  createdBy: string,
-  over: Partial<UploadRequestRow> = {},
-): UploadRequestRow => ({
+export const uploadRequest = (orgId: string, createdBy: string, over: Partial<UploadRequestRow> = {}): UploadRequestRow => ({
   id: id('urq'),
   orgId,
   salt: 's',
@@ -222,11 +188,7 @@ export const uploadRequest = (
   ...over,
 });
 
-export const submission = (
-  orgId: string,
-  requestId: string,
-  over: Partial<SubmissionRow> = {},
-): SubmissionRow => ({
+export const submission = (orgId: string, requestId: string, over: Partial<SubmissionRow> = {}): SubmissionRow => ({
   id: id('sbm'),
   orgId,
   requestId,

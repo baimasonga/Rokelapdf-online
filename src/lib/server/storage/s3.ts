@@ -1,12 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
-import {
-  contentDisposition,
-  type ObjectStore,
-  type SignedDownload,
-  type UploadedPart,
-} from '../sharing';
+import { contentDisposition, type ObjectStore, type SignedDownload, type UploadedPart } from '../sharing';
 
 // S3-compatible private object storage (Cloudflare R2, AWS S3, MinIO) with AWS Signature Version 4, implemented on
 // node:crypto (no SDK). The bucket is private; browsers reach it only through short-lived presigned URLs, and the
@@ -23,11 +18,7 @@ export interface S3Config {
   secretAccessKey: string;
 }
 
-const enc = (s: string) =>
-  encodeURIComponent(s).replace(
-    /[!'()*]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
+const enc = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 const sha256 = (d: string | Buffer) => createHash('sha256').update(d).digest('hex');
 const hmac = (k: Buffer | string, d: string) => createHmac('sha256', k).update(d).digest();
 const amzDate = (d: Date) =>
@@ -43,10 +34,7 @@ export class SigV4 {
   }
 
   #key(date: string) {
-    return hmac(
-      hmac(hmac(hmac(`AWS4${this.#c.secretAccessKey}`, date), this.#c.region), 's3'),
-      'aws4_request',
-    );
+    return hmac(hmac(hmac(hmac(`AWS4${this.#c.secretAccessKey}`, date), this.#c.region), 's3'), 'aws4_request');
   }
 
   /** RFC 3986 query encoding used both for signing and for the request URL itself. */
@@ -67,14 +55,7 @@ export class SigV4 {
   }
 
   /** Presigned URL (query authentication). `headers` are additional signed headers the client must send. */
-  presign(
-    method: string,
-    path: string,
-    query: Record<string, string>,
-    expiresSeconds: number,
-    now: Date,
-    headers: Record<string, string> = {},
-  ) {
+  presign(method: string, path: string, query: Record<string, string>, expiresSeconds: number, now: Date, headers: Record<string, string> = {}) {
     const url = new URL(this.#c.endpoint);
     const host = url.host;
     const t = amzDate(now);
@@ -97,9 +78,7 @@ export class SigV4 {
       method,
       path,
       this.#canonicalQuery(q),
-      names
-        .map((n) => `${n}:${String(signedHeaders[n as keyof typeof signedHeaders]).trim()}\n`)
-        .join(''),
+      names.map((n) => `${n}:${String(signedHeaders[n as keyof typeof signedHeaders]).trim()}\n`).join(''),
       names.join(';'),
       'UNSIGNED-PAYLOAD',
     ].join('\n');
@@ -121,14 +100,7 @@ export class SigV4 {
       'x-amz-date': t,
     };
     const names = Object.keys(headers).sort();
-    const canonical = [
-      method,
-      path,
-      this.#canonicalQuery(query),
-      names.map((n) => `${n}:${headers[n]}\n`).join(''),
-      names.join(';'),
-      payloadHash,
-    ].join('\n');
+    const canonical = [method, path, this.#canonicalQuery(query), names.map((n) => `${n}:${headers[n]}\n`).join(''), names.join(';'), payloadHash].join('\n');
     const toSign = ['AWS4-HMAC-SHA256', t, scope, sha256(canonical)].join('\n');
     const sig = createHmac('sha256', this.#key(date)).update(toSign).digest('hex');
     return {
@@ -164,21 +136,14 @@ export class S3ObjectStore implements ObjectStore {
 
   constructor(c: S3Config, opts: { fetch?: typeof fetch; now?: () => Date } = {}) {
     const u = new URL(c.endpoint);
-    if (u.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(u.hostname))
-      throw new Error('object storage endpoint must use https');
+    if (u.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(u.hostname)) throw new Error('object storage endpoint must use https');
     this.#c = c;
     this.#sig = new SigV4(c);
     this.#fetch = opts.fetch ?? fetch;
     this.#now = opts.now ?? (() => new Date());
   }
 
-  async #req(
-    method: string,
-    key: string,
-    query: Record<string, string>,
-    body = Buffer.alloc(0),
-    ok: number[] = [200],
-  ) {
+  async #req(method: string, key: string, query: Record<string, string>, body = Buffer.alloc(0), ok: number[] = [200]) {
     const path = this.#sig.path(key);
     const qs = Object.keys(query).length ? `?${this.#sig.query(query)}` : '';
     const res = await this.#fetch(`${new URL(this.#c.endpoint).origin}${path}${qs}`, {
@@ -207,41 +172,19 @@ export class S3ObjectStore implements ObjectStore {
     return { uploadId: unxml(uploadId) };
   }
 
-  async signPart(
-    key: string,
-    uploadId: string,
-    partNumber: number,
-    bytes: number,
-    expiresAt: Date,
-  ) {
+  async signPart(key: string, uploadId: string, partNumber: number, bytes: number, expiresAt: Date) {
     const now = this.#now();
-    const ttl = Math.max(
-      1,
-      Math.min(604_800, Math.floor((expiresAt.getTime() - now.getTime()) / 1000)),
-    );
-    return this.#sig.presign(
-      'PUT',
-      this.#sig.path(key),
-      { partNumber: String(partNumber), uploadId },
-      ttl,
-      now,
-      {
-        'content-length': String(bytes),
-      },
-    );
+    const ttl = Math.max(1, Math.min(604_800, Math.floor((expiresAt.getTime() - now.getTime()) / 1000)));
+    return this.#sig.presign('PUT', this.#sig.path(key), { partNumber: String(partNumber), uploadId }, ttl, now, {
+      'content-length': String(bytes),
+    });
   }
 
   async listParts(key: string, uploadId: string): Promise<UploadedPart[]> {
     const out: UploadedPart[] = [];
     let marker = '0';
     for (let page = 0; page < 20; page++) {
-      const res = await this.#req(
-        'GET',
-        key,
-        { uploadId, 'part-number-marker': marker, 'max-parts': '1000' },
-        Buffer.alloc(0),
-        [200, 404],
-      );
+      const res = await this.#req('GET', key, { uploadId, 'part-number-marker': marker, 'max-parts': '1000' }, Buffer.alloc(0), [200, 404]);
       if (res.status === 404) return [];
       const xml = await res.text();
       for (const m of xml.matchAll(/<Part>([\s\S]*?)<\/Part>/g)) {
@@ -258,11 +201,7 @@ export class S3ObjectStore implements ObjectStore {
     return out;
   }
 
-  async completeMultipart(
-    key: string,
-    uploadId: string,
-    parts: ReadonlyArray<{ partNumber: number; etag: string }>,
-  ) {
+  async completeMultipart(key: string, uploadId: string, parts: ReadonlyArray<{ partNumber: number; etag: string }>) {
     const body = Buffer.from(
       `<CompleteMultipartUpload>${parts.map((p) => `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>"${p.etag.replace(/[^0-9A-Za-z-]/g, '')}"</ETag></Part>`).join('')}</CompleteMultipartUpload>`,
     );

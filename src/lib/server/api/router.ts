@@ -65,14 +65,16 @@ export class Router {
       const m = this.#match(req.method, url.pathname);
       if (!m) throw new DomainError('not_found', 'not found');
       const ip = clientIp(req, c.config.trustProxy);
-      if (m.route.mode === 'public' && !(await c.rateLimiter.hit(`ip:${ip}:${m.route.parts.slice(0, 4).join('/')}`, m.route.limit ?? c.config.rateLimitPerMinute)))
+      if (
+        m.route.mode === 'public' &&
+        !(await c.rateLimiter.hit(`ip:${ip}:${m.route.parts.slice(0, 4).join('/')}`, m.route.limit ?? c.config.rateLimitPerMinute))
+      )
         throw new DomainError('rate_limited', 'rate limit exceeded');
       let user: UserPrincipal | undefined;
       if (m.route.mode !== 'public') {
         user = await authenticate(c.verifier, req.headers.get('authorization'));
         await c.workspaces.sync(user);
-        if (m.route.mode === 'operator' && !(await c.workspaces.isOperator(user.userId)))
-          throw new DomainError('forbidden', 'insufficient permissions');
+        if (m.route.mode === 'operator' && !(await c.workspaces.isOperator(user.userId))) throw new DomainError('forbidden', 'insufficient permissions');
       }
       let bodyCache: Promise<unknown> | undefined;
       const ctx: Ctx = {
@@ -138,8 +140,7 @@ const snake = (s: string) => s.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`)
 export function toWire(v: unknown): unknown {
   if (v instanceof Date) return v.toISOString();
   if (Array.isArray(v)) return v.map(toWire);
-  if (v && typeof v === 'object')
-    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [snake(k), toWire(x)]));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [snake(k), toWire(x)]));
   return v;
 }
 

@@ -21,15 +21,9 @@ export const idParams = z.object({ orgId: id, id }).strict();
 export const docVersionParams = z.object({ orgId: id, id, versionId: id }).strict();
 export const transferFileParams = z.object({ orgId: id, id, fileId: id }).strict();
 
-export const documentBody = z
-  .object({ title: str(200), require_approval: z.boolean().optional() })
-  .strict();
-export const exportBody = z
-  .object({ note: z.string().max(1000).optional(), file_name: str(200).optional() })
-  .strict();
-export const publishBody = z
-  .object({ version_id: id, replacement_note: z.string().max(1000).optional() })
-  .strict();
+export const documentBody = z.object({ title: str(200), require_approval: z.boolean().optional() }).strict();
+export const exportBody = z.object({ note: z.string().max(1000).optional(), file_name: str(200).optional() }).strict();
+export const publishBody = z.object({ version_id: id, replacement_note: z.string().max(1000).optional() }).strict();
 
 export const transferBody = z
   .object({
@@ -60,14 +54,10 @@ export const uploadBody = z
     note: z.string().max(1000).optional(),
   })
   .strict();
-export const partsBody = z
-  .object({ part_numbers: z.array(z.number().int().min(1).max(10_000)).min(1).max(100) })
-  .strict();
+export const partsBody = z.object({ part_numbers: z.array(z.number().int().min(1).max(10_000)).min(1).max(100) }).strict();
 export const emptyBody = z.object({}).strict();
 
-export const ownerFileBody = z
-  .object({ type: z.enum(['draft', 'version', 'transfer_file', 'submission_file']), id })
-  .strict();
+export const ownerFileBody = z.object({ type: z.enum(['draft', 'version', 'transfer_file', 'submission_file']), id }).strict();
 
 export const linkBody = z
   .object({
@@ -185,23 +175,15 @@ export const uploadRequestBody = z
 export const requestActionBody = z.object({ action: z.enum(['close', 'delete']) }).strict();
 
 export const notificationsReadBody = z.object({ ids: z.array(id).min(1).max(100) }).strict();
-export const brandingBody = z
-  .object({ display_name: str(200), accent_color: z.string().regex(/^#[0-9a-fA-F]{6}$/) })
-  .strict();
+export const brandingBody = z.object({ display_name: str(200), accent_color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).strict();
 export const domainBody = z.object({ hostname: str(253) }).strict();
 
 // ---- public ---------------------------------------------------------------------------------------
 export const shareTokenParams = z.object({ token: urlToken }).strict();
 export const openBody = z.object({ password: z.string().min(1).max(128).optional() }).strict();
-export const fileUrlBody = z
-  .object({ grant, file_id: id, disposition: z.enum(['inline', 'attachment']) })
-  .strict();
-export const acknowledgeBody = z
-  .object({ grant, declared_name: z.string().max(100).optional() })
-  .strict();
-export const commentBody = z
-  .object({ grant, body: str(2000), page: z.number().int().min(1).max(100_000).optional() })
-  .strict();
+export const fileUrlBody = z.object({ grant, file_id: id, disposition: z.enum(['inline', 'attachment']) }).strict();
+export const acknowledgeBody = z.object({ grant, declared_name: z.string().max(100).optional() }).strict();
+export const commentBody = z.object({ grant, body: str(2000), page: z.number().int().min(1).max(100_000).optional() }).strict();
 export const decisionBody = z
   .object({
     grant,
@@ -209,18 +191,10 @@ export const decisionBody = z
     note: z.string().max(1000).optional(),
   })
   .strict();
-export const shortCodeParams = z
-  .object({ code: z.string().regex(/^[A-Za-z0-9-]{3,64}$/) })
-  .strict();
-export const confidentialParams = z
-  .object({ code: z.string().regex(/^[A-Za-z0-9_-]{16}$/) })
-  .strict();
-export const submissionStartBody = z
-  .object({ grant, name: str(200), email: email.optional() })
-  .strict();
-export const submissionUploadBody = z
-  .object({ requirement_key: z.string().regex(/^[a-z0-9_-]{1,40}$/), name: str(255), size })
-  .strict();
+export const shortCodeParams = z.object({ code: z.string().regex(/^[A-Za-z0-9-]{3,64}$/) }).strict();
+export const confidentialParams = z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{16}$/) }).strict();
+export const submissionStartBody = z.object({ grant, name: str(200), email: email.optional() }).strict();
+export const submissionUploadBody = z.object({ requirement_key: z.string().regex(/^[a-z0-9_-]{1,40}$/), name: str(255), size }).strict();
 export const submissionUploadParams = z.object({ token: urlToken, uploadId: id }).strict();
 export const abuseBody = z
   .object({
@@ -232,14 +206,8 @@ export const abuseBody = z
   .strict();
 
 // ---- operator -----------------------------------------------------------------------------------
-export const abuseQuery = z
-  .object({ status: z.enum(['open', 'actioned', 'dismissed']).optional() })
-  .strict();
+export const abuseQuery = z.object({ status: z.enum(['open', 'actioned', 'dismissed']).optional() }).strict();
 export const abuseParams = z.object({ id }).strict();
-export const abuseResolveBody = z
-  .object({ action: z.enum(['suspend', 'dismiss']), reason })
-  .strict();
-export const holdParams = z
-  .object({ orgId: id, type: z.enum(['short', 'share', 'request']), id })
-  .strict();
+export const abuseResolveBody = z.object({ action: z.enum(['suspend', 'dismiss']), reason }).strict();
+export const holdParams = z.object({ orgId: id, type: z.enum(['short', 'share', 'request']), id }).strict();
 export const holdBody = z.object({ hold: z.boolean(), reason }).strict();

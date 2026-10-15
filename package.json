@@ -6,13 +6,20 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint src tests",
     "test": "node tools/with-postgres.mjs vitest run",
     "test:approle": "ROKELA_TEST_APP_ROLE=1 node tools/with-postgres.mjs vitest run",
     "typecheck": "tsc --noEmit -p .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "migrate": "node --experimental-strip-types tools/migrate.ts"
+    "migrate": "tsx tools/admin.ts migrate",
+    "db:grants": "tsx tools/admin.ts grants",
+    "bootstrap:operator": "tsx tools/admin.ts operator",
+    "plan:set": "tsx tools/admin.ts plan",
+    "postinstall": "node tools/copy-pdfjs.mjs",
+    "predev": "node tools/copy-pdfjs.mjs",
+    "prebuild": "node tools/copy-pdfjs.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -23,6 +30,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "server-only": "^0.0.1",
+    "tsx": "^4.23.15",
     "zod": "^3.25.76"
   },
   "devDependencies": {

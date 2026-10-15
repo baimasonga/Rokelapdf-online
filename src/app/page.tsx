@@ -1,95 +1,56 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+import Link from 'next/link';
+import { Header } from '@/components/header';
+
+const FEATURES: Array<[string, string]> = [
+  ['Edit in the browser', 'Add text, highlight, draw, rotate, reorder, delete and merge pages. Your PDF is processed on your device.'],
+  ['Share the right version', 'Share the latest published version or pin a link to one exact version. Drafts are never visible.'],
+  ['Control every link', 'Expiry, download limits, passwords, named recipients, suspend, revoke — and replace files without changing the link.'],
+  ['Short links and QR codes', 'Branded public links for campaigns; confidential links with unpredictable codes for documents.'],
+  ['Request files', 'Send an upload link with a checklist and a deadline. Submitters only ever see their own files.'],
+  ['Review and approve', 'Recipients comment and approve a version before you publish it.'],
+];
 
 export default function Home() {
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol>
-          <li>
-            Get started by editing <code>src/app/page.tsx</code>.
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-          >
-            Read our docs
-          </a>
-        </div>
+    <>
+      <Header />
+      <main className="landing">
+        <section className="hero">
+          <h1>Edit, finish and share PDFs — safely.</h1>
+          <p className="lead">
+            Rokela PDF Pro is a browser PDF editor with file sharing built in: secure transfers, expiring links, short links, QR codes and upload requests, from
+            one workspace.
+          </p>
+          <div className="actions">
+            <Link href="/edit" className="button primary">
+              Open the editor
+            </Link>
+            <Link href="/signin?mode=signup" className="button">
+              Create a free account
+            </Link>
+          </div>
+          <p className="muted">No account needed to edit and download. Sign in to save, share and collect files.</p>
+        </section>
+        <section className="features" aria-label="Features">
+          {FEATURES.map(([t, d]) => (
+            <article key={t} className="feature">
+              <h2>{t}</h2>
+              <p>{d}</p>
+            </article>
+          ))}
+        </section>
+        <section className="panel honest">
+          <h2>What sharing controls can and cannot do</h2>
+          <p>
+            View-only access cannot prevent screenshots, photos of the screen or other copying. Revoking a link stops future access; it cannot recall copies
+            already downloaded.
+          </p>
+        </section>
       </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+      <footer className="site-footer">
+        <span>© Rokela PDF Pro</span>
+        <Link href="/report">Report abuse</Link>
       </footer>
-    </div>
+    </>
   );
 }

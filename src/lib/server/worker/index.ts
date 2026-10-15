@@ -9,8 +9,7 @@ import { createContentServer } from '../storage/local';
 export function startBackground(c: Container) {
   let jobs: Promise<void> | undefined;
   let maint: Promise<void> | undefined;
-  const log = (msg: string, e?: unknown) =>
-    console.error(JSON.stringify({ level: 'error', msg, name: (e as Error)?.name, message: (e as Error)?.message }));
+  const log = (msg: string, e?: unknown) => console.error(JSON.stringify({ level: 'error', msg, name: (e as Error)?.name, message: (e as Error)?.message }));
   const runJobs = () =>
     (jobs ??= (async () => {
       try {

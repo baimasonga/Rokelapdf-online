@@ -20,11 +20,7 @@ if (process.env.DATABASE_URL) {
   process.exit(run(cmd, args).status ?? 1);
 }
 
-const bin = [
-  '/usr/lib/postgresql/16/bin',
-  '/usr/lib/postgresql/17/bin',
-  '/usr/lib/postgresql/15/bin',
-].find((d) => {
+const bin = ['/usr/lib/postgresql/16/bin', '/usr/lib/postgresql/17/bin', '/usr/lib/postgresql/15/bin'].find((d) => {
   try {
     execFileSync(join(d, 'pg_ctl'), ['--version']);
     return true;
@@ -41,8 +37,7 @@ const asRoot = process.getuid?.() === 0;
 const dir = mkdtempSync(join(tmpdir(), 'pg-'));
 chmodSync(dir, 0o755);
 if (asRoot) execFileSync('chown', ['postgres', dir]);
-const as = (c, a) =>
-  asRoot ? ['su', ['postgres', '-c', [c, ...a].map((x) => `'${x}'`).join(' ')]] : [c, a];
+const as = (c, a) => (asRoot ? ['su', ['postgres', '-c', [c, ...a].map((x) => `'${x}'`).join(' ')]] : [c, a]);
 const exec = (c, a, o = {}) => {
   const [cc, aa] = as(c, a);
   return execFileSync(cc, aa, { stdio: 'pipe', ...o });

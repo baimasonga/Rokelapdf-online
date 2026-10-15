@@ -50,14 +50,7 @@ import {
 } from './policy';
 import { qrSvg } from './qr';
 import { objectKey, type FileScanner, type ObjectStore } from './storage';
-import {
-  newPublicCode,
-  newSalt,
-  newSubmissionSecret,
-  tokenHash,
-  type GrantClaims,
-  type SharingKeys,
-} from './tokens';
+import { newPublicCode, newSalt, newSubmissionSecret, tokenHash, type GrantClaims, type SharingKeys } from './tokens';
 
 export type SharePerm = 'share:read' | 'share:create' | 'share:manage';
 
@@ -128,10 +121,8 @@ export interface PublicContext {
 
 const notFound = () => new DomainError('not_found', 'not found');
 const invalid = (m: string) => new DomainError('invalid_request', m);
-const quota = (what: string) =>
-  new DomainError('quota_exceeded', `${what} limit reached for this plan`);
-const unavailable = (state: string) =>
-  new DomainError('link_unavailable', 'this link is no longer available', { state });
+const quota = (what: string) => new DomainError('quota_exceeded', `${what} limit reached for this plan`);
+const unavailable = (state: string) => new DomainError('link_unavailable', 'this link is no longer available', { state });
 
 const NOTICES = [
   'View-only access cannot prevent screenshots, photos of the screen or other copying.',
@@ -187,12 +178,7 @@ export class SharingService {
   }
 
   /** Authorize, then run `fn` in a transaction holding the account lock, after metering one API mutation. */
-  async #mutate<T>(
-    p: UserPrincipal,
-    orgId: string,
-    perm: SharePerm,
-    fn: (tx: SharingTx, ctx: { now: Date; limits: SharingLimits }) => Promise<T>,
-  ): Promise<T> {
+  async #mutate<T>(p: UserPrincipal, orgId: string, perm: SharePerm, fn: (tx: SharingTx, ctx: { now: Date; limits: SharingLimits }) => Promise<T>): Promise<T> {
     await this.#d.authorize(p, orgId, perm);
     const limits = await this.limits(orgId);
     return this.#d.store.transaction(async (tx) => {
@@ -236,10 +222,7 @@ export class SharingService {
     await this.#d.authorize(p, orgId, 'share:read');
     const limits = await this.limits(orgId);
     const period = monthKey(this.#now());
-    const [storageBytes, usage] = await Promise.all([
-      this.#d.store.storageBytes(orgId),
-      this.#d.store.usage(orgId, period),
-    ]);
+    const [storageBytes, usage] = await Promise.all([this.#d.store.storageBytes(orgId), this.#d.store.usage(orgId, period)]);
     return {
       period,
       limits,
@@ -257,11 +240,7 @@ export class SharingService {
   // Documents: private drafts → immutable exported versions → explicit publication
   // =============================================================================================
 
-  async createDocument(
-    p: UserPrincipal,
-    orgId: string,
-    input: { title: string; requireApproval?: boolean },
-  ) {
+  async createDocument(p: UserPrincipal, orgId: string, input: { title: string; requireApproval?: boolean }) {
     const t = title(input.title);
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       const doc: DocumentRow = {
@@ -307,12 +286,8 @@ export class SharingService {
     const versions = await s.list('version', orgId, { documentId }, { limit: 1000 });
     const reviews = await s.list('review', orgId, { documentId }, { limit: 5000 });
     const draft = doc.draftBlobId ? await s.get('blob', orgId, doc.draftBlobId) : undefined;
-    const pendingDraft = (
-      await s.list('blob', orgId, { targetType: 'draft', targetId: documentId }, { limit: 5 })
-    )
-      .filter(
-        (b) => b.status === 'uploading' || b.status === 'quarantined' || b.status === 'rejected',
-      )
+    const pendingDraft = (await s.list('blob', orgId, { targetType: 'draft', targetId: documentId }, { limit: 5 }))
+      .filter((b) => b.status === 'uploading' || b.status === 'quarantined' || b.status === 'rejected')
       .map((b) => ({
         uploadId: b.id,
         status: fileStatus(b.status),
@@ -321,31 +296,21 @@ export class SharingService {
       }));
     return {
       ...documentView(doc),
-      draft: draft
-        ? { size: draft.size, updatedAt: doc.draftUpdatedAt, sha256: draft.sha256 }
-        : null,
+      draft: draft ? { size: draft.size, updatedAt: doc.draftUpdatedAt, sha256: draft.sha256 } : null,
       draftUploads: pendingDraft,
       versions: versions
         .sort((a, b) => b.number - a.number)
         .map((v) => ({
           ...versionView(v),
           published: v.id === doc.publishedVersionId,
-          approvals: reviews.filter((r) => r.versionId === v.id && r.decision === 'approved')
-            .length,
-          changesRequested: reviews.filter(
-            (r) => r.versionId === v.id && r.decision === 'changes_requested',
-          ).length,
+          approvals: reviews.filter((r) => r.versionId === v.id && r.decision === 'approved').length,
+          changesRequested: reviews.filter((r) => r.versionId === v.id && r.decision === 'changes_requested').length,
         })),
     };
   }
 
   /** Workflow 1: create an immutable export from the current private draft. Drafts are never shared. */
-  async exportVersion(
-    p: UserPrincipal,
-    orgId: string,
-    documentId: string,
-    input: { note?: string | undefined; fileName?: string | undefined },
-  ) {
+  async exportVersion(p: UserPrincipal, orgId: string, documentId: string, input: { note?: string | undefined; fileName?: string | undefined }) {
     const note = text(input.note, 1000, 'note');
     return this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
       const doc = await tx.getForUpdate('document', orgId, documentId);
@@ -353,18 +318,14 @@ export class SharingService {
       await this.#requireManager(p, orgId, doc.createdBy);
       if (!doc.draftBlobId) throw new DomainError('conflict', 'save a draft before exporting');
       const blob = await tx.getForUpdate('blob', orgId, doc.draftBlobId);
-      if (!blob || blob.status !== 'clean')
-        throw new DomainError('conflict', 'the draft is not ready');
+      if (!blob || blob.status !== 'clean') throw new DomainError('conflict', 'the draft is not ready');
       // Exports reference the immutable draft object (no copy), but an organization already over its storage
       // allowance (for example after a downgrade) cannot create more exports until it frees space.
       if ((await tx.storageBytes(orgId)) > limits.storageBytes) throw quota('storage');
       const versions = await tx.list('version', orgId, { documentId }, { limit: 1 });
-      if (versions[0]?.blobId === blob.id)
-        throw new DomainError('conflict', `no changes since version ${versions[0].number}`);
+      if (versions[0]?.blobId === blob.id) throw new DomainError('conflict', `no changes since version ${versions[0].number}`);
       const number = await tx.nextVersionNumber(orgId, documentId);
-      const fileName = sanitizeFileName(
-        input.fileName ?? `${doc.title.replace(/[\\/]/g, '-').slice(0, 150)} v${number}.pdf`,
-      );
+      const fileName = sanitizeFileName(input.fileName ?? `${doc.title.replace(/[\\/]/g, '-').slice(0, 150)} v${number}.pdf`);
       requireFileKind(fileName, DOCUMENT_EXTS);
       const v: VersionRow = {
         id: newId('ver'),
@@ -401,12 +362,7 @@ export class SharingService {
    * `requireApproval`, the version needs an approval from someone other than its author and no open
    * change request.
    */
-  async publishVersion(
-    p: UserPrincipal,
-    orgId: string,
-    documentId: string,
-    input: { versionId: string; replacementNote?: string | undefined },
-  ) {
+  async publishVersion(p: UserPrincipal, orgId: string, documentId: string, input: { versionId: string; replacementNote?: string | undefined }) {
     const note = text(input.replacementNote, 1000, 'replacement note');
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       const doc = await tx.getForUpdate('document', orgId, documentId);
@@ -415,10 +371,7 @@ export class SharingService {
       const v = await tx.getForUpdate('version', orgId, input.versionId);
       if (!v || v.documentId !== documentId) throw notFound();
       if (doc.requireApproval && !(await this.#approved(tx, orgId, v)))
-        throw new DomainError(
-          'conflict',
-          'this version needs an approval before it can be published',
-        );
+        throw new DomainError('conflict', 'this version needs an approval before it can be published');
       if (doc.publishedVersionId === v.id) return versionView(v);
       await tx.update('version', orgId, v.id, {
         publishedAt: v.publishedAt ?? now,
@@ -450,10 +403,7 @@ export class SharingService {
 
   async #approved(r: SharingRepo, orgId: string, v: VersionRow): Promise<boolean> {
     const reviews = await r.list('review', orgId, { versionId: v.id }, { limit: 1000 });
-    return (
-      reviews.some((x) => x.decision === 'approved' && x.reviewerUserId !== v.createdBy) &&
-      !reviews.some((x) => x.decision === 'changes_requested')
-    );
+    return reviews.some((x) => x.decision === 'approved' && x.reviewerUserId !== v.createdBy) && !reviews.some((x) => x.decision === 'changes_requested');
   }
 
   async reviewThread(p: UserPrincipal, orgId: string, documentId: string, versionId: string) {
@@ -470,10 +420,7 @@ export class SharingService {
       s.list('review', orgId, { versionId: v.id }, { limit: 1000, order: 'oldest' }),
     ]);
     const emails = new Map<string, string>();
-    for (const id of new Set([
-      ...comments.map((c) => c.authorUserId),
-      ...reviews.map((r) => r.reviewerUserId),
-    ]))
+    for (const id of new Set([...comments.map((c) => c.authorUserId), ...reviews.map((r) => r.reviewerUserId)]))
       emails.set(id, (await this.#d.identity(id))?.email ?? 'unknown');
     return {
       versionId: v.id,
@@ -500,9 +447,7 @@ export class SharingService {
       if (!doc || doc.status !== 'active') throw notFound();
       await this.#requireManager(p, orgId, doc.createdBy);
       await tx.update('document', orgId, documentId, { status: 'deleted', updatedAt: now });
-      const blobs = new Set(
-        (await tx.list('version', orgId, { documentId }, { limit: 10_000 })).map((v) => v.blobId),
-      );
+      const blobs = new Set((await tx.list('version', orgId, { documentId }, { limit: 10_000 })).map((v) => v.blobId));
       if (doc.draftBlobId) blobs.add(doc.draftBlobId);
       for (const b of blobs) await this.#enqueue(tx, orgId, 'delete_blob', b, now);
       await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.document.deleted', {
@@ -517,26 +462,16 @@ export class SharingService {
   // Transfers
   // =============================================================================================
 
-  #transferExpiry(
-    kind: 'temporary' | 'persistent',
-    expiresAt: Date | null | undefined,
-    limits: SharingLimits,
-    now: Date,
-  ): Date | null {
+  #transferExpiry(kind: 'temporary' | 'persistent', expiresAt: Date | null | undefined, limits: SharingLimits, now: Date): Date | null {
     if (kind === 'persistent') {
-      if (!limits.persistent)
-        throw new DomainError('forbidden', 'persistent sharing is not included in this plan');
+      if (!limits.persistent) throw new DomainError('forbidden', 'persistent sharing is not included in this plan');
       if (expiresAt && expiresAt <= now) throw invalid('expiry must be in the future');
       return expiresAt ?? null;
     }
     const max = now.getTime() + limits.maxRetentionDays * 86_400_000;
     const exp = expiresAt ?? new Date(Math.min(max, now.getTime() + 7 * 86_400_000));
     if (exp <= now) throw invalid('expiry must be in the future');
-    if (exp.getTime() > max)
-      throw new DomainError(
-        'quota_exceeded',
-        `temporary transfers may last at most ${limits.maxRetentionDays} days on this plan`,
-      );
+    if (exp.getTime() > max) throw new DomainError('quota_exceeded', `temporary transfers may last at most ${limits.maxRetentionDays} days on this plan`);
     return exp;
   }
 
@@ -584,9 +519,7 @@ export class SharingService {
   async listTransfers(p: UserPrincipal, orgId: string) {
     await this.#d.authorize(p, orgId, 'share:read');
     const rows = await this.#d.store.list('transfer', orgId, {}, { limit: 500 });
-    return rows
-      .filter((t) => t.status !== 'purged' && t.status !== 'deleted')
-      .map((t) => transferView(t, this.#now()));
+    return rows.filter((t) => t.status !== 'purged' && t.status !== 'deleted').map((t) => transferView(t, this.#now()));
   }
 
   async getTransfer(p: UserPrincipal, orgId: string, transferId: string) {
@@ -594,24 +527,14 @@ export class SharingService {
     const tr = await this.#d.store.get('transfer', orgId, transferId);
     if (!tr || tr.status === 'deleted' || tr.status === 'purged') throw notFound();
     const files = await this.#transferFiles(orgId, tr.id);
-    const pending = (
-      await this.#d.store.list('blob', orgId, { targetType: 'transfer_replace' }, { limit: 500 })
-    )
-      .filter(
-        (b) =>
-          files.some((f) => f.id === b.targetId) && ['uploading', 'quarantined'].includes(b.status),
-      )
+    const pending = (await this.#d.store.list('blob', orgId, { targetType: 'transfer_replace' }, { limit: 500 }))
+      .filter((b) => files.some((f) => f.id === b.targetId) && ['uploading', 'quarantined'].includes(b.status))
       .map((b) => ({ uploadId: b.id, fileId: b.targetId, status: fileStatus(b.status) }));
     return { ...transferView(tr, this.#now()), files, pendingReplacements: pending };
   }
 
   async #transferFiles(orgId: string, transferId: string, r: SharingRepo = this.#d.store) {
-    const files = await r.list(
-      'transferFile',
-      orgId,
-      { transferId, status: 'current' },
-      { limit: 5000, order: 'oldest' },
-    );
+    const files = await r.list('transferFile', orgId, { transferId, status: 'current' }, { limit: 5000, order: 'oldest' });
     const out = [];
     for (const f of files) {
       const b = await r.get('blob', orgId, f.blobId);
@@ -650,8 +573,7 @@ export class SharingService {
       const patch: Partial<TransferRow> = { updatedAt: now };
       if (input.title !== undefined) patch.title = title(input.title);
       if (input.message !== undefined) patch.message = text(input.message, 2000, 'message');
-      if (input.expiresAt !== undefined)
-        patch.expiresAt = this.#transferExpiry(tr.kind, input.expiresAt, limits, now);
+      if (input.expiresAt !== undefined) patch.expiresAt = this.#transferExpiry(tr.kind, input.expiresAt, limits, now);
       await tx.update('transfer', orgId, transferId, patch);
       await this.#audit(
         tx,
@@ -759,18 +681,8 @@ export class SharingService {
     const kind = requireFileKind(name, input.target === 'draft' ? DOCUMENT_EXTS : undefined);
     const folderPath = sanitizeFolderPath(input.folderPath);
     const note = text(input.note, 1000, 'replacement note');
-    const targetType: UploadTarget =
-      input.target === 'transfer'
-        ? 'transfer_file'
-        : input.target === 'replace'
-          ? 'transfer_replace'
-          : 'draft';
-    const targetRef =
-      input.target === 'draft'
-        ? input.documentId
-        : input.target === 'replace'
-          ? input.fileId
-          : input.transferId;
+    const targetType: UploadTarget = input.target === 'transfer' ? 'transfer_file' : input.target === 'replace' ? 'transfer_replace' : 'draft';
+    const targetRef = input.target === 'draft' ? input.documentId : input.target === 'replace' ? input.fileId : input.transferId;
     if (!targetRef) throw invalid('upload target is required');
 
     return this.#startMultipart(
@@ -799,8 +711,7 @@ export class SharingService {
         if (input.target === 'replace') {
           const f = await tx.get('transferFile', orgId, targetRef);
           if (!f || f.transferId !== tr.id || f.status !== 'current') throw notFound();
-          if (f.ext !== kind.ext)
-            throw invalid('a replacement must have the same file type as the original');
+          if (f.ext !== kind.ext) throw invalid('a replacement must have the same file type as the original');
           blob.targetId = f.id;
           await tx.insert('blob', blob);
           return { fileId: f.id };
@@ -835,21 +746,13 @@ export class SharingService {
     ext: string,
     contentType: string,
     size: number,
-    attach: (
-      tx: SharingTx,
-      blob: BlobRow,
-      limits: SharingLimits,
-    ) => Promise<{ fileId: string | null }>,
+    attach: (tx: SharingTx, blob: BlobRow, limits: SharingLimits) => Promise<{ fileId: string | null }>,
     fileName: string,
   ) {
     const limits = await this.limits(orgId);
     if (!Number.isSafeInteger(size) || size < 1) throw invalid('invalid size');
     if (size > limits.maxFileBytes) throw quota('file size');
-    const { partSize, partCount } = planParts(
-      size,
-      this.#c.partBytes,
-      this.#d.objects.minPartBytes,
-    );
+    const { partSize, partCount } = planParts(size, this.#c.partBytes, this.#d.objects.minPartBytes);
     const blobId = newId('blb');
     const key = objectKey(orgId, blobId);
     const { uploadId } = await this.#d.objects.createMultipart(key, contentType);
@@ -859,8 +762,7 @@ export class SharingService {
         await tx.lockAccount(orgId, now);
         if ((await tx.storageBytes(orgId)) + size > limits.storageBytes) throw quota('storage');
         const usage = await tx.usage(orgId, monthKey(now));
-        if (usage.processing_bytes + size > limits.processingBytesPerMonth)
-          throw quota('processing');
+        if (usage.processing_bytes + size > limits.processingBytesPerMonth) throw quota('processing');
         const blob: BlobRow = {
           id: blobId,
           orgId,
@@ -922,35 +824,17 @@ export class SharingService {
 
   async #signParts(b: BlobRow, partNumbers: number[]) {
     const now = this.#now();
-    if (
-      b.status !== 'uploading' ||
-      !b.multipartId ||
-      !b.uploadExpiresAt ||
-      b.uploadExpiresAt <= now
-    )
+    if (b.status !== 'uploading' || !b.multipartId || !b.uploadExpiresAt || b.uploadExpiresAt <= now)
       throw new DomainError('conflict', 'this upload is no longer accepting data');
     const nums = [...new Set(partNumbers)];
-    if (
-      !nums.length ||
-      nums.length > 100 ||
-      nums.some((n) => !Number.isInteger(n) || n < 1 || n > b.partCount)
-    )
-      throw invalid('invalid part numbers');
-    const exp = new Date(
-      Math.min(b.uploadExpiresAt.getTime(), now.getTime() + this.#c.uploadUrlTtlSeconds * 1000),
-    );
+    if (!nums.length || nums.length > 100 || nums.some((n) => !Number.isInteger(n) || n < 1 || n > b.partCount)) throw invalid('invalid part numbers');
+    const exp = new Date(Math.min(b.uploadExpiresAt.getTime(), now.getTime() + this.#c.uploadUrlTtlSeconds * 1000));
     const parts = [];
     for (const n of nums.sort((x, y) => x - y))
       parts.push({
         partNumber: n,
         size: this.#partBytes(b, n),
-        url: await this.#d.objects.signPart(
-          b.objectKey,
-          b.multipartId,
-          n,
-          this.#partBytes(b, n),
-          exp,
-        ),
+        url: await this.#d.objects.signPart(b.objectKey, b.multipartId, n, this.#partBytes(b, n), exp),
       });
     return { uploadId: b.id, expiresAt: exp, parts };
   }
@@ -984,8 +868,7 @@ export class SharingService {
 
   async #complete(b: BlobRow) {
     if (b.status !== 'uploading') return this.#uploadStatus(b);
-    if (!b.multipartId || !b.uploadExpiresAt || b.uploadExpiresAt <= this.#now())
-      throw new DomainError('conflict', 'this upload is no longer accepting data');
+    if (!b.multipartId || !b.uploadExpiresAt || b.uploadExpiresAt <= this.#now()) throw new DomainError('conflict', 'this upload is no longer accepting data');
     const held = await this.#d.objects.listParts(b.objectKey, b.multipartId);
     const byNum = new Map(held.map((x) => [x.partNumber, x]));
     const missing: number[] = [];
@@ -1003,9 +886,7 @@ export class SharingService {
         await this.#d.objects.completeMultipart(
           b.objectKey,
           b.multipartId,
-          [...byNum.values()]
-            .filter((x) => x.partNumber <= b.partCount)
-            .sort((x, y) => x.partNumber - y.partNumber),
+          [...byNum.values()].filter((x) => x.partNumber <= b.partCount).sort((x, y) => x.partNumber - y.partNumber),
         )
       ).size;
     } catch (e) {
@@ -1045,8 +926,7 @@ export class SharingService {
       const now = this.#now();
       const cur = await tx.getForUpdate('blob', b.orgId, b.id);
       if (!cur) throw notFound();
-      if (cur.status !== 'uploading')
-        throw new DomainError('conflict', 'only an unfinished upload can be cancelled');
+      if (cur.status !== 'uploading') throw new DomainError('conflict', 'only an unfinished upload can be cancelled');
       await this.#detachUpload(tx, cur, now);
       return { aborted: true };
     });
@@ -1055,10 +935,8 @@ export class SharingService {
   /** Marks an unfinished upload for deletion and removes the file entry it created. */
   async #detachUpload(tx: SharingTx, b: BlobRow, now: Date) {
     await tx.update('blob', b.orgId, b.id, { status: 'deleting' });
-    if (b.targetType === 'transfer_file')
-      await tx.update('transferFile', b.orgId, b.targetId, { status: 'removed', updatedAt: now });
-    if (b.targetType === 'submission_file')
-      await tx.update('submissionFile', b.orgId, b.targetId, { status: 'removed' });
+    if (b.targetType === 'transfer_file') await tx.update('transferFile', b.orgId, b.targetId, { status: 'removed', updatedAt: now });
+    if (b.targetType === 'submission_file') await tx.update('submissionFile', b.orgId, b.targetId, { status: 'removed' });
     await this.#enqueue(tx, b.orgId, 'delete_blob', b.id, now);
   }
 
@@ -1078,8 +956,7 @@ export class SharingService {
     let name = 'download';
     if (ref.type === 'draft') {
       const d = await s.get('document', orgId, ref.id);
-      if (d?.status === 'active' && d.draftBlobId)
-        [blobId, name] = [d.draftBlobId, `${d.title} (draft).pdf`];
+      if (d?.status === 'active' && d.draftBlobId) [blobId, name] = [d.draftBlobId, `${d.title} (draft).pdf`];
     } else if (ref.type === 'version') {
       const v = await s.get('version', orgId, ref.id);
       const d = v && (await s.get('document', orgId, v.documentId));
@@ -1101,11 +978,7 @@ export class SharingService {
     await s.transaction(async (tx) => {
       const now = this.#now();
       await tx.lockAccount(orgId, now);
-      if (
-        (await tx.addUsage(orgId, monthKey(now), 'bandwidth_bytes', b.size ?? 0)) >
-        limits.bandwidthBytesPerMonth
-      )
-        throw quota('bandwidth');
+      if ((await tx.addUsage(orgId, monthKey(now), 'bandwidth_bytes', b.size ?? 0)) > limits.bandwidthBytesPerMonth) throw quota('bandwidth');
     });
     return this.#signedDownload(b, name, 'attachment');
   }
@@ -1151,20 +1024,12 @@ export class SharingService {
     const restriction = input.restriction ?? 'none';
     const recipients = [...new Set((input.recipients ?? []).map(normalizeEmail))];
     if (recipients.length > 50) throw invalid('at most 50 recipients');
-    if (restriction === 'recipients' && !recipients.length)
-      throw invalid('name at least one recipient');
-    if (restriction !== 'recipients' && recipients.length)
-      throw invalid('recipients require restriction "recipients"');
-    if (input.permission === 'review' && restriction === 'none')
-      throw invalid('review links must be restricted to authenticated recipients');
+    if (restriction === 'recipients' && !recipients.length) throw invalid('name at least one recipient');
+    if (restriction !== 'recipients' && recipients.length) throw invalid('recipients require restriction "recipients"');
+    if (input.permission === 'review' && restriction === 'none') throw invalid('review links must be restricted to authenticated recipients');
     const passwordHash = await this.#passwordHash(input.password);
     const label = text(input.label, 200, 'label');
-    if (
-      input.maxDownloads !== undefined &&
-      (!Number.isInteger(input.maxDownloads) ||
-        input.maxDownloads < 1 ||
-        input.maxDownloads > 100_000)
-    )
+    if (input.maxDownloads !== undefined && (!Number.isInteger(input.maxDownloads) || input.maxDownloads < 1 || input.maxDownloads > 100_000))
       throw invalid('invalid download limit');
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       if (input.expiresAt && input.expiresAt <= now) throw invalid('expiry must be in the future');
@@ -1245,24 +1110,14 @@ export class SharingService {
     if (!doc || doc.status !== 'active') throw notFound();
     await this.#requireManager(p, orgId, doc.createdBy);
     if (input.versionMode === 'latest') {
-      if (input.versionId)
-        throw invalid('latest links follow the published version; omit version_id');
+      if (input.versionId) throw invalid('latest links follow the published version; omit version_id');
       return { versionMode: 'latest', versionId: null };
     }
-    if (input.versionMode !== 'fixed' || !input.versionId)
-      throw invalid('choose "latest" or a fixed version_id');
+    if (input.versionMode !== 'fixed' || !input.versionId) throw invalid('choose "latest" or a fixed version_id');
     const v = await r.get('version', orgId, input.versionId);
     if (!v || v.documentId !== doc.id) throw notFound();
-    if (
-      doc.requireApproval &&
-      input.permission !== 'review' &&
-      !v.publishedAt &&
-      !(await this.#approved(r, orgId, v))
-    )
-      throw new DomainError(
-        'conflict',
-        'only approved or published versions can be shared for viewing or download',
-      );
+    if (doc.requireApproval && input.permission !== 'review' && !v.publishedAt && !(await this.#approved(r, orgId, v)))
+      throw new DomainError('conflict', 'only approved or published versions can be shared for viewing or download');
     return { versionMode: 'fixed', versionId: v.id };
   }
 
@@ -1274,12 +1129,7 @@ export class SharingService {
 
   async listLinks(p: UserPrincipal, orgId: string, filter?: { targetId?: string | undefined }) {
     await this.#d.authorize(p, orgId, 'share:read');
-    const rows = await this.#d.store.list(
-      'link',
-      orgId,
-      filter?.targetId ? { targetId: filter.targetId } : {},
-      { limit: 1000 },
-    );
+    const rows = await this.#d.store.list('link', orgId, filter?.targetId ? { targetId: filter.targetId } : {}, { limit: 1000 });
     const now = this.#now();
     return Promise.all(rows.map((l) => this.#linkView(l, now, false)));
   }
@@ -1334,8 +1184,7 @@ export class SharingService {
       versionId?: string | undefined;
     },
   ) {
-    const newHash =
-      input.password === undefined ? undefined : await this.#passwordHash(input.password);
+    const newHash = input.password === undefined ? undefined : await this.#passwordHash(input.password);
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       const l = await tx.getForUpdate('link', orgId, linkId);
       if (!l || l.status === 'revoked') throw notFound();
@@ -1343,28 +1192,19 @@ export class SharingService {
       const next: LinkRow = { ...l, updatedAt: now };
       if (input.label !== undefined) next.label = text(input.label, 200, 'label');
       if (input.expiresAt !== undefined) {
-        if (input.expiresAt && input.expiresAt <= now)
-          throw invalid('expiry must be in the future');
+        if (input.expiresAt && input.expiresAt <= now) throw invalid('expiry must be in the future');
         next.expiresAt = input.expiresAt;
       }
       if (input.maxDownloads !== undefined) {
-        if (
-          input.maxDownloads !== null &&
-          (!Number.isInteger(input.maxDownloads) ||
-            input.maxDownloads < 1 ||
-            input.maxDownloads > 100_000)
-        )
+        if (input.maxDownloads !== null && (!Number.isInteger(input.maxDownloads) || input.maxDownloads < 1 || input.maxDownloads > 100_000))
           throw invalid('invalid download limit');
         if (input.maxDownloads !== null && input.maxDownloads < l.downloadCount)
-          throw invalid(
-            `the limit cannot be lower than the ${l.downloadCount} downloads already made`,
-          );
+          throw invalid(`the limit cannot be lower than the ${l.downloadCount} downloads already made`);
         next.maxDownloads = input.maxDownloads;
       }
       if (newHash !== undefined) next.passwordHash = newHash;
       if (input.restriction !== undefined) next.restriction = input.restriction;
-      if (input.recipients !== undefined)
-        next.recipients = [...new Set(input.recipients.map(normalizeEmail))];
+      if (input.recipients !== undefined) next.recipients = [...new Set(input.recipients.map(normalizeEmail))];
       if (input.notifyOnAccess !== undefined) next.notifyOnAccess = input.notifyOnAccess;
       if (input.permission !== undefined) {
         if (!PERMISSIONS.includes(input.permission)) throw invalid('invalid permission');
@@ -1375,11 +1215,9 @@ export class SharingService {
         next.versionId = input.versionId;
       }
       if (next.recipients.length > 50) throw invalid('at most 50 recipients');
-      if (next.restriction === 'recipients' && !next.recipients.length)
-        throw invalid('name at least one recipient');
+      if (next.restriction === 'recipients' && !next.recipients.length) throw invalid('name at least one recipient');
       if (next.restriction !== 'recipients') next.recipients = [];
-      if (next.permission === 'review' && next.restriction === 'none')
-        throw invalid('review links must be restricted to authenticated recipients');
+      if (next.permission === 'review' && next.restriction === 'none') throw invalid('review links must be restricted to authenticated recipients');
       await this.#checkTarget(tx, p, orgId, {
         targetType: next.targetType,
         targetId: next.targetId,
@@ -1409,13 +1247,7 @@ export class SharingService {
   }
 
   /** Revocation (terminal), suspension and resumption by the owner. Operator holds cannot be lifted here. */
-  async setLinkStatus(
-    p: UserPrincipal,
-    orgId: string,
-    linkId: string,
-    action: 'revoke' | 'suspend' | 'resume',
-    reason?: string,
-  ) {
+  async setLinkStatus(p: UserPrincipal, orgId: string, linkId: string, action: 'revoke' | 'suspend' | 'resume', reason?: string) {
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       const l = await tx.getForUpdate('link', orgId, linkId);
       if (!l) throw notFound();
@@ -1449,12 +1281,7 @@ export class SharingService {
     if (!l) throw notFound();
     const since = dayKey(new Date(this.#now().getTime() - 400 * 86_400_000));
     const [events, stats] = await Promise.all([
-      this.#d.store.list(
-        'event',
-        orgId,
-        { subjectType: 'share', subjectId: linkId },
-        { limit: 500 },
-      ),
+      this.#d.store.list('event', orgId, { subjectType: 'share', subjectId: linkId }, { limit: 500 }),
       this.#d.store.listStats(orgId, 'share', linkId, since),
     ]);
     return {
@@ -1480,8 +1307,7 @@ export class SharingService {
       return { usable, transfer: tr, document: undefined, version: undefined };
     }
     const doc = await r.get('document', l.orgId, l.targetId);
-    if (!doc || doc.status !== 'active')
-      return { usable: false, transfer: undefined, document: doc, version: undefined };
+    if (!doc || doc.status !== 'active') return { usable: false, transfer: undefined, document: doc, version: undefined };
     const versionId = l.versionMode === 'fixed' ? l.versionId : doc.publishedVersionId;
     const v = versionId ? await r.get('version', l.orgId, versionId) : undefined;
     const ok = !!v && v.documentId === doc.id;
@@ -1496,46 +1322,26 @@ export class SharingService {
   }
 
   /** Server-side recipient restriction. Same message for every refusal so membership is not revealed. */
-  async #recipient(
-    l: { orgId: string; restriction: LinkRow['restriction']; recipients: string[] },
-    principal: UserPrincipal | undefined,
-  ) {
+  async #recipient(l: { orgId: string; restriction: LinkRow['restriction']; recipients: string[] }, principal: UserPrincipal | undefined) {
     if (!principal) {
       if (l.restriction === 'none') return null;
       throw new DomainError('unauthenticated', 'sign in to open this link');
     }
     const who = await this.#d.identity(principal.userId);
-    const deny = () =>
-      new DomainError('forbidden', 'this link is restricted to specific recipients');
-    if (l.restriction === 'members' && !(await this.#d.isMember(l.orgId, principal.userId)))
-      throw deny();
-    if (
-      l.restriction === 'recipients' &&
-      (!who || !who.emailVerified || !l.recipients.includes(who.email))
-    )
-      throw deny();
+    const deny = () => new DomainError('forbidden', 'this link is restricted to specific recipients');
+    if (l.restriction === 'members' && !(await this.#d.isMember(l.orgId, principal.userId))) throw deny();
+    if (l.restriction === 'recipients' && (!who || !who.emailVerified || !l.recipients.includes(who.email))) throw deny();
     return { userId: principal.userId, email: who?.email ?? null };
   }
 
-  async #checkPassword(
-    key: string,
-    hash: string | null,
-    supplied: string | undefined,
-    onFail: () => Promise<void>,
-  ) {
+  async #checkPassword(key: string, hash: string | null, supplied: string | undefined, onFail: () => Promise<void>) {
     if (!hash) return;
     const now = this.#now();
     const a = await this.#d.store.findAttempt(key);
-    if (a?.lockedUntil && a.lockedUntil > now)
-      throw new DomainError('rate_limited', 'too many incorrect passwords; try again later');
+    if (a?.lockedUntil && a.lockedUntil > now) throw new DomainError('rate_limited', 'too many incorrect passwords; try again later');
     if (!supplied) throw new DomainError('password_required', 'a password is required');
     if (supplied.length > 128 || !(await this.#d.passwords.verify(supplied, hash))) {
-      await this.#d.store.recordAttemptFailure(
-        key,
-        now,
-        this.#c.passwordMaxFailures,
-        this.#c.passwordLockMinutes * 60_000,
-      );
+      await this.#d.store.recordAttemptFailure(key, now, this.#c.passwordMaxFailures, this.#c.passwordLockMinutes * 60_000);
       await onFail();
       throw new DomainError('password_required', 'incorrect password');
     }
@@ -1569,15 +1375,7 @@ export class SharingService {
     await tx.bumpStat({ ...subject, day: dayKey(now), kind, bot, referrerHost: ref }, 1);
   }
 
-  async #notify(
-    tx: SharingTx,
-    orgId: string,
-    userId: string,
-    kind: string,
-    subject: { type: string; id: string },
-    message: string,
-    email: boolean,
-  ) {
+  async #notify(tx: SharingTx, orgId: string, userId: string, kind: string, subject: { type: string; id: string }, message: string, email: boolean) {
     const now = this.#now();
     await tx.insert('notification', {
       id: newId('ntf'),
@@ -1604,34 +1402,16 @@ export class SharingService {
     const now = this.#now();
     const target = await this.#resolveTarget(this.#d.store, l, now);
     const state = effectiveLinkState(l, now, target.usable);
-    if (state !== 'active')
-      throw unavailable(
-        state === 'unavailable' && l.versionMode === 'latest' && target.document
-          ? 'not_published'
-          : state,
-      );
+    if (state !== 'active') throw unavailable(state === 'unavailable' && l.versionMode === 'latest' && target.document ? 'not_published' : state);
     const who = await this.#recipient(l, ctx.principal);
     await this.#checkPassword(`share:${l.id}`, l.passwordHash, input.password, () =>
-      this.#d.store.transaction((tx) =>
-        this.#recordEvent(
-          tx,
-          { orgId: l.orgId, subjectType: 'share', subjectId: l.id },
-          'password_failed',
-          ctx,
-        ),
-      ),
+      this.#d.store.transaction((tx) => this.#recordEvent(tx, { orgId: l.orgId, subjectType: 'share', subjectId: l.id }, 'password_failed', ctx)),
     );
     await this.#d.store.transaction(async (tx) => {
-      await this.#recordEvent(
-        tx,
-        { orgId: l.orgId, subjectType: 'share', subjectId: l.id },
-        who ? 'access' : 'visit',
-        ctx,
-        {
-          userId: who?.userId ?? null,
-          email: who?.email ?? null,
-        },
-      );
+      await this.#recordEvent(tx, { orgId: l.orgId, subjectType: 'share', subjectId: l.id }, who ? 'access' : 'visit', ctx, {
+        userId: who?.userId ?? null,
+        email: who?.email ?? null,
+      });
       if (who && l.notifyOnAccess && !looksAutomated(ctx.userAgent))
         await this.#notify(
           tx,
@@ -1658,8 +1438,7 @@ export class SharingService {
       permission: l.permission,
       restriction: l.restriction,
       expiresAt: l.expiresAt,
-      downloadsRemaining:
-        l.maxDownloads === null ? null : Math.max(0, l.maxDownloads - l.downloadCount),
+      downloadsRemaining: l.maxDownloads === null ? null : Math.max(0, l.maxDownloads - l.downloadCount),
       branding: brand,
       notices: NOTICES,
     };
@@ -1740,10 +1519,8 @@ export class SharingService {
     const l = await this.#linkByToken(token);
     const now = this.#now();
     const claims: GrantClaims | undefined = this.#d.keys.verifyGrant(grant, now.getTime());
-    if (!claims || claims.k !== 'share' || claims.s !== l.id)
-      throw new DomainError('unauthenticated', 'your access has expired; open the link again');
-    if (claims.u && ctx.principal?.userId !== claims.u)
-      throw new DomainError('unauthenticated', 'sign in again to continue');
+    if (!claims || claims.k !== 'share' || claims.s !== l.id) throw new DomainError('unauthenticated', 'your access has expired; open the link again');
+    if (claims.u && ctx.principal?.userId !== claims.u) throw new DomainError('unauthenticated', 'sign in again to continue');
     const target = await this.#resolveTarget(this.#d.store, l, now);
     const state = effectiveLinkState(l, now, target.usable);
     if (state !== 'active') throw unavailable(state);
@@ -1751,11 +1528,7 @@ export class SharingService {
     return { l, target, who, now };
   }
 
-  async shareFileUrl(
-    token: string,
-    input: { grant: string; fileId: string; disposition: 'inline' | 'attachment' },
-    ctx: PublicContext,
-  ) {
+  async shareFileUrl(token: string, input: { grant: string; fileId: string; disposition: 'inline' | 'attachment' }, ctx: PublicContext) {
     const { l, target, who } = await this.#useGrant(token, input.grant, ctx);
     let blobId: string;
     let name: string;
@@ -1764,8 +1537,7 @@ export class SharingService {
       if (!f || f.transferId !== target.transfer.id || f.status !== 'current') throw notFound();
       [blobId, name] = [f.blobId, f.name];
     } else {
-      if (target.version!.id !== input.fileId)
-        throw new DomainError('conflict', 'a newer version was published; reload the page');
+      if (target.version!.id !== input.fileId) throw new DomainError('conflict', 'a newer version was published; reload the page');
       [blobId, name] = [target.version!.blobId, target.version!.fileName];
     }
     const blob = await this.#d.store.get('blob', l.orgId, blobId);
@@ -1774,10 +1546,8 @@ export class SharingService {
         status: fileStatus(blob?.status ?? 'deleted'),
       });
     const kind = FILE_KINDS[blob.ext];
-    if (input.disposition === 'inline' && !kind?.inline)
-      throw new DomainError('forbidden', 'this file type cannot be viewed in the browser');
-    if (input.disposition === 'attachment' && !permits(l.permission, 'download'))
-      throw new DomainError('forbidden', 'this link is view-only');
+    if (input.disposition === 'inline' && !kind?.inline) throw new DomainError('forbidden', 'this file type cannot be viewed in the browser');
+    if (input.disposition === 'attachment' && !permits(l.permission, 'download')) throw new DomainError('forbidden', 'this link is view-only');
     const limits = await this.limits(l.orgId);
     await this.#d.store.transaction(async (tx) => {
       const now = this.#now();
@@ -1785,27 +1555,17 @@ export class SharingService {
       const cur = await tx.getForUpdate('link', l.orgId, l.id);
       if (!cur || cur.status !== 'active') throw unavailable(cur?.status ?? 'revoked');
       if (input.disposition === 'attachment') {
-        if (cur.maxDownloads !== null && cur.downloadCount >= cur.maxDownloads)
-          throw unavailable('download_limit_reached');
+        if (cur.maxDownloads !== null && cur.downloadCount >= cur.maxDownloads) throw unavailable('download_limit_reached');
         await tx.update('link', l.orgId, l.id, { downloadCount: cur.downloadCount + 1 });
       }
-      if (
-        (await tx.addUsage(l.orgId, monthKey(now), 'bandwidth_bytes', blob.size ?? 0)) >
-        limits.bandwidthBytesPerMonth
-      )
+      if ((await tx.addUsage(l.orgId, monthKey(now), 'bandwidth_bytes', blob.size ?? 0)) > limits.bandwidthBytesPerMonth)
         throw new DomainError('quota_exceeded', 'this share is temporarily unavailable');
       const kindName = input.disposition === 'attachment' ? 'download' : 'view';
-      await this.#recordEvent(
-        tx,
-        { orgId: l.orgId, subjectType: 'share', subjectId: l.id },
-        kindName,
-        ctx,
-        {
-          userId: who?.userId ?? null,
-          email: who?.email ?? null,
-          fileId: input.fileId,
-        },
-      );
+      await this.#recordEvent(tx, { orgId: l.orgId, subjectType: 'share', subjectId: l.id }, kindName, ctx, {
+        userId: who?.userId ?? null,
+        email: who?.email ?? null,
+        fileId: input.fileId,
+      });
       if (kindName === 'download' && l.notifyOnAccess && !looksAutomated(ctx.userAgent))
         await this.#notify(
           tx,
@@ -1821,27 +1581,17 @@ export class SharingService {
   }
 
   /** Explicit acknowledgement, recorded as its own event (never inferred from a visit or download). */
-  async acknowledgeShare(
-    token: string,
-    input: { grant: string; declaredName?: string | undefined },
-    ctx: PublicContext,
-  ) {
+  async acknowledgeShare(token: string, input: { grant: string; declaredName?: string | undefined }, ctx: PublicContext) {
     const { l, who } = await this.#useGrant(token, input.grant, ctx);
     const declared = text(input.declaredName, 100, 'name');
     if (!who && !declared) throw invalid('enter your name to acknowledge');
     const at = this.#now();
     await this.#d.store.transaction(async (tx) => {
-      await this.#recordEvent(
-        tx,
-        { orgId: l.orgId, subjectType: 'share', subjectId: l.id },
-        'acknowledge',
-        ctx,
-        {
-          userId: who?.userId ?? null,
-          email: who?.email ?? null,
-          declaredName: declared,
-        },
-      );
+      await this.#recordEvent(tx, { orgId: l.orgId, subjectType: 'share', subjectId: l.id }, 'acknowledge', ctx, {
+        userId: who?.userId ?? null,
+        email: who?.email ?? null,
+        declaredName: declared,
+      });
       if (l.notifyOnAccess)
         await this.#notify(
           tx,
@@ -1858,8 +1608,7 @@ export class SharingService {
 
   async #reviewContext(token: string, grant: string | undefined, ctx: PublicContext) {
     const g = await this.#useGrant(token, grant, ctx);
-    if (!permits(g.l.permission, 'comment') || !g.target.version || !g.who)
-      throw new DomainError('forbidden', 'this link does not allow review');
+    if (!permits(g.l.permission, 'comment') || !g.target.version || !g.who) throw new DomainError('forbidden', 'this link does not allow review');
     return { ...g, version: g.target.version, who: g.who };
   }
 
@@ -1868,19 +1617,11 @@ export class SharingService {
     return this.#thread(l.orgId, version);
   }
 
-  async addComment(
-    token: string,
-    input: { grant: string; body: string; page?: number | undefined },
-    ctx: PublicContext,
-  ) {
+  async addComment(token: string, input: { grant: string; body: string; page?: number | undefined }, ctx: PublicContext) {
     const { l, version, who } = await this.#reviewContext(token, input.grant, ctx);
     const body = text(input.body, 2000, 'comment');
     if (!body) throw invalid('comment is required');
-    if (
-      input.page !== undefined &&
-      (!Number.isInteger(input.page) || input.page < 1 || input.page > 100_000)
-    )
-      throw invalid('invalid page');
+    if (input.page !== undefined && (!Number.isInteger(input.page) || input.page < 1 || input.page > 100_000)) throw invalid('invalid page');
     return this.#d.store.transaction(async (tx) => {
       const now = this.#now();
       const c = {
@@ -1895,13 +1636,7 @@ export class SharingService {
         createdAt: now,
       };
       await tx.insert('comment', c);
-      await this.#recordEvent(
-        tx,
-        { orgId: l.orgId, subjectType: 'share', subjectId: l.id },
-        'comment',
-        ctx,
-        { userId: who.userId, email: who.email },
-      );
+      await this.#recordEvent(tx, { orgId: l.orgId, subjectType: 'share', subjectId: l.id }, 'comment', ctx, { userId: who.userId, email: who.email });
       await this.#audit(
         tx,
         { type: 'user', id: who.userId },
@@ -1923,23 +1658,12 @@ export class SharingService {
     });
   }
 
-  async decideReview(
-    token: string,
-    input: { grant: string; decision: 'approved' | 'changes_requested'; note?: string | undefined },
-    ctx: PublicContext,
-  ) {
+  async decideReview(token: string, input: { grant: string; decision: 'approved' | 'changes_requested'; note?: string | undefined }, ctx: PublicContext) {
     const { l, version, who } = await this.#reviewContext(token, input.grant, ctx);
     const note = text(input.note, 1000, 'note');
     return this.#d.store.transaction(async (tx) => {
       const now = this.#now();
-      const existing = (
-        await tx.list(
-          'review',
-          l.orgId,
-          { versionId: version.id, reviewerUserId: who.userId },
-          { limit: 1 },
-        )
-      )[0];
+      const existing = (await tx.list('review', l.orgId, { versionId: version.id, reviewerUserId: who.userId }, { limit: 1 }))[0];
       if (existing)
         await tx.update('review', l.orgId, existing.id, {
           decision: input.decision,
@@ -1960,13 +1684,7 @@ export class SharingService {
           createdAt: now,
           updatedAt: now,
         });
-      await this.#recordEvent(
-        tx,
-        { orgId: l.orgId, subjectType: 'share', subjectId: l.id },
-        'review',
-        ctx,
-        { userId: who.userId, email: who.email },
-      );
+      await this.#recordEvent(tx, { orgId: l.orgId, subjectType: 'share', subjectId: l.id }, 'review', ctx, { userId: who.userId, email: who.email });
       await this.#audit(
         tx,
         { type: 'user', id: who.userId },
@@ -1993,19 +1711,13 @@ export class SharingService {
   // =============================================================================================
 
   #shortUrl(s: ShortLinkRow, domains: Map<string, string>): string {
-    if (s.kind === 'confidential')
-      return `${this.#c.publicOrigin}/d/${this.#d.keys.token('short', s.id, s.salt!, 16)}`;
+    if (s.kind === 'confidential') return `${this.#c.publicOrigin}/d/${this.#d.keys.token('short', s.id, s.salt!, 16)}`;
     const host = s.domainId ? domains.get(s.domainId) : undefined;
     return `${host ? `https://${host}` : this.#c.shortOrigin}/l/${s.code}`;
   }
 
   async #domainHosts(orgId: string): Promise<Map<string, string>> {
-    return new Map(
-      (await this.#d.store.list('domain', orgId, {}, { limit: 100 })).map((d) => [
-        d.id,
-        d.hostname,
-      ]),
-    );
+    return new Map((await this.#d.store.list('domain', orgId, {}, { limit: 100 })).map((d) => [d.id, d.hostname]));
   }
 
   async #checkDestination(
@@ -2017,19 +1729,14 @@ export class SharingService {
     targetId: string | undefined,
   ) {
     if (kind === 'public') {
-      if (type !== 'external' || !url)
-        throw invalid('public short links point to external web addresses');
+      if (type !== 'external' || !url) throw invalid('public short links point to external web addresses');
       return {
         destinationUrl: validateExternalDestination(url, this.#d.destinations),
         targetId: null,
       };
     }
-    if (type === 'external' || !targetId)
-      throw invalid('confidential short links point to a share link or upload request');
-    const row =
-      type === 'share'
-        ? await r.get('link', orgId, targetId)
-        : await r.get('uploadRequest', orgId, targetId);
+    if (type === 'external' || !targetId) throw invalid('confidential short links point to a share link or upload request');
+    const row = type === 'share' ? await r.get('link', orgId, targetId) : await r.get('uploadRequest', orgId, targetId);
     if (!row) throw notFound();
     return { destinationUrl: null, targetId };
   }
@@ -2052,13 +1759,8 @@ export class SharingService {
       tags?: string[] | undefined;
     },
   ) {
-    if (
-      input.kind === 'confidential' &&
-      (input.alias || input.domainId || input.password || input.requireAuth)
-    )
-      throw invalid(
-        'confidential short links use an unpredictable code; access control belongs to the share link',
-      );
+    if (input.kind === 'confidential' && (input.alias || input.domainId || input.password || input.requireAuth))
+      throw invalid('confidential short links use an unpredictable code; access control belongs to the share link');
     const alias = input.alias ? validateAlias(input.alias) : undefined;
     const passwordHash = await this.#passwordHash(input.password);
     const folder = folderName(input.folder);
@@ -2067,30 +1769,17 @@ export class SharingService {
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
-          if (input.expiresAt && input.expiresAt <= now)
-            throw invalid('expiry must be in the future');
-          const dest = await this.#checkDestination(
-            tx,
-            orgId,
-            input.kind,
-            input.destinationType,
-            input.destinationUrl,
-            input.targetId,
-          );
+          if (input.expiresAt && input.expiresAt <= now) throw invalid('expiry must be in the future');
+          const dest = await this.#checkDestination(tx, orgId, input.kind, input.destinationType, input.destinationUrl, input.targetId);
           if (input.domainId) {
-            if (!limits.customDomains)
-              throw new DomainError('forbidden', 'custom domains are not included in this plan');
+            if (!limits.customDomains) throw new DomainError('forbidden', 'custom domains are not included in this plan');
             const d = await tx.get('domain', orgId, input.domainId);
-            if (!d || d.status !== 'verified')
-              throw new DomainError('conflict', 'the domain is not verified');
+            if (!d || d.status !== 'verified') throw new DomainError('conflict', 'the domain is not verified');
           }
           const id = newId('sln');
           const salt = input.kind === 'confidential' ? newSalt() : null;
           const code = input.kind === 'public' ? (alias ?? newPublicCode()) : null;
-          const lookupKey =
-            input.kind === 'public'
-              ? `p|${input.domainId ?? ''}|${code}`
-              : `c|${tokenHash(this.#d.keys.token('short', id, salt!, 16))}`;
+          const lookupKey = input.kind === 'public' ? `p|${input.domainId ?? ''}|${code}` : `c|${tokenHash(this.#d.keys.token('short', id, salt!, 16))}`;
           const row: ShortLinkRow = {
             id,
             orgId,
@@ -2177,16 +1866,9 @@ export class SharingService {
     };
   }
 
-  async listShortLinks(
-    p: UserPrincipal,
-    orgId: string,
-    q: { q?: string; folder?: string; tag?: string; status?: 'active' | 'suspended' | 'revoked' },
-  ) {
+  async listShortLinks(p: UserPrincipal, orgId: string, q: { q?: string; folder?: string; tag?: string; status?: 'active' | 'suspended' | 'revoked' }) {
     await this.#d.authorize(p, orgId, 'share:read');
-    const [rows, domains] = await Promise.all([
-      this.#d.store.searchShortLinks(orgId, { ...q, q: q.q?.slice(0, 200), limit: 500 }),
-      this.#domainHosts(orgId),
-    ]);
+    const [rows, domains] = await Promise.all([this.#d.store.searchShortLinks(orgId, { ...q, q: q.q?.slice(0, 200), limit: 500 }), this.#domainHosts(orgId)]);
     const now = this.#now();
     return rows.map((r) => this.#shortView(r, domains, now));
   }
@@ -2215,8 +1897,7 @@ export class SharingService {
       tags?: string[] | undefined;
     },
   ) {
-    const newHash =
-      input.password === undefined ? undefined : await this.#passwordHash(input.password);
+    const newHash = input.password === undefined ? undefined : await this.#passwordHash(input.password);
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       const s = await tx.getForUpdate('shortLink', orgId, id);
       if (!s || s.status === 'revoked') throw notFound();
@@ -2224,24 +1905,15 @@ export class SharingService {
       const next: ShortLinkRow = { ...s, updatedAt: now };
       const changesDestination = input.destinationUrl !== undefined || input.targetId !== undefined;
       if (changesDestination) {
-        const d = await this.#checkDestination(
-          tx,
-          orgId,
-          s.kind,
-          s.destinationType,
-          input.destinationUrl,
-          input.targetId,
-        );
+        const d = await this.#checkDestination(tx, orgId, s.kind, s.destinationType, input.destinationUrl, input.targetId);
         next.destinationUrl = d.destinationUrl;
         next.targetId = d.targetId;
       }
       if (input.expiresAt !== undefined) {
-        if (input.expiresAt && input.expiresAt <= now)
-          throw invalid('expiry must be in the future');
+        if (input.expiresAt && input.expiresAt <= now) throw invalid('expiry must be in the future');
         next.expiresAt = input.expiresAt;
       }
-      if (s.kind === 'confidential' && (newHash || input.requireAuth))
-        throw invalid('access control for confidential links belongs to the share link');
+      if (s.kind === 'confidential' && (newHash || input.requireAuth)) throw invalid('access control for confidential links belongs to the share link');
       if (newHash !== undefined) next.passwordHash = newHash;
       if (input.requireAuth !== undefined) next.requireAuth = input.requireAuth;
       if (input.label !== undefined) next.label = text(input.label, 200, 'label');
@@ -2249,10 +1921,7 @@ export class SharingService {
       if (input.tags !== undefined) next.tags = tagList(input.tags);
       await tx.update('shortLink', orgId, id, next);
       const reason = text(input.reason, 500, 'reason');
-      if (
-        changesDestination &&
-        (next.destinationUrl !== s.destinationUrl || next.targetId !== s.targetId)
-      ) {
+      if (changesDestination && (next.destinationUrl !== s.destinationUrl || next.targetId !== s.targetId)) {
         await tx.insert('destination', {
           id: newId('dst'),
           orgId,
@@ -2296,13 +1965,7 @@ export class SharingService {
     });
   }
 
-  async setShortLinkStatus(
-    p: UserPrincipal,
-    orgId: string,
-    id: string,
-    action: 'revoke' | 'suspend' | 'resume',
-    reason?: string,
-  ) {
+  async setShortLinkStatus(p: UserPrincipal, orgId: string, id: string, action: 'revoke' | 'suspend' | 'resume', reason?: string) {
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       const s = await tx.getForUpdate('shortLink', orgId, id);
       if (!s) throw notFound();
@@ -2341,12 +2004,8 @@ export class SharingService {
     const ids = [...new Set(input.ids)];
     if (!ids.length || ids.length > 100) throw invalid('choose 1–100 links');
     const folder = input.action === 'move' ? folderName(input.folder) : undefined;
-    const tag =
-      input.action === 'tag' || input.action === 'untag'
-        ? tagList([input.tag ?? ''])[0]
-        : undefined;
-    if ((input.action === 'tag' || input.action === 'untag') && !tag)
-      throw invalid('tag is required');
+    const tag = input.action === 'tag' || input.action === 'untag' ? tagList([input.tag ?? ''])[0] : undefined;
+    if ((input.action === 'tag' || input.action === 'untag') && !tag) throw invalid('tag is required');
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       for (const id of ids) {
         const s = await tx.getForUpdate('shortLink', orgId, id);
@@ -2375,15 +2034,9 @@ export class SharingService {
   async shortLinkHistory(p: UserPrincipal, orgId: string, id: string) {
     await this.#d.authorize(p, orgId, 'share:read');
     if (!(await this.#d.store.get('shortLink', orgId, id))) throw notFound();
-    const rows = await this.#d.store.list(
-      'destination',
-      orgId,
-      { shortLinkId: id },
-      { limit: 1000, order: 'oldest' },
-    );
+    const rows = await this.#d.store.list('destination', orgId, { shortLinkId: id }, { limit: 1000, order: 'oldest' });
     const emails = new Map<string, string>();
-    for (const u of new Set(rows.map((r) => r.changedBy)))
-      emails.set(u, (await this.#d.identity(u))?.email ?? 'unknown');
+    for (const u of new Set(rows.map((r) => r.changedBy))) emails.set(u, (await this.#d.identity(u))?.email ?? 'unknown');
     return rows.map((r) => ({
       destinationType: r.destinationType,
       destinationUrl: r.destinationUrl,
@@ -2394,11 +2047,7 @@ export class SharingService {
     }));
   }
 
-  async shortLinkQr(
-    p: UserPrincipal,
-    orgId: string,
-    id: string,
-  ): Promise<{ svg: string; fileName: string }> {
+  async shortLinkQr(p: UserPrincipal, orgId: string, id: string): Promise<{ svg: string; fileName: string }> {
     const s = await this.getShortLink(p, orgId, id);
     return { svg: qrSvg(s.url), fileName: `qr-${s.code ?? s.id}.svg` };
   }
@@ -2417,8 +2066,7 @@ export class SharingService {
       if (s.bot) d.bots += s.count;
       else d.visits += s.count;
       daily.set(s.day, d);
-      if (!s.bot && s.referrerHost)
-        refs.set(s.referrerHost, (refs.get(s.referrerHost) ?? 0) + s.count);
+      if (!s.bot && s.referrerHost) refs.set(s.referrerHost, (refs.get(s.referrerHost) ?? 0) + s.count);
     }
     return {
       totals: totals(stats),
@@ -2485,27 +2133,15 @@ export class SharingService {
     const s = await this.#shortRow(host, code);
     this.#shortState(s, this.#now());
     await this.#countShort(s, ctx);
-    if (s.passwordHash || s.requireAuth)
-      return { interstitial: { password: !!s.passwordHash, signIn: s.requireAuth } };
+    if (s.passwordHash || s.requireAuth) return { interstitial: { password: !!s.passwordHash, signIn: s.requireAuth } };
     return { location: s.destinationUrl! };
   }
 
-  async unlockShortLink(
-    host: string | undefined,
-    code: string,
-    input: { password?: string | undefined },
-    ctx: PublicContext,
-  ) {
+  async unlockShortLink(host: string | undefined, code: string, input: { password?: string | undefined }, ctx: PublicContext) {
     const s = await this.#shortRow(host, code);
     this.#shortState(s, this.#now());
-    if (s.requireAuth && !ctx.principal)
-      throw new DomainError('unauthenticated', 'sign in to open this link');
-    await this.#checkPassword(
-      `short:${s.id}`,
-      s.passwordHash,
-      input.password,
-      async () => undefined,
-    );
+    if (s.requireAuth && !ctx.principal) throw new DomainError('unauthenticated', 'sign in to open this link');
+    await this.#checkPassword(`short:${s.id}`, s.passwordHash, input.password, async () => undefined);
     return { location: s.destinationUrl! };
   }
 
@@ -2556,20 +2192,13 @@ export class SharingService {
   ) {
     const t = title(input.title);
     const instructions = text(input.instructions, 4000, 'instructions');
-    if (!input.requirements.length || input.requirements.length > 20)
-      throw invalid('add 1–20 file requirements');
+    if (!input.requirements.length || input.requirements.length > 20) throw invalid('add 1–20 file requirements');
     const reqs: Requirement[] = input.requirements.map((r) => {
       if (!/^[a-z0-9_-]{1,40}$/.test(r.key)) throw invalid('invalid requirement key');
-      const accept = [
-        ...new Set(
-          (r.accept?.length ? r.accept : Object.keys(FILE_KINDS)).map((a) => a.toLowerCase()),
-        ),
-      ];
-      if (accept.some((a) => !FILE_KINDS[a]))
-        throw invalid('requirement accepts a type that is not permitted');
+      const accept = [...new Set((r.accept?.length ? r.accept : Object.keys(FILE_KINDS)).map((a) => a.toLowerCase()))];
+      if (accept.some((a) => !FILE_KINDS[a])) throw invalid('requirement accepts a type that is not permitted');
       const maxFiles = r.maxFiles ?? 1;
-      if (!Number.isInteger(maxFiles) || maxFiles < 1 || maxFiles > 50)
-        throw invalid('invalid file count');
+      if (!Number.isInteger(maxFiles) || maxFiles < 1 || maxFiles > 50) throw invalid('invalid file count');
       return {
         key: r.key,
         label: title(r.label, 'requirement label'),
@@ -2578,39 +2207,21 @@ export class SharingService {
         maxFiles,
       };
     });
-    if (new Set(reqs.map((r) => r.key)).size !== reqs.length)
-      throw invalid('requirement keys must be unique');
+    if (new Set(reqs.map((r) => r.key)).size !== reqs.length) throw invalid('requirement keys must be unique');
     const passwordHash = await this.#passwordHash(input.password);
     return this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
-      if (!limits.uploadRequests)
-        throw new DomainError('forbidden', 'upload requests are not included in this plan');
-      if (input.deadline <= now || input.deadline.getTime() > now.getTime() + 366 * 86_400_000)
-        throw invalid('the deadline must be within the next year');
-      if (
-        !Number.isSafeInteger(input.maxFileBytes) ||
-        input.maxFileBytes < 1 ||
-        input.maxFileBytes > limits.maxFileBytes
-      )
-        throw quota('file size');
-      if (
-        !Number.isSafeInteger(input.maxTotalBytes) ||
-        input.maxTotalBytes < input.maxFileBytes ||
-        input.maxTotalBytes > limits.storageBytes
-      )
+      if (!limits.uploadRequests) throw new DomainError('forbidden', 'upload requests are not included in this plan');
+      if (input.deadline <= now || input.deadline.getTime() > now.getTime() + 366 * 86_400_000) throw invalid('the deadline must be within the next year');
+      if (!Number.isSafeInteger(input.maxFileBytes) || input.maxFileBytes < 1 || input.maxFileBytes > limits.maxFileBytes) throw quota('file size');
+      if (!Number.isSafeInteger(input.maxTotalBytes) || input.maxTotalBytes < input.maxFileBytes || input.maxTotalBytes > limits.storageBytes)
         throw quota('storage');
       let deleteAfter: Date | null;
       if (input.retentionDays === null) {
-        if (!limits.persistent)
-          throw new DomainError('forbidden', 'persistent retention is not included in this plan');
+        if (!limits.persistent) throw new DomainError('forbidden', 'persistent retention is not included in this plan');
         deleteAfter = null;
       } else {
         const days = input.retentionDays ?? limits.maxRetentionDays;
-        if (
-          !Number.isInteger(days) ||
-          days < 1 ||
-          (days > limits.maxRetentionDays && !limits.persistent)
-        )
-          throw quota('retention');
+        if (!Number.isInteger(days) || days < 1 || (days > limits.maxRetentionDays && !limits.persistent)) throw quota('retention');
         deleteAfter = new Date(input.deadline.getTime() + days * 86_400_000);
       }
       const id = newId('urq');
@@ -2676,9 +2287,7 @@ export class SharingService {
   async listUploadRequests(p: UserPrincipal, orgId: string) {
     await this.#d.authorize(p, orgId, 'share:read');
     const now = this.#now();
-    return (await this.#d.store.list('uploadRequest', orgId, {}, { limit: 500 }))
-      .filter((r) => r.status !== 'purged')
-      .map((r) => this.#requestView(r, now));
+    return (await this.#d.store.list('uploadRequest', orgId, {}, { limit: 500 })).filter((r) => r.status !== 'purged').map((r) => this.#requestView(r, now));
   }
 
   async getUploadRequest(p: UserPrincipal, orgId: string, id: string) {
@@ -2687,12 +2296,7 @@ export class SharingService {
     const r = await s.get('uploadRequest', orgId, id);
     if (!r || r.status === 'purged') throw notFound();
     const subs = await s.list('submission', orgId, { requestId: id }, { limit: 1000 });
-    const files = await s.list(
-      'submissionFile',
-      orgId,
-      { requestId: id, status: 'current' },
-      { limit: 10_000, order: 'oldest' },
-    );
+    const files = await s.list('submissionFile', orgId, { requestId: id, status: 'current' }, { limit: 10_000, order: 'oldest' });
     const blobs = new Map<string, BlobRow>();
     for (const f of files) {
       const b = await s.get('blob', orgId, f.blobId);
@@ -2722,12 +2326,7 @@ export class SharingService {
     };
   }
 
-  async closeUploadRequest(
-    p: UserPrincipal,
-    orgId: string,
-    id: string,
-    action: 'close' | 'delete',
-  ) {
+  async closeUploadRequest(p: UserPrincipal, orgId: string, id: string, action: 'close' | 'delete') {
     return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
       const r = await tx.getForUpdate('uploadRequest', orgId, id);
       if (!r || r.status === 'purged') throw notFound();
@@ -2735,13 +2334,10 @@ export class SharingService {
       const patch: Partial<UploadRequestRow> = { status: 'closed', updatedAt: now };
       if (action === 'delete') patch.deleteAfter = now;
       await tx.update('uploadRequest', orgId, id, patch);
-      await this.#audit(
-        tx,
-        { type: 'user', id: p.userId },
-        orgId,
-        action === 'close' ? 'share.request.closed' : 'share.request.deleted',
-        { type: 'upload_request', id },
-      );
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, action === 'close' ? 'share.request.closed' : 'share.request.deleted', {
+        type: 'upload_request',
+        id,
+      });
       return this.#requestView({ ...r, ...patch }, now);
     });
   }
@@ -2759,32 +2355,14 @@ export class SharingService {
     if (r.deadline <= now) throw unavailable('deadline_passed');
   }
 
-  async openUploadRequest(
-    token: string,
-    input: { password?: string | undefined },
-    ctx: PublicContext,
-  ) {
+  async openUploadRequest(token: string, input: { password?: string | undefined }, ctx: PublicContext) {
     const r = await this.#requestByToken(token);
     const now = this.#now();
     this.#requestAccepting(r, now);
     await this.#checkPassword(`request:${r.id}`, r.passwordHash, input.password, () =>
-      this.#d.store.transaction((tx) =>
-        this.#recordEvent(
-          tx,
-          { orgId: r.orgId, subjectType: 'request', subjectId: r.id },
-          'password_failed',
-          ctx,
-        ),
-      ),
+      this.#d.store.transaction((tx) => this.#recordEvent(tx, { orgId: r.orgId, subjectType: 'request', subjectId: r.id }, 'password_failed', ctx)),
     );
-    await this.#d.store.transaction((tx) =>
-      this.#recordEvent(
-        tx,
-        { orgId: r.orgId, subjectType: 'request', subjectId: r.id },
-        'visit',
-        ctx,
-      ),
-    );
+    await this.#d.store.transaction((tx) => this.#recordEvent(tx, { orgId: r.orgId, subjectType: 'request', subjectId: r.id }, 'visit', ctx));
     const exp = Math.floor(now.getTime() / 1000) + this.#c.grantTtlSeconds;
     return {
       title: r.title,
@@ -2802,16 +2380,11 @@ export class SharingService {
     };
   }
 
-  async startSubmission(
-    token: string,
-    input: { grant: string; name: string; email?: string | undefined },
-    ctx: PublicContext,
-  ) {
+  async startSubmission(token: string, input: { grant: string; name: string; email?: string | undefined }, ctx: PublicContext) {
     const r = await this.#requestByToken(token);
     const now = this.#now();
     const claims = this.#d.keys.verifyGrant(input.grant, now.getTime());
-    if (!claims || claims.k !== 'request' || claims.s !== r.id)
-      throw new DomainError('unauthenticated', 'open the request page again');
+    if (!claims || claims.k !== 'request' || claims.s !== r.id) throw new DomainError('unauthenticated', 'open the request page again');
     this.#requestAccepting(r, now);
     const name = title(input.name, 'name');
     const email = input.email ? normalizeEmail(input.email) : null;
@@ -2829,36 +2402,23 @@ export class SharingService {
     };
     await this.#d.store.transaction(async (tx) => {
       await tx.insert('submission', sub);
-      await this.#recordEvent(
-        tx,
-        { orgId: r.orgId, subjectType: 'request', subjectId: r.id },
-        'upload',
-        ctx,
-        { declaredName: name },
-      );
+      await this.#recordEvent(tx, { orgId: r.orgId, subjectType: 'request', subjectId: r.id }, 'upload', ctx, { declaredName: name });
     });
     return { submissionId: sub.id, submissionSecret: secret };
   }
 
   async #submission(token: string, secret: string | undefined) {
     const r = await this.#requestByToken(token);
-    if (!secret || !/^sub_[A-Za-z0-9_-]{43}$/.test(secret))
-      throw new DomainError('unauthenticated', 'submission not found');
+    if (!secret || !/^sub_[A-Za-z0-9_-]{43}$/.test(secret)) throw new DomainError('unauthenticated', 'submission not found');
     const sub = await this.#d.store.findUnique('submission', 'secretHash', tokenHash(secret));
-    if (!sub || sub.requestId !== r.id)
-      throw new DomainError('unauthenticated', 'submission not found');
+    if (!sub || sub.requestId !== r.id) throw new DomainError('unauthenticated', 'submission not found');
     return { r, sub };
   }
 
-  async beginSubmissionUpload(
-    token: string,
-    secret: string,
-    input: { requirementKey: string; name: string; size: number },
-  ) {
+  async beginSubmissionUpload(token: string, secret: string, input: { requirementKey: string; name: string; size: number }) {
     const { r, sub } = await this.#submission(token, secret);
     this.#requestAccepting(r, this.#now());
-    if (sub.status !== 'open')
-      throw new DomainError('conflict', 'this submission was already sent');
+    if (sub.status !== 'open') throw new DomainError('conflict', 'this submission was already sent');
     const reqm = r.requirements.find((x) => x.key === input.requirementKey);
     if (!reqm) throw invalid('unknown requirement');
     const name = sanitizeFileName(input.name);
@@ -2872,18 +2432,11 @@ export class SharingService {
       input.size,
       async (tx, blob) => {
         const cur = await tx.getForUpdate('submission', r.orgId, sub.id);
-        if (!cur || cur.status !== 'open')
-          throw new DomainError('conflict', 'this submission was already sent');
-        const existing = await tx.list(
-          'submissionFile',
-          r.orgId,
-          { submissionId: sub.id, status: 'current' },
-          { limit: 10_000 },
-        );
+        if (!cur || cur.status !== 'open') throw new DomainError('conflict', 'this submission was already sent');
+        const existing = await tx.list('submissionFile', r.orgId, { submissionId: sub.id, status: 'current' }, { limit: 10_000 });
         if (existing.filter((f) => f.requirementKey === reqm.key).length >= reqm.maxFiles)
           throw new DomainError('conflict', 'enough files were uploaded for this requirement');
-        if (existing.reduce((n, f) => n + f.size, 0) + input.size > r.maxTotalBytes)
-          throw quota('submission size');
+        if (existing.reduce((n, f) => n + f.size, 0) + input.size > r.maxTotalBytes) throw quota('submission size');
         const fileId = newId('sfl');
         blob.targetType = 'submission_file';
         blob.targetId = fileId;
@@ -2910,10 +2463,7 @@ export class SharingService {
   async #submissionUpload(token: string, secret: string, uploadId: string) {
     const { r, sub } = await this.#submission(token, secret);
     const b = await this.#d.store.get('blob', r.orgId, uploadId);
-    const f =
-      b?.targetType === 'submission_file'
-        ? await this.#d.store.get('submissionFile', r.orgId, b.targetId)
-        : undefined;
+    const f = b?.targetType === 'submission_file' ? await this.#d.store.get('submissionFile', r.orgId, b.targetId) : undefined;
     if (!b || !f || f.submissionId !== sub.id) throw notFound();
     return { r, sub, b };
   }
@@ -2936,12 +2486,7 @@ export class SharingService {
   /** The submitter's own files only. */
   async submissionStatus(token: string, secret: string) {
     const { r, sub } = await this.#submission(token, secret);
-    const files = await this.#d.store.list(
-      'submissionFile',
-      r.orgId,
-      { submissionId: sub.id, status: 'current' },
-      { limit: 10_000, order: 'oldest' },
-    );
+    const files = await this.#d.store.list('submissionFile', r.orgId, { submissionId: sub.id, status: 'current' }, { limit: 10_000, order: 'oldest' });
     const out = [];
     for (const f of files) {
       const b = await this.#d.store.get('blob', r.orgId, f.blobId);
@@ -2963,39 +2508,17 @@ export class SharingService {
     this.#requestAccepting(r, now);
     return this.#d.store.transaction(async (tx) => {
       const cur = await tx.getForUpdate('submission', r.orgId, sub.id);
-      if (!cur || cur.status !== 'open')
-        throw new DomainError('conflict', 'this submission was already sent');
-      const files = await tx.list(
-        'submissionFile',
-        r.orgId,
-        { submissionId: sub.id, status: 'current' },
-        { limit: 10_000 },
-      );
+      if (!cur || cur.status !== 'open') throw new DomainError('conflict', 'this submission was already sent');
+      const files = await tx.list('submissionFile', r.orgId, { submissionId: sub.id, status: 'current' }, { limit: 10_000 });
       const states = new Map<string, BlobRow['status']>();
-      for (const f of files)
-        states.set(f.id, (await tx.get('blob', r.orgId, f.blobId))?.status ?? 'deleted');
-      if ([...states.values()].some((s) => s === 'uploading'))
-        throw new DomainError('conflict', 'finish or cancel the uploads in progress first');
+      for (const f of files) states.set(f.id, (await tx.get('blob', r.orgId, f.blobId))?.status ?? 'deleted');
+      if ([...states.values()].some((s) => s === 'uploading')) throw new DomainError('conflict', 'finish or cancel the uploads in progress first');
       const missing = r.requirements
-        .filter(
-          (q) =>
-            q.required &&
-            !files.some(
-              (f) =>
-                f.requirementKey === q.key && ['quarantined', 'clean'].includes(states.get(f.id)!),
-            ),
-        )
+        .filter((q) => q.required && !files.some((f) => f.requirementKey === q.key && ['quarantined', 'clean'].includes(states.get(f.id)!)))
         .map((q) => q.key);
-      if (missing.length)
-        throw new DomainError('conflict', 'required files are missing', { missing });
+      if (missing.length) throw new DomainError('conflict', 'required files are missing', { missing });
       await tx.update('submission', r.orgId, sub.id, { status: 'submitted', submittedAt: now });
-      await this.#recordEvent(
-        tx,
-        { orgId: r.orgId, subjectType: 'request', subjectId: r.id },
-        'submitted',
-        ctx,
-        { declaredName: sub.submitterName },
-      );
+      await this.#recordEvent(tx, { orgId: r.orgId, subjectType: 'request', subjectId: r.id }, 'submitted', ctx, { declaredName: sub.submitterName });
       await this.#audit(
         tx,
         { type: 'anonymous' },
@@ -3023,9 +2546,7 @@ export class SharingService {
 
   async listNotifications(p: UserPrincipal, orgId: string) {
     await this.#d.authorize(p, orgId, 'share:read');
-    return (
-      await this.#d.store.list('notification', orgId, { userId: p.userId }, { limit: 100 })
-    ).map((n) => ({
+    return (await this.#d.store.list('notification', orgId, { userId: p.userId }, { limit: 100 })).map((n) => ({
       id: n.id,
       kind: n.kind,
       subjectType: n.subjectType,
@@ -3043,8 +2564,7 @@ export class SharingService {
       const now = this.#now();
       for (const id of new Set(ids)) {
         const n = await tx.get('notification', orgId, id);
-        if (n && n.userId === p.userId && !n.readAt)
-          await tx.update('notification', orgId, id, { readAt: now });
+        if (n && n.userId === p.userId && !n.readAt) await tx.update('notification', orgId, id, { readAt: now });
       }
     });
     return { read: ids.length };
@@ -3067,27 +2587,15 @@ export class SharingService {
     };
   }
 
-  async setBranding(
-    p: UserPrincipal,
-    orgId: string,
-    input: { displayName: string; accentColor: string },
-  ) {
+  async setBranding(p: UserPrincipal, orgId: string, input: { displayName: string; accentColor: string }) {
     const displayName = title(input.displayName, 'display name');
     const accentColor = validateAccentColor(input.accentColor);
     return this.#mutate(p, orgId, 'share:manage', async (tx, { now, limits }) => {
-      if (!limits.branding)
-        throw new DomainError('forbidden', 'branded pages are not included in this plan');
+      if (!limits.branding) throw new DomainError('forbidden', 'branded pages are not included in this plan');
       const row = { id: orgId, orgId, displayName, accentColor, updatedAt: now };
       if (await tx.get('brand', orgId, orgId)) await tx.update('brand', orgId, orgId, row);
       else await tx.insert('brand', row);
-      await this.#audit(
-        tx,
-        { type: 'user', id: p.userId },
-        orgId,
-        'share.branding.updated',
-        { type: 'org', id: orgId },
-        { accent_color: accentColor },
-      );
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.branding.updated', { type: 'org', id: orgId }, { accent_color: accentColor });
       return { available: true, displayName, accentColor };
     });
   }
@@ -3113,24 +2621,17 @@ export class SharingService {
       verifiedAt: d.verifiedAt,
       checkedAt: d.checkedAt,
       createdAt: d.createdAt,
-      routing:
-        'After verification, point a CNAME for the hostname at the platform short-link host; the operator provisions TLS for it at the edge.',
+      routing: 'After verification, point a CNAME for the hostname at the platform short-link host; the operator provisions TLS for it at the edge.',
     };
   }
 
   async addDomain(p: UserPrincipal, orgId: string, input: { hostname: string }) {
     const hostname = validateHostname(input.hostname);
-    const reserved = [
-      new URL(this.#c.publicOrigin).hostname,
-      new URL(this.#c.shortOrigin).hostname,
-      ...this.#d.destinations.reservedHosts,
-    ];
-    if (reserved.some((h) => hostname === h || hostname.endsWith(`.${h}`)))
-      throw invalid('this hostname belongs to the platform');
+    const reserved = [new URL(this.#c.publicOrigin).hostname, new URL(this.#c.shortOrigin).hostname, ...this.#d.destinations.reservedHosts];
+    if (reserved.some((h) => hostname === h || hostname.endsWith(`.${h}`))) throw invalid('this hostname belongs to the platform');
     try {
       return await this.#mutate(p, orgId, 'share:manage', async (tx, { now, limits }) => {
-        if (!limits.customDomains)
-          throw new DomainError('forbidden', 'custom domains are not included in this plan');
+        if (!limits.customDomains) throw new DomainError('forbidden', 'custom domains are not included in this plan');
         const row = {
           id: newId('dom'),
           orgId,
@@ -3142,28 +2643,18 @@ export class SharingService {
           checkedAt: null,
         };
         await tx.insert('domain', row);
-        await this.#audit(
-          tx,
-          { type: 'user', id: p.userId },
-          orgId,
-          'share.domain.added',
-          { type: 'custom_domain', id: row.id },
-          { hostname },
-        );
+        await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.domain.added', { type: 'custom_domain', id: row.id }, { hostname });
         return this.#domainView(row);
       });
     } catch (e) {
-      if (e instanceof Error && e.message === 'duplicate:domain')
-        throw new DomainError('conflict', 'this hostname is already registered');
+      if (e instanceof Error && e.message === 'duplicate:domain') throw new DomainError('conflict', 'this hostname is already registered');
       throw e;
     }
   }
 
   async listDomains(p: UserPrincipal, orgId: string) {
     await this.#d.authorize(p, orgId, 'share:read');
-    return (await this.#d.store.list('domain', orgId, {}, { limit: 100 })).map((d) =>
-      this.#domainView(d),
-    );
+    return (await this.#d.store.list('domain', orgId, {}, { limit: 100 })).map((d) => this.#domainView(d));
   }
 
   /** Ownership check by DNS TXT record. The platform resolves DNS only; it never requests the tenant's site. */
@@ -3193,14 +2684,7 @@ export class SharingService {
         checkedAt: now,
       });
       if (cur.status !== 'verified')
-        await this.#audit(
-          tx,
-          { type: 'user', id: p.userId },
-          orgId,
-          'share.domain.verified',
-          { type: 'custom_domain', id },
-          { hostname: cur.hostname },
-        );
+        await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.domain.verified', { type: 'custom_domain', id }, { hostname: cur.hostname });
       return {
         ...this.#domainView({
           ...cur,
@@ -3217,19 +2701,10 @@ export class SharingService {
     return this.#mutate(p, orgId, 'share:manage', async (tx) => {
       const d = await tx.getForUpdate('domain', orgId, id);
       if (!d) throw notFound();
-      const inUse = (await tx.list('shortLink', orgId, { domainId: id }, { limit: 1000 })).some(
-        (s) => s.status !== 'revoked',
-      );
+      const inUse = (await tx.list('shortLink', orgId, { domainId: id }, { limit: 1000 })).some((s) => s.status !== 'revoked');
       if (inUse) throw new DomainError('conflict', 'revoke the short links on this domain first');
       await tx.remove('domain', orgId, id);
-      await this.#audit(
-        tx,
-        { type: 'user', id: p.userId },
-        orgId,
-        'share.domain.removed',
-        { type: 'custom_domain', id },
-        { hostname: d.hostname },
-      );
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.domain.removed', { type: 'custom_domain', id }, { hostname: d.hostname });
       return { removed: true };
     });
   }
@@ -3238,12 +2713,7 @@ export class SharingService {
   // Abuse reporting and operator review
   // =============================================================================================
 
-  async reportAbuse(input: {
-    reference: string;
-    category: AbuseRow['category'];
-    details?: string | undefined;
-    email?: string | undefined;
-  }) {
+  async reportAbuse(input: { reference: string; category: AbuseRow['category']; details?: string | undefined; email?: string | undefined }) {
     const reference = text(input.reference, 2048, 'reference');
     if (!reference) throw invalid('reference is required');
     const details = text(input.details, 4000, 'details');
@@ -3269,9 +2739,7 @@ export class SharingService {
     return { id: row.id, received: true };
   }
 
-  async #resolveReference(
-    ref: string,
-  ): Promise<{ orgId: string; type: 'short' | 'share' | 'request'; id: string } | undefined> {
+  async #resolveReference(ref: string): Promise<{ orgId: string; type: 'short' | 'share' | 'request'; id: string } | undefined> {
     let host: string | undefined;
     let path = ref;
     try {
@@ -3309,11 +2777,7 @@ export class SharingService {
   }
 
   /** Operator decision on a report. Suspension places an operator hold the owner cannot lift. */
-  async resolveAbuseReport(
-    operatorId: string,
-    id: string,
-    input: { action: 'suspend' | 'dismiss'; reason: string },
-  ) {
+  async resolveAbuseReport(operatorId: string, id: string, input: { action: 'suspend' | 'dismiss'; reason: string }) {
     const reason = text(input.reason, 500, 'reason');
     if (!reason || reason.length < 3) throw invalid('a reason is required');
     return this.#d.store.transaction(async (tx) => {
@@ -3322,8 +2786,7 @@ export class SharingService {
       if (!r) throw notFound();
       if (r.status !== 'open') throw new DomainError('conflict', 'report already resolved');
       if (input.action === 'suspend') {
-        if (!r.subjectId || r.subjectType === 'unknown')
-          throw new DomainError('conflict', 'the report does not name a resolvable link');
+        if (!r.subjectId || r.subjectType === 'unknown') throw new DomainError('conflict', 'the report does not name a resolvable link');
         await this.#hold(tx, r.orgId, r.subjectType, r.subjectId, true, reason, operatorId);
       }
       await tx.update('abuse', r.orgId, id, {
@@ -3344,44 +2807,22 @@ export class SharingService {
     });
   }
 
-  async setOperatorHold(
-    operatorId: string,
-    orgId: string,
-    type: 'short' | 'share' | 'request',
-    id: string,
-    hold: boolean,
-    reason: string,
-  ) {
+  async setOperatorHold(operatorId: string, orgId: string, type: 'short' | 'share' | 'request', id: string, hold: boolean, reason: string) {
     const r = text(reason, 500, 'reason');
     if (!r || r.length < 3) throw invalid('a reason is required');
     return this.#d.store.transaction((tx) => this.#hold(tx, orgId, type, id, hold, r, operatorId));
   }
 
-  async #hold(
-    tx: SharingTx,
-    orgId: string,
-    type: 'short' | 'share' | 'request',
-    id: string,
-    hold: boolean,
-    reason: string,
-    operatorId: string,
-  ) {
+  async #hold(tx: SharingTx, orgId: string, type: 'short' | 'share' | 'request', id: string, hold: boolean, reason: string, operatorId: string) {
     const now = this.#now();
     const kind = type === 'short' ? 'shortLink' : type === 'share' ? 'link' : 'uploadRequest';
     const row = await tx.getForUpdate(kind, orgId, id);
     if (!row) throw notFound();
-    if (kind === 'uploadRequest')
-      await tx.update('uploadRequest', orgId, id, { operatorHold: hold, updatedAt: now });
+    if (kind === 'uploadRequest') await tx.update('uploadRequest', orgId, id, { operatorHold: hold, updatedAt: now });
     else
       await tx.update(kind as 'link', orgId, id, {
         operatorHold: hold,
-        status: hold
-          ? (row as LinkRow).status === 'revoked'
-            ? 'revoked'
-            : 'suspended'
-          : (row as LinkRow).status === 'revoked'
-            ? 'revoked'
-            : 'active',
+        status: hold ? ((row as LinkRow).status === 'revoked' ? 'revoked' : 'suspended') : (row as LinkRow).status === 'revoked' ? 'revoked' : 'active',
         statusReason: hold ? `operator: ${reason}` : null,
         updatedAt: now,
       });
@@ -3399,14 +2840,7 @@ export class SharingService {
   // Background jobs: quarantine checks, deletion, notification mail; retention
   // =============================================================================================
 
-  async #enqueue(
-    tx: SharingTx,
-    orgId: string,
-    kind: JobRow['kind'],
-    subjectId: string,
-    now: Date,
-    payload: Record<string, string> = {},
-  ) {
+  async #enqueue(tx: SharingTx, orgId: string, kind: JobRow['kind'], subjectId: string, now: Date, payload: Record<string, string> = {}) {
     await tx.insert('job', {
       id: newId('job'),
       orgId,
@@ -3426,14 +2860,7 @@ export class SharingService {
   async processJobs(opts: { limit?: number } = {}): Promise<{ done: number; failed: number }> {
     const claim = newId('clm');
     const now = this.#now();
-    const jobs = await this.#d.store.transaction((tx) =>
-      tx.claimJobs(
-        now,
-        opts.limit ?? 20,
-        claim,
-        new Date(now.getTime() + this.#c.jobLeaseSeconds * 1000),
-      ),
-    );
+    const jobs = await this.#d.store.transaction((tx) => tx.claimJobs(now, opts.limit ?? 20, claim, new Date(now.getTime() + this.#c.jobLeaseSeconds * 1000)));
     let done = 0;
     let failed = 0;
     for (const job of jobs) {
@@ -3516,11 +2943,7 @@ export class SharingService {
         }
         // Never delete an object still referenced by another active document, version or transfer
         // (rejected content is always removed).
-        if (
-          b.status !== 'rejected' &&
-          b.status !== 'deleting' &&
-          (await tx.blobReferenced(b.orgId, b.id))
-        ) {
+        if (b.status !== 'rejected' && b.status !== 'deleting' && (await tx.blobReferenced(b.orgId, b.id))) {
           await tx.remove('job', job.orgId, job.id);
           return undefined;
         }
@@ -3528,8 +2951,7 @@ export class SharingService {
         return b;
       });
       if (!plan) return;
-      if (plan.multipartId && !plan.completedAt)
-        await this.#d.objects.abortMultipart(plan.objectKey, plan.multipartId);
+      if (plan.multipartId && !plan.completedAt) await this.#d.objects.abortMultipart(plan.objectKey, plan.multipartId);
       await this.#d.objects.delete(plan.objectKey);
       await s.transaction(async (tx) => {
         if (!(await this.#finish(tx, job, claim))) return;
@@ -3563,8 +2985,7 @@ export class SharingService {
   async #attach(tx: SharingTx, b: BlobRow, now: Date) {
     if (b.targetType === 'draft') {
       const doc = await tx.getForUpdate('document', b.orgId, b.targetId);
-      if (!doc || doc.status !== 'active')
-        return void (await this.#enqueue(tx, b.orgId, 'delete_blob', b.id, now));
+      if (!doc || doc.status !== 'active') return void (await this.#enqueue(tx, b.orgId, 'delete_blob', b.id, now));
       if (doc.draftUpdatedAt && b.completedAt && doc.draftUpdatedAt > b.completedAt) {
         // A newer draft already landed; this older save is obsolete.
         return void (await this.#enqueue(tx, b.orgId, 'delete_blob', b.id, now));
@@ -3579,8 +3000,7 @@ export class SharingService {
     }
     if (b.targetType === 'transfer_replace') {
       const f = await tx.getForUpdate('transferFile', b.orgId, b.targetId);
-      if (!f || f.status !== 'current')
-        return void (await this.#enqueue(tx, b.orgId, 'delete_blob', b.id, now));
+      if (!f || f.status !== 'current') return void (await this.#enqueue(tx, b.orgId, 'delete_blob', b.id, now));
       await tx.update('transferFile', b.orgId, f.id, {
         blobId: b.id,
         ext: b.ext,
@@ -3620,11 +3040,7 @@ export class SharingService {
 
   async #failJob(job: JobRow, claim: string, e: unknown) {
     const code = (e as { code?: unknown })?.code;
-    const err =
-      `${(e as Error)?.name ?? 'Error'}${typeof code === 'string' ? `:${code.slice(0, 40)}` : ''}`.slice(
-        0,
-        100,
-      );
+    const err = `${(e as Error)?.name ?? 'Error'}${typeof code === 'string' ? `:${code.slice(0, 40)}` : ''}`.slice(0, 100);
     await this.#d.store.transaction(async (tx) => {
       const j = await tx.getForUpdate('job', job.orgId, job.id);
       if (!j || j.claim !== claim) return;
@@ -3645,13 +3061,7 @@ export class SharingService {
           }
         } else if (job.kind === 'delete_blob') {
           // Keep retrying deletion later rather than forgetting an object.
-          await this.#enqueue(
-            tx,
-            job.orgId,
-            'delete_blob',
-            job.subjectId,
-            new Date(now.getTime() + 6 * 3_600_000),
-          );
+          await this.#enqueue(tx, job.orgId, 'delete_blob', job.subjectId, new Date(now.getTime() + 6 * 3_600_000));
         }
         return;
       }
@@ -3697,29 +3107,15 @@ export class SharingService {
         }
         const purge =
           cur.status === 'deleted' ||
-          (cur.kind === 'temporary' &&
-            (cur.status === 'expired' || cur.status === 'revoked') &&
-            !!cur.expiresAt &&
-            cur.expiresAt <= now);
+          (cur.kind === 'temporary' && (cur.status === 'expired' || cur.status === 'revoked') && !!cur.expiresAt && cur.expiresAt <= now);
         if (!purge) return;
-        const files = await tx.list(
-          'transferFile',
-          t.orgId,
-          { transferId: t.id, status: 'current' },
-          { limit: 100_000 },
-        );
+        const files = await tx.list('transferFile', t.orgId, { transferId: t.id, status: 'current' }, { limit: 100_000 });
         for (const f of files) {
           await tx.update('transferFile', t.orgId, f.id, { status: 'removed', updatedAt: now });
           await this.#enqueue(tx, t.orgId, 'delete_blob', f.blobId, now);
         }
-        for (const b of await tx.list(
-          'blob',
-          t.orgId,
-          { targetType: 'transfer_replace' },
-          { limit: 100_000 },
-        ))
-          if (files.some((f) => f.id === b.targetId) && !['deleted', 'deleting'].includes(b.status))
-            await this.#enqueue(tx, t.orgId, 'delete_blob', b.id, now);
+        for (const b of await tx.list('blob', t.orgId, { targetType: 'transfer_replace' }, { limit: 100_000 }))
+          if (files.some((f) => f.id === b.targetId) && !['deleted', 'deleting'].includes(b.status)) await this.#enqueue(tx, t.orgId, 'delete_blob', b.id, now);
         await tx.update('transfer', t.orgId, t.id, { status: 'purged', updatedAt: now });
         await tx.audit.append({
           actor: { type: 'system' },
@@ -3735,12 +3131,7 @@ export class SharingService {
       await s.transaction(async (tx) => {
         const cur = await tx.getForUpdate('uploadRequest', r.orgId, r.id);
         if (!cur || cur.status === 'purged' || !cur.deleteAfter || cur.deleteAfter > now) return;
-        const files = await tx.list(
-          'submissionFile',
-          r.orgId,
-          { requestId: r.id, status: 'current' },
-          { limit: 100_000 },
-        );
+        const files = await tx.list('submissionFile', r.orgId, { requestId: r.id, status: 'current' }, { limit: 100_000 });
         for (const f of files) {
           await tx.update('submissionFile', r.orgId, f.id, { status: 'removed' });
           await this.#enqueue(tx, r.orgId, 'delete_blob', f.blobId, now);
@@ -3765,19 +3156,10 @@ export class SharingService {
       });
     }
     const day = 86_400_000;
-    out.events = await s.purgeEvents(
-      new Date(now.getTime() - this.#c.eventRetentionDays * day),
-      5000,
-    );
-    out.stats = await s.purgeStats(
-      dayKey(new Date(now.getTime() - this.#c.statRetentionDays * day)),
-      5000,
-    );
+    out.events = await s.purgeEvents(new Date(now.getTime() - this.#c.eventRetentionDays * day), 5000);
+    out.stats = await s.purgeStats(dayKey(new Date(now.getTime() - this.#c.statRetentionDays * day)), 5000);
     out.attempts = await s.purgeAttempts(new Date(now.getTime() - day), 5000);
-    out.notifications = await s.purgeNotifications(
-      new Date(now.getTime() - this.#c.notificationRetentionDays * day),
-      5000,
-    );
+    out.notifications = await s.purgeNotifications(new Date(now.getTime() - this.#c.notificationRetentionDays * day), 5000);
     return out;
   }
 }
@@ -3786,47 +3168,27 @@ export class SharingService {
 // Views (never expose salts, token hashes or password hashes)
 // ---------------------------------------------------------------------------------------------------
 
-export function fileStatus(
-  s: BlobRow['status'],
-): 'uploading' | 'processing' | 'available' | 'rejected' | 'deleted' {
-  return s === 'uploading'
-    ? 'uploading'
-    : s === 'quarantined'
-      ? 'processing'
-      : s === 'clean'
-        ? 'available'
-        : s === 'rejected'
-          ? 'rejected'
-          : 'deleted';
+export function fileStatus(s: BlobRow['status']): 'uploading' | 'processing' | 'available' | 'rejected' | 'deleted' {
+  return s === 'uploading' ? 'uploading' : s === 'quarantined' ? 'processing' : s === 'clean' ? 'available' : s === 'rejected' ? 'rejected' : 'deleted';
 }
 
-function nextStatus(
-  row: { status: 'active' | 'suspended' | 'revoked'; operatorHold: boolean },
-  action: 'revoke' | 'suspend' | 'resume',
-) {
-  if (row.status === 'revoked')
-    throw new DomainError('conflict', 'a revoked link cannot be changed');
+function nextStatus(row: { status: 'active' | 'suspended' | 'revoked'; operatorHold: boolean }, action: 'revoke' | 'suspend' | 'resume') {
+  if (row.status === 'revoked') throw new DomainError('conflict', 'a revoked link cannot be changed');
   if (action === 'revoke') return 'revoked' as const;
   if (action === 'suspend') return 'suspended' as const;
-  if (row.operatorHold)
-    throw new DomainError(
-      'forbidden',
-      'this link was suspended by the platform after an abuse review',
-    );
+  if (row.operatorHold) throw new DomainError('forbidden', 'this link was suspended by the platform after an abuse review');
   return 'active' as const;
 }
 
 function folderName(raw: string | undefined): string {
   const v = (raw ?? '').trim();
   // eslint-disable-next-line no-control-regex
-  if (v.length > 100 || /[\u0000-\u001f]/.test(v))
-    throw new DomainError('invalid_request', 'invalid folder');
+  if (v.length > 100 || /[\u0000-\u001f]/.test(v)) throw new DomainError('invalid_request', 'invalid folder');
   return v;
 }
 function tagList(raw: string[] | undefined): string[] {
   const tags = [...new Set((raw ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean))];
-  if (tags.length > 20 || tags.some((t) => !/^[a-z0-9][a-z0-9 _-]{0,39}$/.test(t)))
-    throw new DomainError('invalid_request', 'invalid tags');
+  if (tags.length > 20 || tags.some((t) => !/^[a-z0-9][a-z0-9 _-]{0,39}$/.test(t))) throw new DomainError('invalid_request', 'invalid tags');
   return tags;
 }
 
@@ -3868,8 +3230,7 @@ function transferView(t: TransferRow, now?: Date) {
     title: t.title,
     message: t.message,
     kind: t.kind,
-    status:
-      t.status === 'active' && t.expiresAt && now && t.expiresAt <= now ? 'expired' : t.status,
+    status: t.status === 'active' && t.expiresAt && now && t.expiresAt <= now ? 'expired' : t.status,
     expiresAt: t.expiresAt,
     filesDeletedAt: t.kind === 'temporary' ? t.expiresAt : null,
     createdAt: t.createdAt,
@@ -3888,11 +3249,7 @@ const uploadView = (b: BlobRow, fileId: string | null, name: string) => ({
 const eventView = (e: EventRow) => ({
   kind: e.kind,
   at: e.createdAt,
-  identity: e.email
-    ? { email: e.email, authenticated: true }
-    : e.declaredName
-      ? { name: e.declaredName, authenticated: false }
-      : null,
+  identity: e.email ? { email: e.email, authenticated: true } : e.declaredName ? { name: e.declaredName, authenticated: false } : null,
   fileId: e.fileId,
   likelyAutomated: e.bot,
 });

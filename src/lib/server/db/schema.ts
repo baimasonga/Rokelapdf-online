@@ -24,7 +24,9 @@ export async function applyMigrations(client: Client, dir: string, schema: strin
   await client.query('SELECT pg_advisory_lock(727275)');
   const result = { applied: [] as string[], skipped: [] as string[] };
   try {
-    for (const f of readdirSync(dir).filter((x) => FILE.test(x)).sort()) {
+    for (const f of readdirSync(dir)
+      .filter((x) => FILE.test(x))
+      .sort()) {
       const version = f.replace(/\.sql$/, '');
       const sql = readFileSync(join(dir, f), 'utf8');
       const checksum = createHash('sha256').update(sql).digest('hex');
@@ -94,11 +96,7 @@ export function planGrants(schema: string, role: string, tables: string[]): stri
   const r = `"${assertIdent(role)}"`;
   const unknown = tables.filter((t) => !(t in TABLE_PRIVILEGES));
   if (unknown.length) throw new Error(`no grant policy for table(s): ${unknown.join(', ')} (add them to TABLE_PRIVILEGES)`);
-  const out = [
-    `REVOKE ALL ON ALL TABLES IN SCHEMA ${s} FROM ${r}`,
-    `REVOKE ALL ON SCHEMA ${s} FROM PUBLIC`,
-    `GRANT USAGE ON SCHEMA ${s} TO ${r}`,
-  ];
+  const out = [`REVOKE ALL ON ALL TABLES IN SCHEMA ${s} FROM ${r}`, `REVOKE ALL ON SCHEMA ${s} FROM PUBLIC`, `GRANT USAGE ON SCHEMA ${s} TO ${r}`];
   for (const t of [...tables].sort()) out.push(`GRANT ${TABLE_PRIVILEGES[t]!.join(', ')} ON TABLE ${s}."${t}" TO ${r}`);
   out.push(`GRANT USAGE ON ALL SEQUENCES IN SCHEMA ${s} TO ${r}`);
   out.push(`ALTER DEFAULT PRIVILEGES IN SCHEMA ${s} REVOKE ALL ON TABLES FROM ${r}`);
@@ -111,9 +109,7 @@ export async function applyGrants(client: Client, schema: string, role: string) 
   const r = (await client.query('SELECT rolsuper FROM pg_roles WHERE rolname = $1', [role])).rows[0];
   if (!r) throw new Error(`role "${role}" does not exist (create it first; see docs/deploy.md)`);
   if (r.rolsuper) throw new Error(`role "${role}" is a superuser; use a least-privilege role`);
-  const tables = (await client.query('SELECT tablename FROM pg_tables WHERE schemaname = $1', [schema])).rows.map(
-    (x) => x.tablename as string,
-  );
+  const tables = (await client.query('SELECT tablename FROM pg_tables WHERE schemaname = $1', [schema])).rows.map((x) => x.tablename as string);
   // Supabase's API roles never get access to this schema.
   const apiRoles = (await client.query("SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated')")).rows;
   const stmts = planGrants(schema, role, tables);

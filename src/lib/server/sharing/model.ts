@@ -6,8 +6,7 @@ import type { LinkStatus, SharePermission } from './policy';
 // `orgId`; ids are opaque, unguessable and never authority on their own.
 // ---------------------------------------------------------------------------------------------------
 
-export type BlobStatus =
-  'uploading' | 'quarantined' | 'clean' | 'rejected' | 'deleting' | 'deleted';
+export type BlobStatus = 'uploading' | 'quarantined' | 'clean' | 'rejected' | 'deleting' | 'deleted';
 export type UploadTarget = 'transfer_file' | 'transfer_replace' | 'draft' | 'submission_file';
 
 /** Lock anchor for an organization's storage and usage accounting. */
@@ -423,12 +422,7 @@ export interface ListOptions {
 }
 
 export type UsageMetric = 'bandwidth_bytes' | 'api_requests' | 'processing_bytes' | 'upload_bytes';
-export const USAGE_METRICS: readonly UsageMetric[] = [
-  'bandwidth_bytes',
-  'api_requests',
-  'processing_bytes',
-  'upload_bytes',
-];
+export const USAGE_METRICS: readonly UsageMetric[] = ['bandwidth_bytes', 'api_requests', 'processing_bytes', 'upload_bytes'];
 
 export interface StatRow {
   orgId: string;
@@ -460,26 +454,12 @@ export interface SharingRepo {
   get<K extends Kind>(kind: K, orgId: string, id: string): Promise<Rows[K] | undefined>;
   /** As `get`, plus an exclusive row lock until the transaction ends (PostgreSQL). */
   getForUpdate<K extends Kind>(kind: K, orgId: string, id: string): Promise<Rows[K] | undefined>;
-  findUnique<K extends UniqueKind>(
-    kind: K,
-    field: UniqueField<K>,
-    value: string,
-  ): Promise<Rows[K] | undefined>;
-  update<K extends Kind>(
-    kind: K,
-    orgId: string,
-    id: string,
-    patch: Partial<Rows[K]>,
-  ): Promise<void>;
+  findUnique<K extends UniqueKind>(kind: K, field: UniqueField<K>, value: string): Promise<Rows[K] | undefined>;
+  update<K extends Kind>(kind: K, orgId: string, id: string, patch: Partial<Rows[K]>): Promise<void>;
   /** Deletes one row (only kinds whose policy allows deletion: jobs, domains). */
   remove(kind: 'job' | 'domain', orgId: string, id: string): Promise<void>;
   /** Equality filter over allow-listed columns. */
-  list<K extends Kind>(
-    kind: K,
-    orgId: string,
-    where?: Partial<Rows[K]>,
-    opts?: ListOptions,
-  ): Promise<Rows[K][]>;
+  list<K extends Kind>(kind: K, orgId: string, where?: Partial<Rows[K]>, opts?: ListOptions): Promise<Rows[K][]>;
 
   /** Creates the organization's accounting row if needed and locks it (lock order: account first). */
   lockAccount(orgId: string, now: Date): Promise<void>;
@@ -503,12 +483,7 @@ export interface SharingRepo {
   getAbuseForUpdate(id: string): Promise<AbuseRow | undefined>;
 
   bumpStat(row: Omit<StatRow, 'count'>, n: number): Promise<void>;
-  listStats(
-    orgId: string,
-    subjectType: StatRow['subjectType'],
-    subjectId: string,
-    sinceDay: string,
-  ): Promise<StatRow[]>;
+  listStats(orgId: string, subjectType: StatRow['subjectType'], subjectId: string, sinceDay: string): Promise<StatRow[]>;
 
   findAttempt(key: string): Promise<AttemptState | undefined>;
   recordAttemptFailure(key: string, now: Date, max: number, lockMs: number): Promise<AttemptState>;
@@ -567,8 +542,7 @@ class MemoryRepo implements SharingRepo {
     const r = row as unknown as Record<string, unknown>;
     if (t.has(r['id'] as string)) throw new Error(`duplicate:${kind}`);
     for (const cols of UNIQUE_TOGETHER[kind] ?? []) {
-      for (const existing of t.values())
-        if (cols.every((c) => existing[c] === r[c])) throw new Error(`duplicate:${kind}`);
+      for (const existing of t.values()) if (cols.every((c) => existing[c] === r[c])) throw new Error(`duplicate:${kind}`);
     }
     t.set(r['id'] as string, clone(r));
   }
@@ -580,8 +554,7 @@ class MemoryRepo implements SharingRepo {
     return this.get(kind, orgId, id);
   }
   async findUnique<K extends UniqueKind>(kind: K, field: UniqueField<K>, value: string) {
-    for (const r of this._tbl(kind).values())
-      if (r[field as string] === value) return clone(r) as unknown as Rows[K];
+    for (const r of this._tbl(kind).values()) if (r[field as string] === value) return clone(r) as unknown as Rows[K];
     return undefined;
   }
   async update<K extends Kind>(kind: K, orgId: string, id: string, patch: Partial<Rows[K]>) {
@@ -594,9 +567,7 @@ class MemoryRepo implements SharingRepo {
       orgId,
     };
     for (const cols of UNIQUE_TOGETHER[kind] ?? []) {
-      for (const [otherId, existing] of this._tbl(kind))
-        if (otherId !== id && cols.every((c) => existing[c] === next[c]))
-          throw new Error(`duplicate:${kind}`);
+      for (const [otherId, existing] of this._tbl(kind)) if (otherId !== id && cols.every((c) => existing[c] === next[c])) throw new Error(`duplicate:${kind}`);
     }
     this._tbl(kind).set(id, next);
   }
@@ -604,15 +575,8 @@ class MemoryRepo implements SharingRepo {
     const r = this._tbl(kind).get(id);
     if (r && r['orgId'] === orgId) this._tbl(kind).delete(id);
   }
-  async list<K extends Kind>(
-    kind: K,
-    orgId: string,
-    where: Partial<Rows[K]> = {},
-    opts: ListOptions = {},
-  ): Promise<Rows[K][]> {
-    const rows = [...this._tbl(kind).values()].filter(
-      (r) => r['orgId'] === orgId && matches(r, where as Record<string, unknown>),
-    );
+  async list<K extends Kind>(kind: K, orgId: string, where: Partial<Rows[K]> = {}, opts: ListOptions = {}): Promise<Rows[K][]> {
+    const rows = [...this._tbl(kind).values()].filter((r) => r['orgId'] === orgId && matches(r, where as Record<string, unknown>));
     rows.sort((a, b) => {
       const d = (a['createdAt'] as Date).getTime() - (b['createdAt'] as Date).getTime();
       const tie = String(a['id']).localeCompare(String(b['id']));
@@ -622,14 +586,12 @@ class MemoryRepo implements SharingRepo {
   }
 
   async lockAccount(orgId: string, now: Date) {
-    if (!this._tbl('account').has(orgId))
-      this._tbl('account').set(orgId, { id: orgId, orgId, createdAt: now });
+    if (!this._tbl('account').has(orgId)) this._tbl('account').set(orgId, { id: orgId, orgId, createdAt: now });
   }
   async storageBytes(orgId: string) {
     let n = 0;
     for (const b of this._tbl('blob').values())
-      if (b['orgId'] === orgId && b['status'] !== 'deleted')
-        n += (b['size'] as number | null) ?? (b['declaredSize'] as number);
+      if (b['orgId'] === orgId && b['status'] !== 'deleted') n += (b['size'] as number | null) ?? (b['declaredSize'] as number);
     return n;
   }
   async addUsage(orgId: string, period: string, metric: UsageMetric, amount: number) {
@@ -639,30 +601,20 @@ class MemoryRepo implements SharingRepo {
     return v;
   }
   async usage(orgId: string, period: string) {
-    return Object.fromEntries(
-      USAGE_METRICS.map((m) => [m, this.s.usage.get(`${orgId}|${period}|${m}`) ?? 0]),
-    ) as Record<UsageMetric, number>;
+    return Object.fromEntries(USAGE_METRICS.map((m) => [m, this.s.usage.get(`${orgId}|${period}|${m}`) ?? 0])) as Record<UsageMetric, number>;
   }
   async blobReferenced(orgId: string, blobId: string) {
-    const live = (kind: Kind, pred: (r: Record<string, unknown>) => boolean) =>
-      [...this._tbl(kind).values()].some((r) => r['orgId'] === orgId && pred(r));
+    const live = (kind: Kind, pred: (r: Record<string, unknown>) => boolean) => [...this._tbl(kind).values()].some((r) => r['orgId'] === orgId && pred(r));
     return (
       live('document', (d) => d['status'] === 'active' && d['draftBlobId'] === blobId) ||
-      live(
-        'version',
-        (v) =>
-          v['blobId'] === blobId &&
-          this._tbl('document').get(v['documentId'] as string)?.['status'] === 'active',
-      ) ||
+      live('version', (v) => v['blobId'] === blobId && this._tbl('document').get(v['documentId'] as string)?.['status'] === 'active') ||
       live('transferFile', (f) => f['status'] === 'current' && f['blobId'] === blobId) ||
       live('submissionFile', (f) => f['status'] === 'current' && f['blobId'] === blobId)
     );
   }
   async nextVersionNumber(orgId: string, documentId: string) {
     let max = 0;
-    for (const v of this._tbl('version').values())
-      if (v['orgId'] === orgId && v['documentId'] === documentId)
-        max = Math.max(max, v['number'] as number);
+    for (const v of this._tbl('version').values()) if (v['orgId'] === orgId && v['documentId'] === documentId) max = Math.max(max, v['number'] as number);
     return max + 1;
   }
   async searchShortLinks(orgId: string, q: ShortLinkQuery) {
@@ -672,19 +624,14 @@ class MemoryRepo implements SharingRepo {
         (!q.folder || r.folder === q.folder) &&
         (!q.tag || r.tags.includes(q.tag)) &&
         (!q.status || r.status === q.status) &&
-        (!needle ||
-          [r.code, r.label, r.destinationUrl].some((v) => v?.toLowerCase().includes(needle))),
+        (!needle || [r.code, r.label, r.destinationUrl].some((v) => v?.toLowerCase().includes(needle))),
     );
     return rows.slice(0, q.limit ?? 200);
   }
 
   async claimJobs(now: Date, limit: number, claim: string, lockedUntil: Date) {
     const due = [...this._tbl('job').values()]
-      .filter(
-        (j) =>
-          (j['runAfter'] as Date) <= now &&
-          (!j['lockedUntil'] || (j['lockedUntil'] as Date) <= now),
-      )
+      .filter((j) => (j['runAfter'] as Date) <= now && (!j['lockedUntil'] || (j['lockedUntil'] as Date) <= now))
       .sort((a, b) => +(a['runAfter'] as Date) - +(b['runAfter'] as Date))
       .slice(0, limit);
     for (const j of due) Object.assign(j, { claim, lockedUntil });
@@ -697,30 +644,20 @@ class MemoryRepo implements SharingRepo {
           (t['status'] === 'active' && t['expiresAt'] && (t['expiresAt'] as Date) <= now) ||
           t['status'] === 'deleted' ||
           (t['status'] === 'expired' && t['kind'] === 'temporary') ||
-          (t['status'] === 'revoked' &&
-            t['kind'] === 'temporary' &&
-            t['expiresAt'] &&
-            (t['expiresAt'] as Date) <= now),
+          (t['status'] === 'revoked' && t['kind'] === 'temporary' && t['expiresAt'] && (t['expiresAt'] as Date) <= now),
       )
       .slice(0, limit)
       .map((t) => clone(t) as unknown as TransferRow);
   }
   async dueUploadRequests(now: Date, limit: number) {
     return [...this._tbl('uploadRequest').values()]
-      .filter(
-        (r) => r['status'] !== 'purged' && r['deleteAfter'] && (r['deleteAfter'] as Date) <= now,
-      )
+      .filter((r) => r['status'] !== 'purged' && r['deleteAfter'] && (r['deleteAfter'] as Date) <= now)
       .slice(0, limit)
       .map((r) => clone(r) as unknown as UploadRequestRow);
   }
   async staleUploads(now: Date, limit: number) {
     return [...this._tbl('blob').values()]
-      .filter(
-        (b) =>
-          b['status'] === 'uploading' &&
-          b['uploadExpiresAt'] &&
-          (b['uploadExpiresAt'] as Date) <= now,
-      )
+      .filter((b) => b['status'] === 'uploading' && b['uploadExpiresAt'] && (b['uploadExpiresAt'] as Date) <= now)
       .slice(0, limit)
       .map((b) => clone(b) as unknown as BlobRow);
   }
@@ -737,32 +674,13 @@ class MemoryRepo implements SharingRepo {
   }
 
   async bumpStat(row: Omit<StatRow, 'count'>, n: number) {
-    const k = [
-      row.orgId,
-      row.subjectType,
-      row.subjectId,
-      row.day,
-      row.kind,
-      row.bot,
-      row.referrerHost,
-    ].join('|');
+    const k = [row.orgId, row.subjectType, row.subjectId, row.day, row.kind, row.bot, row.referrerHost].join('|');
     const cur = this.s.stats.get(k);
     this.s.stats.set(k, { ...row, count: (cur?.count ?? 0) + n });
   }
-  async listStats(
-    orgId: string,
-    subjectType: StatRow['subjectType'],
-    subjectId: string,
-    sinceDay: string,
-  ) {
+  async listStats(orgId: string, subjectType: StatRow['subjectType'], subjectId: string, sinceDay: string) {
     return [...this.s.stats.values()]
-      .filter(
-        (s) =>
-          s.orgId === orgId &&
-          s.subjectType === subjectType &&
-          s.subjectId === subjectId &&
-          s.day >= sinceDay,
-      )
+      .filter((s) => s.orgId === orgId && s.subjectType === subjectType && s.subjectId === subjectId && s.day >= sinceDay)
       .sort((a, b) => a.day.localeCompare(b.day) || a.kind.localeCompare(b.kind))
       .map((s) => ({ ...s }));
   }

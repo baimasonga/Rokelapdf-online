@@ -70,25 +70,51 @@ export interface TestEnv {
   clock: { now: () => Date; advance: (ms: number) => void };
   verifier: FakeVerifier;
   admin: pg.Pool;
-  call(method: string, path: string, o?: { token?: string; body?: unknown; headers?: Record<string, string> }): Promise<{ status: number; body: any; headers: Headers; text: string }>;
+  call(
+    method: string,
+    path: string,
+    o?: { token?: string; body?: unknown; headers?: Record<string, string> },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test responses are loosely typed JSON
+  ): Promise<{ status: number; body: any; headers: Headers; text: string }>;
   /** Signs a user in (creates them on first use). */
   user(email: string, o?: { verified?: boolean }): Promise<{ token: string; userId: string; orgId: string }>;
   operator(email: string): Promise<string>;
   plan(orgId: string, entitlements: Record<string, number | boolean>): Promise<void>;
   /** Committed audit events of an organization, oldest first. */
-  audit(orgId: string, action?: string): Promise<Array<{ action: string; reason: string | null; actor: { type: string; id: string | null }; metadata: Record<string, unknown> }>>;
-  content(method: 'PUT' | 'GET' | 'OPTIONS', url: string, body?: Buffer, headers?: Record<string, string>): Promise<{ status: number; body: Buffer; headers: Headers }>;
+  audit(
+    orgId: string,
+    action?: string,
+  ): Promise<Array<{ action: string; reason: string | null; actor: { type: string; id: string | null }; metadata: Record<string, unknown> }>>;
+  content(
+    method: 'PUT' | 'GET' | 'OPTIONS',
+    url: string,
+    body?: Buffer,
+    headers?: Record<string, string>,
+  ): Promise<{ status: number; body: Buffer; headers: Headers }>;
   close(): Promise<void>;
 }
 
-export async function makeEnv(o: { scanner?: FileScanner; resolveTxt?: (n: string) => Promise<string[][]>; env?: Record<string, string> } = {}): Promise<TestEnv> {
+export async function makeEnv(
+  o: { scanner?: FileScanner; resolveTxt?: (n: string) => Promise<string[][]>; env?: Record<string, string> } = {},
+): Promise<TestEnv> {
   let t = new Date('2026-03-01T00:00:00Z');
   const clock = { now: () => t, advance: (ms: number) => void (t = new Date(t.getTime() + ms)) };
   const { pool, adminPool } = await schemaPool();
-  const config = loadConfig({ APP_ENV: 'test', DATABASE_URL: dbUrl(), PUBLIC_ORIGIN: ORIGIN, RATE_LIMIT_PER_MINUTE: '100000', ...o.env } as unknown as NodeJS.ProcessEnv);
+  const config = loadConfig({
+    APP_ENV: 'test',
+    DATABASE_URL: dbUrl(),
+    PUBLIC_ORIGIN: ORIGIN,
+    RATE_LIMIT_PER_MINUTE: '100000',
+    ...o.env,
+  } as unknown as NodeJS.ProcessEnv);
   const verifier = new FakeVerifier();
   // Real content server on an ephemeral port; signed URLs name the configured origin and are rewritten to it.
-  const store = new LocalObjectStore({ root: mkdtempSync(join(tmpdir(), 'rokela-test-')), signingSecret: config.sharingSecret, contentOrigin: 'http://127.0.0.1:3001', minPartBytes: 1 });
+  const store = new LocalObjectStore({
+    root: mkdtempSync(join(tmpdir(), 'rokela-test-')),
+    signingSecret: config.sharingSecret,
+    contentOrigin: 'http://127.0.0.1:3001',
+    minPartBytes: 1,
+  });
   const server = createContentServer(store, { allowedOrigin: ORIGIN, now: () => clock.now().getTime() });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
@@ -131,7 +157,7 @@ export async function makeEnv(o: { scanner?: FileScanner; resolveTxt?: (n: strin
       return { status: res.status, body, headers: res.headers, text };
     },
     async user(email, uo = {}) {
-      const token = `test-token-${randomBytes(24).toString("hex")}`;
+      const token = `test-token-${randomBytes(24).toString('hex')}`;
       const existing = [...verifier.users.values()].find((u) => u.email === email);
       verifier.users.set(token, { userId: existing?.userId ?? crypto.randomUUID(), email, emailVerified: uo.verified ?? existing?.emailVerified ?? false });
       const me = await env.call('GET', '/api/v1/me', { token });

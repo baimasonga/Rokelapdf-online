@@ -82,7 +82,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (endpoint === publicOrigin) throw new Error('object storage must be a separate origin from the app');
     const bucket = need('R2_BUCKET');
     if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error('invalid R2_BUCKET');
-    storage = { kind: 's3', endpoint, region: env['R2_REGION'] ?? 'auto', bucket, accessKeyId: need('R2_ACCESS_KEY_ID'), secretAccessKey: need('R2_SECRET_ACCESS_KEY') };
+    storage = {
+      kind: 's3',
+      endpoint,
+      region: env['R2_REGION'] ?? 'auto',
+      bucket,
+      accessKeyId: need('R2_ACCESS_KEY_ID'),
+      secretAccessKey: need('R2_SECRET_ACCESS_KEY'),
+    };
   } else throw new Error('STORAGE must be local or r2');
 
   let clamd: AppConfig['clamd'];

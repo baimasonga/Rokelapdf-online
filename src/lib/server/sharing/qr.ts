@@ -4,19 +4,7 @@
 
 const EC_PER_BLOCK = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
 const BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
-const ALIGN: number[][] = [
-  [],
-  [],
-  [6, 18],
-  [6, 22],
-  [6, 26],
-  [6, 30],
-  [6, 34],
-  [6, 22, 38],
-  [6, 24, 42],
-  [6, 26, 46],
-  [6, 28, 50],
-];
+const ALIGN: number[][] = [[], [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]];
 const MAX_VERSION = 10;
 
 function rawModules(ver: number): number {
@@ -147,15 +135,8 @@ export function encodeQr(text: string): QrMatrix {
   const al = ALIGN[version]!;
   for (let i = 0; i < al.length; i++)
     for (let j = 0; j < al.length; j++) {
-      if (
-        (i === 0 && j === 0) ||
-        (i === 0 && j === al.length - 1) ||
-        (i === al.length - 1 && j === 0)
-      )
-        continue;
-      for (let dy = -2; dy <= 2; dy++)
-        for (let dx = -2; dx <= 2; dx++)
-          set(al[i]! + dx, al[j]! + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+      if ((i === 0 && j === 0) || (i === 0 && j === al.length - 1) || (i === al.length - 1 && j === 0)) continue;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(al[i]! + dx, al[j]! + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
     }
   const drawFormat = (mask: number) => {
     const d = (0 << 3) | mask; // level M = 00
@@ -224,9 +205,7 @@ export function encodeQr(text: string): QrMatrix {
     }
   };
   const applyMask = (m: number) => {
-    for (let y = 0; y < size; y++)
-      for (let x = 0; x < size; x++)
-        if (!isFn[y]![x] && maskFn(m, x, y)) modules[y]![x] = !modules[y]![x];
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (!isFn[y]![x] && maskFn(m, x, y)) modules[y]![x] = !modules[y]![x];
   };
   let best = 0,
     bestPenalty = Infinity;
@@ -286,8 +265,6 @@ export function qrSvg(text: string, scale = 8): string {
   const dim = (q.size + 8) * scale;
   let path = '';
   for (let y = 0; y < q.size; y++)
-    for (let x = 0; x < q.size; x++)
-      if (q.modules[y]![x])
-        path += `M${(x + 4) * scale} ${(y + 4) * scale}h${scale}v${scale}h-${scale}z`;
+    for (let x = 0; x < q.size; x++) if (q.modules[y]![x]) path += `M${(x + 4) * scale} ${(y + 4) * scale}h${scale}v${scale}h-${scale}z`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${dim}" height="${dim}" viewBox="0 0 ${dim} ${dim}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#ffffff"/><path fill="#000000" d="${path}"/></svg>\n`;
 }

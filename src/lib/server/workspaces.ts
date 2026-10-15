@@ -56,15 +56,17 @@ export class WorkspaceService {
       );
       // Lock the user row so concurrent first requests create exactly one personal workspace.
       await q.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [p.userId]);
-      const has = await q.query(
-        `SELECT 1 FROM memberships m JOIN organizations o ON o.id = m.org_id WHERE m.user_id = $1 AND o.kind = 'personal'`,
-        [p.userId],
-      );
+      const has = await q.query(`SELECT 1 FROM memberships m JOIN organizations o ON o.id = m.org_id WHERE m.user_id = $1 AND o.kind = 'personal'`, [p.userId]);
       if (has.rowCount) return;
       const id = newId('org');
       await q.query("INSERT INTO organizations (id, name, kind, created_at) VALUES ($1, 'Personal', 'personal', $2)", [id, now]);
       await q.query("INSERT INTO memberships (org_id, user_id, role, created_at) VALUES ($1,$2,'owner',$3)", [id, p.userId, now]);
-      audit.push({ actor: { type: 'user', id: p.userId }, action: r.rows[0]?.inserted ? 'user.registered' : 'org.created', target: { type: 'org', id }, orgId: id });
+      audit.push({
+        actor: { type: 'user', id: p.userId },
+        action: r.rows[0]?.inserted ? 'user.registered' : 'org.created',
+        target: { type: 'org', id },
+        orgId: id,
+      });
     });
   }
 
@@ -129,17 +131,18 @@ export class WorkspaceService {
   /** Adds an existing user (they must have signed in once). An actor may grant at most their own role. */
   async addMember(p: UserPrincipal, orgId: string, email: string, role: Role) {
     const actor = await this.require(p, orgId, 'org:manage_members');
-    if (RANK[role] > RANK[actor] || (role === 'owner' && actor !== 'owner'))
-      throw new DomainError('forbidden', 'cannot grant a role above your own');
+    if (RANK[role] > RANK[actor] || (role === 'owner' && actor !== 'owner')) throw new DomainError('forbidden', 'cannot grant a role above your own');
     return this.#tx(async (q, audit) => {
       const org = (await q.query('SELECT kind FROM organizations WHERE id = $1', [orgId])).rows[0];
       if (!org || org.kind === 'personal') throw new DomainError('forbidden', 'personal workspaces cannot have members');
       const u = (await q.query('SELECT id FROM users WHERE email = $1', [email.trim().toLowerCase()])).rows[0];
       if (!u) throw new DomainError('not_found', 'no account with that email has signed in yet');
-      const ins = await q.query(
-        'INSERT INTO memberships (org_id, user_id, role, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
-        [orgId, u.id, role, this.#clock.now()],
-      );
+      const ins = await q.query('INSERT INTO memberships (org_id, user_id, role, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [
+        orgId,
+        u.id,
+        role,
+        this.#clock.now(),
+      ]);
       if (!ins.rowCount) throw new DomainError('conflict', 'already a member');
       audit.push({ actor: { type: 'user', id: p.userId }, action: 'member.added', target: { type: 'user', id: u.id }, orgId, metadata: { role } });
       return { userId: u.id as string, role };

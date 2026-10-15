@@ -22,20 +22,10 @@ export interface ObjectStore {
   readonly minPartBytes: number;
   createMultipart(key: string, contentType: string): Promise<{ uploadId: string }>;
   /** URL for one `PUT` of exactly `bytes` bytes, valid until `expiresAt`. */
-  signPart(
-    key: string,
-    uploadId: string,
-    partNumber: number,
-    bytes: number,
-    expiresAt: Date,
-  ): Promise<string>;
+  signPart(key: string, uploadId: string, partNumber: number, bytes: number, expiresAt: Date): Promise<string>;
   /** Parts the store already holds: the basis of resuming an interrupted upload. */
   listParts(key: string, uploadId: string): Promise<UploadedPart[]>;
-  completeMultipart(
-    key: string,
-    uploadId: string,
-    parts: ReadonlyArray<{ partNumber: number; etag: string }>,
-  ): Promise<{ size: number }>;
+  completeMultipart(key: string, uploadId: string, parts: ReadonlyArray<{ partNumber: number; etag: string }>): Promise<{ size: number }>;
   /** Idempotent. */
   abortMultipart(key: string, uploadId: string): Promise<void>;
   head(key: string): Promise<{ size: number } | undefined>;

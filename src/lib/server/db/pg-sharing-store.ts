@@ -22,14 +22,7 @@ import {
   type UsageMetric,
 } from '../sharing';
 import { appendAuditInTx } from './audit';
-import {
-  UNIQUE_VIOLATION,
-  pgErr,
-  serialized,
-  withTransaction,
-  type PgPool,
-  type Queryable,
-} from './pg';
+import { UNIQUE_VIOLATION, pgErr, serialized, withTransaction, type PgPool, type Queryable } from './pg';
 
 // Column types: t text, i bigint/integer (returned as number), b boolean, d timestamptz, j jsonb.
 type Col = 't' | 'i' | 'b' | 'd' | 'j';
@@ -397,10 +390,7 @@ const SPECS: Record<Kind, TableSpec> = {
 };
 
 const SELECT: Record<Kind, string> = Object.fromEntries(
-  (Object.entries(SPECS) as Array<[Kind, TableSpec]>).map(([k, s]) => [
-    k,
-    `SELECT ${Object.keys(s.cols).map(snake).join(', ')} FROM ${s.table}`,
-  ]),
+  (Object.entries(SPECS) as Array<[Kind, TableSpec]>).map(([k, s]) => [k, `SELECT ${Object.keys(s.cols).map(snake).join(', ')} FROM ${s.table}`]),
 ) as Record<Kind, string>;
 
 function fromRow<K extends Kind>(kind: K, r: Record<string, unknown>): Rows[K] {
@@ -411,8 +401,7 @@ function fromRow<K extends Kind>(kind: K, r: Record<string, unknown>): Rows[K] {
   }
   return out as unknown as Rows[K];
 }
-const toParam = (type: Col, v: unknown) =>
-  v === undefined ? null : type === 'j' ? JSON.stringify(v) : v;
+const toParam = (type: Col, v: unknown) => (v === undefined ? null : type === 'j' ? JSON.stringify(v) : v);
 
 function fieldsOf(kind: Kind, obj: object): string[] {
   const cols = SPECS[kind].cols;
@@ -435,22 +424,13 @@ class PgSharingRepo implements SharingRepo {
   async insert<K extends Kind>(kind: K, row: Rows[K]): Promise<void> {
     const spec = SPECS[kind];
     const fields = Object.keys(spec.cols);
-    const values = fields.map((f) =>
-      toParam(spec.cols[f]!, (row as unknown as Record<string, unknown>)[f]),
-    );
+    const values = fields.map((f) => toParam(spec.cols[f]!, (row as unknown as Record<string, unknown>)[f]));
     await this.#db
-      .query(
-        `INSERT INTO ${spec.table} (${fields.map(snake).join(', ')}) VALUES (${fields.map((_, i) => `$${i + 1}`).join(', ')})`,
-        values,
-      )
+      .query(`INSERT INTO ${spec.table} (${fields.map(snake).join(', ')}) VALUES (${fields.map((_, i) => `$${i + 1}`).join(', ')})`, values)
       .catch((e) => rethrowDuplicate(kind, e));
   }
 
-  async #one<K extends Kind>(
-    kind: K,
-    sql: string,
-    params: unknown[],
-  ): Promise<Rows[K] | undefined> {
+  async #one<K extends Kind>(kind: K, sql: string, params: unknown[]): Promise<Rows[K] | undefined> {
     const r = await this.#db.query(sql, params);
     return r.rows[0] ? fromRow(kind, r.rows[0]) : undefined;
   }
@@ -461,8 +441,7 @@ class PgSharingRepo implements SharingRepo {
     return this.#one(kind, `${SELECT[kind]} WHERE id = $1 AND org_id = $2 FOR UPDATE`, [id, orgId]);
   }
   findUnique<K extends UniqueKind>(kind: K, field: UniqueField<K>, value: string) {
-    if (!(UNIQUE_LOOKUPS[kind] as readonly string[]).includes(field as string))
-      throw new Error('not a unique lookup');
+    if (!(UNIQUE_LOOKUPS[kind] as readonly string[]).includes(field as string)) throw new Error('not a unique lookup');
     return this.#one(kind, `${SELECT[kind]} WHERE ${snake(field as string)} = $1`, [value]);
   }
 
@@ -470,30 +449,17 @@ class PgSharingRepo implements SharingRepo {
     const spec = SPECS[kind];
     const fields = fieldsOf(kind, patch).filter((f) => f !== 'id' && f !== 'orgId');
     if (!fields.length) return;
-    const values = fields.map((f) =>
-      toParam(spec.cols[f]!, (patch as unknown as Record<string, unknown>)[f]),
-    );
+    const values = fields.map((f) => toParam(spec.cols[f]!, (patch as unknown as Record<string, unknown>)[f]));
     await this.#db
-      .query(
-        `UPDATE ${spec.table} SET ${fields.map((f, i) => `${snake(f)} = $${i + 3}`).join(', ')} WHERE id = $1 AND org_id = $2`,
-        [id, orgId, ...values],
-      )
+      .query(`UPDATE ${spec.table} SET ${fields.map((f, i) => `${snake(f)} = $${i + 3}`).join(', ')} WHERE id = $1 AND org_id = $2`, [id, orgId, ...values])
       .catch((e) => rethrowDuplicate(kind, e));
   }
 
   async remove(kind: 'job' | 'domain', orgId: string, id: string) {
-    await this.#db.query(`DELETE FROM ${SPECS[kind].table} WHERE id = $1 AND org_id = $2`, [
-      id,
-      orgId,
-    ]);
+    await this.#db.query(`DELETE FROM ${SPECS[kind].table} WHERE id = $1 AND org_id = $2`, [id, orgId]);
   }
 
-  async list<K extends Kind>(
-    kind: K,
-    orgId: string,
-    where: Partial<Rows[K]> = {},
-    opts: ListOptions = {},
-  ) {
+  async list<K extends Kind>(kind: K, orgId: string, where: Partial<Rows[K]> = {}, opts: ListOptions = {}) {
     const spec = SPECS[kind];
     const params: unknown[] = [orgId];
     const conds = ['org_id = $1'];
@@ -507,26 +473,19 @@ class PgSharingRepo implements SharingRepo {
     }
     params.push(Math.max(1, Math.min(100_000, opts.limit ?? 500)));
     const dir = opts.order === 'oldest' ? 'ASC' : 'DESC';
-    const r = await this.#db.query(
-      `${SELECT[kind]} WHERE ${conds.join(' AND ')} ORDER BY ${spec.order} ${dir}, id ${dir} LIMIT $${params.length}`,
-      params,
-    );
+    const r = await this.#db.query(`${SELECT[kind]} WHERE ${conds.join(' AND ')} ORDER BY ${spec.order} ${dir}, id ${dir} LIMIT $${params.length}`, params);
     return r.rows.map((x) => fromRow(kind, x));
   }
 
   async lockAccount(orgId: string, now: Date) {
-    await this.#db.query(
-      'INSERT INTO share_accounts (id, org_id, created_at) VALUES ($1, $1, $2) ON CONFLICT (id) DO NOTHING',
-      [orgId, now],
-    );
+    await this.#db.query('INSERT INTO share_accounts (id, org_id, created_at) VALUES ($1, $1, $2) ON CONFLICT (id) DO NOTHING', [orgId, now]);
     await this.#db.query('SELECT id FROM share_accounts WHERE id = $1 FOR UPDATE', [orgId]);
   }
 
   async storageBytes(orgId: string) {
-    const r = await this.#db.query(
-      "SELECT COALESCE(SUM(COALESCE(size, declared_size)), 0) AS n FROM share_blobs WHERE org_id = $1 AND status <> 'deleted'",
-      [orgId],
-    );
+    const r = await this.#db.query("SELECT COALESCE(SUM(COALESCE(size, declared_size)), 0) AS n FROM share_blobs WHERE org_id = $1 AND status <> 'deleted'", [
+      orgId,
+    ]);
     return Number(r.rows[0]!.n);
   }
 
@@ -541,10 +500,7 @@ class PgSharingRepo implements SharingRepo {
   }
 
   async usage(orgId: string, period: string) {
-    const r = await this.#db.query(
-      'SELECT metric, amount FROM share_usage WHERE org_id = $1 AND period = $2',
-      [orgId, period],
-    );
+    const r = await this.#db.query('SELECT metric, amount FROM share_usage WHERE org_id = $1 AND period = $2', [orgId, period]);
     const out = Object.fromEntries(USAGE_METRICS.map((m) => [m, 0])) as Record<UsageMetric, number>;
     for (const row of r.rows) out[row.metric as UsageMetric] = Number(row.amount);
     return out;
@@ -563,10 +519,7 @@ class PgSharingRepo implements SharingRepo {
   }
 
   async nextVersionNumber(orgId: string, documentId: string) {
-    const r = await this.#db.query(
-      'SELECT COALESCE(MAX(number), 0) + 1 AS n FROM share_versions WHERE org_id = $1 AND document_id = $2',
-      [orgId, documentId],
-    );
+    const r = await this.#db.query('SELECT COALESCE(MAX(number), 0) + 1 AS n FROM share_versions WHERE org_id = $1 AND document_id = $2', [orgId, documentId]);
     return Number(r.rows[0]!.n);
   }
 
@@ -591,10 +544,7 @@ class PgSharingRepo implements SharingRepo {
       conds.push(`status = $${params.length}`);
     }
     params.push(Math.max(1, Math.min(1000, q.limit ?? 200)));
-    const r = await this.#db.query(
-      `${SELECT.shortLink} WHERE ${conds.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
-      params,
-    );
+    const r = await this.#db.query(`${SELECT.shortLink} WHERE ${conds.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT $${params.length}`, params);
     return r.rows.map((x) => fromRow('shortLink', x));
   }
 
@@ -623,27 +573,21 @@ class PgSharingRepo implements SharingRepo {
   }
 
   async dueUploadRequests(now: Date, limit: number): Promise<UploadRequestRow[]> {
-    const r = await this.#db.query(
-      `${SELECT.uploadRequest} WHERE status <> 'purged' AND delete_after <= $1 ORDER BY delete_after, id LIMIT $2`,
-      [now, limit],
-    );
+    const r = await this.#db.query(`${SELECT.uploadRequest} WHERE status <> 'purged' AND delete_after <= $1 ORDER BY delete_after, id LIMIT $2`, [now, limit]);
     return r.rows.map((x) => fromRow('uploadRequest', x));
   }
 
   async staleUploads(now: Date, limit: number): Promise<BlobRow[]> {
-    const r = await this.#db.query(
-      `${SELECT.blob} WHERE status = 'uploading' AND upload_expires_at <= $1 ORDER BY upload_expires_at, id LIMIT $2`,
-      [now, limit],
-    );
+    const r = await this.#db.query(`${SELECT.blob} WHERE status = 'uploading' AND upload_expires_at <= $1 ORDER BY upload_expires_at, id LIMIT $2`, [
+      now,
+      limit,
+    ]);
     return r.rows.map((x) => fromRow('blob', x));
   }
 
   async listAbuse(status: AbuseRow['status'] | undefined, limit: number) {
     const r = status
-      ? await this.#db.query(
-          `${SELECT.abuse} WHERE status = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
-          [status, limit],
-        )
+      ? await this.#db.query(`${SELECT.abuse} WHERE status = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, [status, limit])
       : await this.#db.query(`${SELECT.abuse} ORDER BY created_at DESC, id DESC LIMIT $1`, [limit]);
     return r.rows.map((x) => fromRow('abuse', x));
   }
@@ -662,12 +606,7 @@ class PgSharingRepo implements SharingRepo {
     );
   }
 
-  async listStats(
-    orgId: string,
-    subjectType: StatRow['subjectType'],
-    subjectId: string,
-    sinceDay: string,
-  ) {
+  async listStats(orgId: string, subjectType: StatRow['subjectType'], subjectId: string, sinceDay: string) {
     const r = await this.#db.query(
       `SELECT org_id, subject_type, subject_id, to_char(day, 'YYYY-MM-DD') AS day, kind, bot, referrer_host, count
        FROM share_stats WHERE org_id = $1 AND subject_type = $2 AND subject_id = $3 AND day >= $4
@@ -687,22 +626,12 @@ class PgSharingRepo implements SharingRepo {
   }
 
   async findAttempt(key: string): Promise<AttemptState | undefined> {
-    const r = await this.#db.query(
-      'SELECT count, locked_until FROM share_attempts WHERE key = $1',
-      [key],
-    );
+    const r = await this.#db.query('SELECT count, locked_until FROM share_attempts WHERE key = $1', [key]);
     const row = r.rows[0];
-    return row
-      ? { count: Number(row.count), lockedUntil: row.locked_until as Date | null }
-      : undefined;
+    return row ? { count: Number(row.count), lockedUntil: row.locked_until as Date | null } : undefined;
   }
 
-  async recordAttemptFailure(
-    key: string,
-    now: Date,
-    max: number,
-    lockMs: number,
-  ): Promise<AttemptState> {
+  async recordAttemptFailure(key: string, now: Date, max: number, lockMs: number): Promise<AttemptState> {
     const lock = new Date(now.getTime() + lockMs);
     const r = await this.#db.query(
       `INSERT INTO share_attempts (key, count, locked_until, updated_at)
@@ -722,10 +651,7 @@ class PgSharingRepo implements SharingRepo {
   }
 
   async #purge(table: string, column: string, before: unknown, limit: number) {
-    const r = await this.#db.query(
-      `DELETE FROM ${table} WHERE ctid IN (SELECT ctid FROM ${table} WHERE ${column} < $1 LIMIT $2)`,
-      [before, limit],
-    );
+    const r = await this.#db.query(`DELETE FROM ${table} WHERE ctid IN (SELECT ctid FROM ${table} WHERE ${column} < $1 LIMIT $2)`, [before, limit]);
     return r.rowCount ?? 0;
   }
   purgeEvents(before: Date, limit: number) {

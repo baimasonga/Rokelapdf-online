@@ -4,10 +4,7 @@ import type { FileScanner, ScanInput, ScanVerdict } from './storage';
 
 // The industry-standard antivirus test string. Detecting it proves the quarantine path end to end without
 // handling real malware. Assembled from parts so this source file is not itself flagged by antivirus tools.
-export const EICAR = Buffer.from(
-  ['X5O!P%@AP[4\\PZX54(P^)7CC)7}$', 'EICAR-STANDARD-ANTIVIRUS', '-TEST-FILE!$H+H*'].join(''),
-  'latin1',
-);
+export const EICAR = Buffer.from(['X5O!P%@AP[4\\PZX54(P^)7CC)7}$', 'EICAR-STANDARD-ANTIVIRUS', '-TEST-FILE!$H+H*'].join(''), 'latin1');
 
 /**
  * Always-on structural checks: the bytes must match the permitted format named by the extension, and must not
@@ -36,8 +33,7 @@ export class BasicContentScanner implements FileScanner {
     if (!kind) return { verdict: 'rejected', reason: 'type_not_permitted', sha256, size };
     if (eicar) return { verdict: 'rejected', reason: 'malware_signature', sha256, size };
     if (size === 0) return { verdict: 'rejected', reason: 'empty', sha256, size };
-    if (!magicMatches(kind, head))
-      return { verdict: 'rejected', reason: 'content_does_not_match_type', sha256, size };
+    if (!magicMatches(kind, head)) return { verdict: 'rejected', reason: 'content_does_not_match_type', sha256, size };
     return { verdict: 'clean', reason: null, sha256, size };
   }
 }

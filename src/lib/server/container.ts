@@ -12,15 +12,7 @@ import { assertIdent } from './db/schema';
 import { LocalObjectStore } from './storage/local';
 import { S3ObjectStore } from './storage/s3';
 import { ClamdScanner } from './storage/clamd';
-import {
-  BasicContentScanner,
-  ChainedScanner,
-  DEFAULT_SHARING_CONFIG,
-  SharingKeys,
-  SharingService,
-  type FileScanner,
-  type ObjectStore,
-} from './sharing';
+import { BasicContentScanner, ChainedScanner, DEFAULT_SHARING_CONFIG, SharingKeys, SharingService, type FileScanner, type ObjectStore } from './sharing';
 
 export interface Container {
   config: AppConfig;
@@ -63,8 +55,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
   const clock = o.clock ?? systemClock;
   const ownPool = o.pool ? undefined : poolFor(config);
   const pool: PgPool = o.pool ?? ownPool!;
-  const verifier =
-    o.verifier ?? new SupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl, publishableKey: config.supabasePublishableKey });
+  const verifier = o.verifier ?? new SupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl, publishableKey: config.supabasePublishableKey });
   const workspaces = new WorkspaceService(pool, clock);
   let localStore: LocalObjectStore | undefined;
   let objects = o.objects;
@@ -123,9 +114,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 function derive(pw: string, salt: Buffer, N: number, r: number, p: number): Promise<Buffer> {
-  return new Promise((res, rej) =>
-    scrypt(pw.normalize('NFKC'), salt, 32, { N, r, p, maxmem: 256 * N * r }, (e, k) => (e ? rej(e) : res(k))),
-  );
+  return new Promise((res, rej) => scrypt(pw.normalize('NFKC'), salt, 32, { N, r, p, maxmem: 256 * N * r }, (e, k) => (e ? rej(e) : res(k))));
 }
 export async function hashPassword(pw: string): Promise<string> {
   const salt = randomBytes(16);

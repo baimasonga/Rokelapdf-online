@@ -30,7 +30,14 @@ export async function visit(env: TestEnv, path: string, headers: Record<string, 
 }
 
 /** Full owner upload: begin → signed part PUTs to the content origin → complete → quarantine jobs. */
-export async function upload(env: TestEnv, token: string, orgId: string, body: Record<string, unknown>, bytes: Buffer, opts: { process?: boolean; skipParts?: number[] } = {}) {
+export async function upload(
+  env: TestEnv,
+  token: string,
+  orgId: string,
+  body: Record<string, unknown>,
+  bytes: Buffer,
+  opts: { process?: boolean; skipParts?: number[] } = {},
+) {
   const begin = await env.call('POST', `${sp(orgId)}/uploads`, { token, body: { ...body, size: bytes.length } });
   if (begin.status !== 201) return { begin };
   const id = begin.body.upload_id as string;

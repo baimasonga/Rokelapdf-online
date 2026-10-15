@@ -26,10 +26,7 @@ export class RateLimiter {
   }
 
   async purge(before: Date): Promise<number> {
-    const r = await this.#pool.query(
-      'DELETE FROM rate_limits WHERE ctid IN (SELECT ctid FROM rate_limits WHERE window_start < $1 LIMIT 5000)',
-      [before],
-    );
+    const r = await this.#pool.query('DELETE FROM rate_limits WHERE ctid IN (SELECT ctid FROM rate_limits WHERE window_start < $1 LIMIT 5000)', [before]);
     return r.rowCount ?? 0;
   }
 }

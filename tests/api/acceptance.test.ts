@@ -1,21 +1,13 @@
 import jsQRModule from 'jsqr';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DAY } from './support';
-import {
-  BUSINESS,
-  UA,
-  visit,
-  fetchSigned,
-  pdf,
-  sharingEnv,
-  sp,
-  tokenOf,
-  upload,
-  type SharingEnv,
-} from './support';
+import { BUSINESS, UA, visit, fetchSigned, pdf, sharingEnv, sp, tokenOf, upload, type SharingEnv } from './support';
 
-const jsQR = ((jsQRModule as unknown as { default?: unknown }).default ??
-  jsQRModule) as unknown as (d: Uint8ClampedArray, w: number, h: number) => { data: string } | null;
+const jsQR = ((jsQRModule as unknown as { default?: unknown }).default ?? jsQRModule) as unknown as (
+  d: Uint8ClampedArray,
+  w: number,
+  h: number,
+) => { data: string } | null;
 
 let env: SharingEnv;
 afterEach(async () => env?.close());
@@ -49,13 +41,7 @@ describe('acceptance: file sharing and short links', () => {
     const docId = doc.body.id as string;
 
     // The editor saves a private draft, then the user exports an immutable version.
-    await upload(
-      env,
-      t,
-      owner.orgId,
-      { target: 'draft', document_id: docId, name: 'contract.pdf' },
-      pdf('draft one'),
-    );
+    await upload(env, t, owner.orgId, { target: 'draft', document_id: docId, name: 'contract.pdf' }, pdf('draft one'));
     const v1 = await env.call('POST', `${P}/documents/${docId}/export`, {
       token: t,
       body: { note: 'first issue' },
@@ -116,20 +102,12 @@ describe('acceptance: file sharing and short links', () => {
     const bytes = await fetchSigned(env, dl.body.url);
     expect(bytes.status).toBe(200);
     expect(bytes.body.toString('latin1')).toContain('draft one');
-    expect(bytes.headers.get('content-disposition')).toMatch(
-      /^attachment; filename="Supply contract v1.pdf"/,
-    );
+    expect(bytes.headers.get('content-disposition')).toMatch(/^attachment; filename="Supply contract v1.pdf"/);
     expect(bytes.headers.get('x-content-type-options')).toBe('nosniff');
     expect(bytes.headers.get('content-security-policy')).toContain("default-src 'none'");
 
     // Unfinished edits: a new draft and even a new export stay private until explicitly published.
-    await upload(
-      env,
-      t,
-      owner.orgId,
-      { target: 'draft', document_id: docId, name: 'contract.pdf' },
-      pdf('draft two (corrected)'),
-    );
+    await upload(env, t, owner.orgId, { target: 'draft', document_id: docId, name: 'contract.pdf' }, pdf('draft two (corrected)'));
     const again = await env.call('POST', `/api/v1/public/shares/${latestToken}/open`, { body: {} });
     expect(again.body.version.number).toBe(1);
     const v2 = await env.call('POST', `${P}/documents/${docId}/export`, { token: t, body: {} });
@@ -139,9 +117,7 @@ describe('acceptance: file sharing and short links', () => {
     const stillBytes = await env.call('POST', `/api/v1/public/shares/${latestToken}/files/url`, {
       body: { grant: still.body.grant, file_id: still.body.files[0].id, disposition: 'attachment' },
     });
-    expect((await fetchSigned(env, stillBytes.body.url)).body.toString('latin1')).toContain(
-      'draft one',
-    );
+    expect((await fetchSigned(env, stillBytes.body.url)).body.toString('latin1')).toContain('draft one');
 
     // Safe replacement: publish v2 with an explanation; the latest link follows, the fixed link does not.
     const pub = await env.call('POST', `${P}/documents/${docId}/publish`, {
@@ -167,12 +143,7 @@ describe('acceptance: file sharing and short links', () => {
     });
     expect(stale.status).toBe(409);
     const detail = await env.call('GET', `${P}/documents/${docId}`, { token: t });
-    expect(
-      detail.body.versions.map((v: { number: number; published: boolean }) => [
-        v.number,
-        v.published,
-      ]),
-    ).toEqual([
+    expect(detail.body.versions.map((v: { number: number; published: boolean }) => [v.number, v.published])).toEqual([
       [2, true],
       [1, false],
     ]);
@@ -227,13 +198,7 @@ describe('acceptance: file sharing and short links', () => {
       token: owner.token,
       body: { title: 'Board pack', kind: 'temporary' },
     });
-    await upload(
-      env,
-      owner.token,
-      owner.orgId,
-      { target: 'transfer', transfer_id: tr.body.id, name: 'pack.pdf' },
-      pdf('pack'),
-    );
+    await upload(env, owner.token, owner.orgId, { target: 'transfer', transfer_id: tr.body.id, name: 'pack.pdf' }, pdf('pack'));
     const expires = new Date(env.clock.now().getTime() + 2 * DAY).toISOString();
     const link = await env.call('POST', `${P}/links`, {
       token: owner.token,
@@ -248,8 +213,7 @@ describe('acceptance: file sharing and short links', () => {
     expect(link.body).toMatchObject({ has_password: true, expires_at: expires, state: 'active' });
     expect(JSON.stringify(link.body)).not.toContain('scrypt');
     const tk = tokenOf(link.body.url);
-    const open = (password?: string) =>
-      env.call('POST', `/api/v1/public/shares/${tk}/open`, { body: password ? { password } : {} });
+    const open = (password?: string) => env.call('POST', `/api/v1/public/shares/${tk}/open`, { body: password ? { password } : {} });
     expect((await open()).status).toBe(401);
     expect((await open('wrong-password')).body.message).toBe('incorrect password');
     const ok = await open('river-stone-42');
@@ -261,9 +225,7 @@ describe('acceptance: file sharing and short links', () => {
       });
     const signed = await url(ok.body.grant);
     expect(signed.status).toBe(200);
-    expect(
-      new Date(signed.body.expires_at).getTime() - env.clock.now().getTime(),
-    ).toBeLessThanOrEqual(60_000);
+    expect(new Date(signed.body.expires_at).getTime() - env.clock.now().getTime()).toBeLessThanOrEqual(60_000);
 
     // Revocation applies to the next request even with a still-valid grant.
     expect(
@@ -339,9 +301,7 @@ describe('acceptance: file sharing and short links', () => {
       notify: true,
     };
     // Upload requests are a paid feature (phase 2).
-    expect(
-      (await env.call('POST', `${P}/upload-requests`, { token: owner.token, body })).status,
-    ).toBe(403);
+    expect((await env.call('POST', `${P}/upload-requests`, { token: owner.token, body })).status).toBe(403);
     await env.plan(owner.orgId, BUSINESS);
     const req = await env.call('POST', `${P}/upload-requests`, { token: owner.token, body });
     expect(req.status).toBe(201);
@@ -352,8 +312,7 @@ describe('acceptance: file sharing and short links', () => {
     expect(opened.status).toBe(200);
     expect(opened.body.requirements).toHaveLength(2);
     const start = async (name: string) =>
-      (await env.call('POST', `${R}/submissions`, { body: { grant: opened.body.grant, name } }))
-        .body.submission_secret as string;
+      (await env.call('POST', `${R}/submissions`, { body: { grant: opened.body.grant, name } })).body.submission_secret as string;
     const alice = await start('Alice');
     const bob = await start('Bob');
     const sendFile = async (secret: string, requirement: string, name: string, bytes: Buffer) => {
@@ -369,10 +328,7 @@ describe('acceptance: file sharing and short links', () => {
         body: { part_numbers: nums },
       });
       for (const p of parts.body.parts) {
-        const chunk = bytes.subarray(
-          (p.part_number - 1) * begin.body.part_size,
-          p.part_number * begin.body.part_size,
-        );
+        const chunk = bytes.subarray((p.part_number - 1) * begin.body.part_size, p.part_number * begin.body.part_size);
         expect((await env.content('PUT', p.url, chunk)).status).toBe(200);
       }
       expect(
@@ -444,13 +400,9 @@ describe('acceptance: file sharing and short links', () => {
     const detail = await env.call('GET', `${P}/upload-requests/${req.body.id}`, {
       token: owner.token,
     });
-    const sub = detail.body.submissions.find(
-      (s: { submitter_name: string }) => s.submitter_name === 'Alice',
-    );
+    const sub = detail.body.submissions.find((s: { submitter_name: string }) => s.submitter_name === 'Alice');
     expect(sub).toMatchObject({ status: 'submitted', identity_verified: false });
-    expect(
-      sub.files.map((f: { name: string; status: string }) => [f.name, f.status]).sort(),
-    ).toEqual([
+    expect(sub.files.map((f: { name: string; status: string }) => [f.name, f.status]).sort()).toEqual([
       ['alice-contract.pdf', 'available'],
       ['alice-id.pdf', 'available'],
     ]);
@@ -461,9 +413,7 @@ describe('acceptance: file sharing and short links', () => {
     expect(dl.status).toBe(200);
     expect((await fetchSigned(env, dl.body.url)).body.toString('latin1')).toContain('alice');
     const notes = await env.call('GET', `${P}/notifications`, { token: owner.token });
-    expect(notes.body.items.some((n: { kind: string }) => n.kind === 'request.submitted')).toBe(
-      true,
-    );
+    expect(notes.body.items.some((n: { kind: string }) => n.kind === 'request.submitted')).toBe(true);
     // Notifications are in-app (no email provider is configured in this app yet); no job fails.
     expect((await env.c.sharing.processJobs({ limit: 100 })).failed).toBe(0);
   });
@@ -477,13 +427,7 @@ describe('acceptance: file sharing and short links', () => {
       token: owner.token,
       body: { title: 'Notice', kind: 'temporary' },
     });
-    await upload(
-      env,
-      owner.token,
-      owner.orgId,
-      { target: 'transfer', transfer_id: tr.body.id, name: 'notice.pdf' },
-      pdf('notice'),
-    );
+    await upload(env, owner.token, owner.orgId, { target: 'transfer', transfer_id: tr.body.id, name: 'notice.pdf' }, pdf('notice'));
     const open = await env.call('POST', `${P}/links`, {
       token: owner.token,
       body: {
@@ -537,16 +481,8 @@ describe('acceptance: file sharing and short links', () => {
     const act = await env.call('GET', `${P}/links/${restricted.body.id}/activity`, {
       token: owner.token,
     });
-    expect(act.body.events.map((e: { kind: string }) => e.kind).sort()).toEqual([
-      'access',
-      'acknowledge',
-      'download',
-    ]);
-    expect(
-      act.body.events.every(
-        (e: { identity: { email: string } }) => e.identity.email === 'client@example.test',
-      ),
-    ).toBe(true);
+    expect(act.body.events.map((e: { kind: string }) => e.kind).sort()).toEqual(['access', 'acknowledge', 'download']);
+    expect(act.body.events.every((e: { identity: { email: string } }) => e.identity.email === 'client@example.test')).toBe(true);
     expect(act.body.totals).toEqual({
       access: { count: 1, bots: 0 },
       download: { count: 1, bots: 0 },
@@ -596,13 +532,8 @@ describe('acceptance: file sharing and short links', () => {
     // On reload, the client asks storage what it already holds and resumes from there.
     const status = await env.call('GET', `${P}/uploads/${id}`, { token: owner.token });
     expect(status.body.status).toBe('uploading');
-    expect(status.body.uploaded_parts).toEqual([
-      1,
-      ...Array.from({ length: partCount - 4 }, (_, i) => i + 5),
-    ]);
-    const missing = Array.from({ length: partCount }, (_, i) => i + 1).filter(
-      (n) => !status.body.uploaded_parts.includes(n),
-    );
+    expect(status.body.uploaded_parts).toEqual([1, ...Array.from({ length: partCount - 4 }, (_, i) => i + 5)]);
+    const missing = Array.from({ length: partCount }, (_, i) => i + 1).filter((n) => !status.body.uploaded_parts.includes(n));
     expect(missing).toEqual([2, 3, 4]);
     expect(incomplete.body.details.missing_parts).toEqual(missing);
     const signed = await env.call('POST', `${P}/uploads/${id}/parts`, {
@@ -610,10 +541,7 @@ describe('acceptance: file sharing and short links', () => {
       body: { part_numbers: missing },
     });
     for (const p of signed.body.parts) {
-      const chunk = bytes.subarray(
-        (p.part_number - 1) * first.begin.body.part_size,
-        p.part_number * first.begin.body.part_size,
-      );
+      const chunk = bytes.subarray((p.part_number - 1) * first.begin.body.part_size, p.part_number * first.begin.body.part_size);
       expect((await env.content('PUT', p.url, chunk)).status).toBe(200);
     }
     const done = await env.call('POST', `${P}/uploads/${id}/complete`, {
@@ -656,53 +584,26 @@ describe('acceptance: file sharing and short links', () => {
       token: owner.token,
       body: { title: 'Kept', kind: 'persistent' },
     });
-    await upload(
-      env,
-      owner.token,
-      owner.orgId,
-      { target: 'transfer', transfer_id: temp.body.id, name: 't.pdf' },
-      pdf('temporary'),
-    );
-    await upload(
-      env,
-      owner.token,
-      owner.orgId,
-      { target: 'transfer', transfer_id: keep.body.id, name: 'k.pdf' },
-      pdf('kept'),
-    );
+    await upload(env, owner.token, owner.orgId, { target: 'transfer', transfer_id: temp.body.id, name: 't.pdf' }, pdf('temporary'));
+    await upload(env, owner.token, owner.orgId, { target: 'transfer', transfer_id: keep.body.id, name: 'k.pdf' }, pdf('kept'));
     const link = await env.call('POST', `${P}/links`, {
       token: owner.token,
       body: { target_type: 'transfer', target_id: temp.body.id, permission: 'download' },
     });
-    const tempFile = (
-      await env.call('GET', `${P}/transfers/${temp.body.id}`, { token: owner.token })
-    ).body.files[0];
-    const before = (await env.call('GET', `${P}/overview`, { token: owner.token })).body.usage
-      .storage_bytes;
+    const tempFile = (await env.call('GET', `${P}/transfers/${temp.body.id}`, { token: owner.token })).body.files[0];
+    const before = (await env.call('GET', `${P}/overview`, { token: owner.token })).body.usage.storage_bytes;
 
     // A document whose draft is replaced keeps the old object while an exported version still references it.
     const doc = await env.call('POST', `${P}/documents`, {
       token: owner.token,
       body: { title: 'Report' },
     });
-    await upload(
-      env,
-      owner.token,
-      owner.orgId,
-      { target: 'draft', document_id: doc.body.id, name: 'r.pdf' },
-      pdf('report v1'),
-    );
+    await upload(env, owner.token, owner.orgId, { target: 'draft', document_id: doc.body.id, name: 'r.pdf' }, pdf('report v1'));
     const v1 = await env.call('POST', `${P}/documents/${doc.body.id}/export`, {
       token: owner.token,
       body: {},
     });
-    await upload(
-      env,
-      owner.token,
-      owner.orgId,
-      { target: 'draft', document_id: doc.body.id, name: 'r.pdf' },
-      pdf('report v2'),
-    );
+    await upload(env, owner.token, owner.orgId, { target: 'draft', document_id: doc.body.id, name: 'r.pdf' }, pdf('report v2'));
     await env.c.sharing.processJobs({ limit: 100 });
     const v1url = await env.call('POST', `${P}/files/download`, {
       token: owner.token,
@@ -711,10 +612,7 @@ describe('acceptance: file sharing and short links', () => {
     expect((await fetchSigned(env, v1url.body.url)).body.toString('latin1')).toContain('report v1');
 
     env.clock.advance(DAY + 1);
-    expect(
-      (await env.call('POST', `/api/v1/public/shares/${tokenOf(link.body.url)}/open`, { body: {} }))
-        .status,
-    ).toBe(410);
+    expect((await env.call('POST', `/api/v1/public/shares/${tokenOf(link.body.url)}/open`, { body: {} })).status).toBe(410);
     const r = await env.c.sharing.runRetention();
     expect(r).toMatchObject({ transfersExpired: 1, transfersPurged: 1 });
     await env.c.sharing.processJobs({ limit: 100 });
@@ -724,16 +622,9 @@ describe('acceptance: file sharing and short links', () => {
       body: { type: 'transfer_file', id: tempFile.id },
     });
     expect(gone.status).toBe(404);
-    expect(
-      (await env.call('GET', `${P}/transfers/${keep.body.id}`, { token: owner.token })).body
-        .files[0].status,
-    ).toBe('available');
-    expect(
-      (await env.call('GET', `${P}/overview`, { token: owner.token })).body.usage.storage_bytes,
-    ).toBeLessThan(before + 100);
-    expect(
-      (await env.call('GET', `${P}/transfers/${temp.body.id}`, { token: owner.token })).status,
-    ).toBe(404);
+    expect((await env.call('GET', `${P}/transfers/${keep.body.id}`, { token: owner.token })).body.files[0].status).toBe('available');
+    expect((await env.call('GET', `${P}/overview`, { token: owner.token })).body.usage.storage_bytes).toBeLessThan(before + 100);
+    expect((await env.call('GET', `${P}/transfers/${temp.body.id}`, { token: owner.token })).status).toBe(404);
     const audit = await env.audit(owner.orgId);
     expect(audit.map((e) => e.action)).toContain('share.transfer.purged');
     // Retention is idempotent.

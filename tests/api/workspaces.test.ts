@@ -38,7 +38,8 @@ describe('accounts and workspaces', () => {
     expect((await add(outsider.token, 'outsider@example.test', 'owner')).status).toBe(404);
     expect((await add(owner.token, 'nobody@example.test', 'member')).status).toBe(404);
     expect(
-      (await env.call('POST', `/api/v1/workspaces/${owner.orgId}/members`, { token: owner.token, body: { email: 'member@example.test', role: 'member' } })).status,
+      (await env.call('POST', `/api/v1/workspaces/${owner.orgId}/members`, { token: owner.token, body: { email: 'member@example.test', role: 'member' } }))
+        .status,
     ).toBe(403);
     const members = await env.call('GET', `/api/v1/workspaces/${team.body.id}/members`, { token: member.token });
     expect(members.body.items.map((m: { email: string; role: string }) => [m.email, m.role])).toEqual([

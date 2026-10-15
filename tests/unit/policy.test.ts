@@ -46,8 +46,7 @@ describe('commercial limits', () => {
 describe('permitted formats and names', () => {
   it('derives types from the extension and refuses executables and active content', () => {
     expect(requireFileKind('Report.PDF').contentType).toBe('application/pdf');
-    for (const bad of ['setup.exe', 'page.html', 'icon.svg', 'run.sh', 'macro.docm', 'noext'])
-      expect(() => requireFileKind(bad), bad).toThrow('not permitted');
+    for (const bad of ['setup.exe', 'page.html', 'icon.svg', 'run.sh', 'macro.docm', 'noext']) expect(() => requireFileKind(bad), bad).toThrow('not permitted');
     expect(() => requireFileKind('photo.png', ['pdf'])).toThrow('not permitted');
   });
   it('checks magic bytes', () => {
@@ -67,17 +66,13 @@ describe('permitted formats and names', () => {
     expect(() => sanitizeFolderPath('a/'.repeat(11))).toThrow();
   });
   it('builds an RFC 6266 disposition that cannot break out of the header', () => {
-    expect(contentDisposition('attachment', 'Ŋa "x";.pdf')).toBe(
-      `attachment; filename="_a _x__.pdf"; filename*=UTF-8''%C5%8Aa%20%22x%22%3B.pdf`,
-    );
+    expect(contentDisposition('attachment', 'Ŋa "x";.pdf')).toBe(`attachment; filename="_a _x__.pdf"; filename*=UTF-8''%C5%8Aa%20%22x%22%3B.pdf`);
   });
 });
 
 describe('short-link destinations and aliases', () => {
   it('accepts only public http(s) destinations', () => {
-    expect(validateExternalDestination('https://shop.example.com/sale?x=1', policy)).toBe(
-      'https://shop.example.com/sale?x=1',
-    );
+    expect(validateExternalDestination('https://shop.example.com/sale?x=1', policy)).toBe('https://shop.example.com/sale?x=1');
     for (const bad of [
       'javascript:alert(1)',
       'data:text/html,hi',
@@ -96,19 +91,15 @@ describe('short-link destinations and aliases', () => {
       'https://intranet/',
       `https://example.com/${'a'.repeat(2100)}`,
     ])
-      expect(() => validateExternalDestination(bad, policy), bad).toThrow(
-        'destination not permitted',
-      );
+      expect(() => validateExternalDestination(bad, policy), bad).toThrow('destination not permitted');
   });
   it('allows readable aliases and refuses reserved or malformed ones', () => {
     expect(validateAlias(' Spring-Sale ')).toBe('spring-sale');
-    for (const bad of ['ab', 'login', 'admin', '-x-', 'a--b', 'ünï', 'a b', 'x'.repeat(65)])
-      expect(() => validateAlias(bad), bad).toThrow();
+    for (const bad of ['ab', 'login', 'admin', '-x-', 'a--b', 'ünï', 'a b', 'x'.repeat(65)]) expect(() => validateAlias(bad), bad).toThrow();
   });
   it('validates custom hostnames', () => {
     expect(validateHostname('Go.Example.COM.')).toBe('go.example.com');
-    for (const bad of ['localhost', 'example', 'a..b.com', '-a.com', 'nas.local', 'x.123'])
-      expect(() => validateHostname(bad), bad).toThrow();
+    for (const bad of ['localhost', 'example', 'a..b.com', '-a.com', 'nas.local', 'x.123']) expect(() => validateHostname(bad), bad).toThrow();
   });
 });
 
@@ -117,9 +108,7 @@ describe('analytics hygiene and link state', () => {
     expect(looksAutomated('Mozilla/5.0 (compatible; Googlebot/2.1)')).toBe(true);
     expect(looksAutomated('Microsoft Office/16.0 (Windows NT 10.0)')).toBe(true);
     expect(looksAutomated(undefined)).toBe(true);
-    expect(
-      looksAutomated('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36'),
-    ).toBe(false);
+    expect(looksAutomated('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36')).toBe(false);
     expect(referrerHost('https://News.Example/path?secret=1#x')).toBe('news.example');
     expect(referrerHost('android-app://com.x')).toBe('');
     expect(referrerHost('not a url')).toBe('');
@@ -128,12 +117,8 @@ describe('analytics hygiene and link state', () => {
     const now = new Date('2026-03-01T00:00:00Z');
     expect(effectiveLinkState({ status: 'revoked', expiresAt: null }, now, true)).toBe('revoked');
     expect(effectiveLinkState({ status: 'active', expiresAt: now }, now, true)).toBe('expired');
-    expect(effectiveLinkState({ status: 'active', expiresAt: null }, now, false)).toBe(
-      'unavailable',
-    );
-    expect(effectiveLinkState({ status: 'active', expiresAt: new Date(+now + 1) }, now, true)).toBe(
-      'active',
-    );
+    expect(effectiveLinkState({ status: 'active', expiresAt: null }, now, false)).toBe('unavailable');
+    expect(effectiveLinkState({ status: 'active', expiresAt: new Date(+now + 1) }, now, true)).toBe('active');
   });
   it('maps permissions to actions', () => {
     expect(permits('view', 'download')).toBe(false);

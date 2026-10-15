@@ -2,10 +2,7 @@ import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 
 /** What the adapters need from a pool; lets tests inject a schema-scoped pool. */
 export interface PgPool {
-  query<R extends QueryResultRow = QueryResultRow>(
-    text: string,
-    params?: unknown[],
-  ): Promise<QueryResult<R>>;
+  query<R extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<R>>;
   connect(): Promise<PoolClient>;
 }
 export type Queryable = Pick<PgPool, 'query'>;
@@ -53,11 +50,7 @@ export interface TransactionOptions {
  * only counts, durations and SQLSTATE codes — nothing about the data being written.
  */
 export interface TransactionObserver {
-  onTransaction?(e: {
-    outcome: 'ok' | 'error' | 'exhausted';
-    attempts: number;
-    durationMs: number;
-  }): void;
+  onTransaction?(e: { outcome: 'ok' | 'error' | 'exhausted'; attempts: number; durationMs: number }): void;
   onRetry?(e: { code: string; attempt: number }): void;
   onAuditLockWait?(ms: number): void;
 }
@@ -81,11 +74,7 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * not perform irreversible side effects (network calls, external writes) and must derive its state
  * from reads inside the transaction.
  */
-export async function withTransaction<T>(
-  pool: PgPool,
-  fn: (client: PoolClient) => Promise<T>,
-  opts: TransactionOptions = {},
-): Promise<T> {
+export async function withTransaction<T>(pool: PgPool, fn: (client: PoolClient) => Promise<T>, opts: TransactionOptions = {}): Promise<T> {
   const maxAttempts = opts.maxAttempts ?? 4;
   const sleep = opts.sleep ?? defaultSleep;
   const started = performance.now();

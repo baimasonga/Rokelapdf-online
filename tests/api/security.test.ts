@@ -2,18 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { EICAR } from '@/lib/server/sharing';
 import { createContentServer } from '@/lib/server/storage/local';
 import { DAY } from './support';
-import {
-  BUSINESS,
-  UA,
-  visit,
-  fetchSigned,
-  pdf,
-  sharingEnv,
-  sp,
-  tokenOf,
-  upload,
-  type SharingEnv,
-} from './support';
+import { BUSINESS, UA, visit, fetchSigned, pdf, sharingEnv, sp, tokenOf, upload, type SharingEnv } from './support';
 
 let env: SharingEnv;
 afterEach(async () => env?.close());
@@ -25,13 +14,7 @@ async function sharedTransfer(e: SharingEnv, email: string, link: Record<string,
     token: owner.token,
     body: { title: 'Files', kind: 'temporary' },
   });
-  await upload(
-    e,
-    owner.token,
-    owner.orgId,
-    { target: 'transfer', transfer_id: tr.body.id, name: 'a.pdf' },
-    pdf('secret contents'),
-  );
+  await upload(e, owner.token, owner.orgId, { target: 'transfer', transfer_id: tr.body.id, name: 'a.pdf' }, pdf('secret contents'));
   const l = await e.call('POST', `${P}/links`, {
     token: owner.token,
     body: { target_type: 'transfer', target_id: tr.body.id, permission: 'download', ...link },
@@ -48,17 +31,11 @@ describe('sharing: tenant isolation', () => {
     const PB = sp(b.orgId);
     const PA = sp(a.owner.orgId);
     // Reaching into A's organization path as B: not a member → 404.
-    expect(
-      (await env.call('GET', `${PA}/transfers/${a.transferId}`, { token: b.token })).status,
-    ).toBe(404);
+    expect((await env.call('GET', `${PA}/transfers/${a.transferId}`, { token: b.token })).status).toBe(404);
     expect((await env.call('GET', `${PA}/overview`, { token: b.token })).status).toBe(404);
     // Using A's ids inside B's own organization: indistinguishable from unknown ids.
-    expect(
-      (await env.call('GET', `${PB}/transfers/${a.transferId}`, { token: b.token })).status,
-    ).toBe(404);
-    expect((await env.call('GET', `${PB}/links/${a.link.id}`, { token: b.token })).status).toBe(
-      404,
-    );
+    expect((await env.call('GET', `${PB}/transfers/${a.transferId}`, { token: b.token })).status).toBe(404);
+    expect((await env.call('GET', `${PB}/links/${a.link.id}`, { token: b.token })).status).toBe(404);
     expect(
       (
         await env.call('POST', `${PB}/links`, {
@@ -83,9 +60,7 @@ describe('sharing: tenant isolation', () => {
         })
       ).status,
     ).toBe(404);
-    const file = (
-      await env.call('GET', `${PA}/transfers/${a.transferId}`, { token: a.owner.token })
-    ).body.files[0];
+    const file = (await env.call('GET', `${PA}/transfers/${a.transferId}`, { token: a.owner.token })).body.files[0];
     expect(
       (
         await env.call('POST', `${PB}/files/download`, {
@@ -135,9 +110,7 @@ describe('sharing: tenant isolation', () => {
         })
       ).status,
     ).toBe(200);
-    expect(
-      (await env.call('POST', `${P}/branding`, { token: member.token, body: {} })).status,
-    ).toBe(404);
+    expect((await env.call('POST', `${P}/branding`, { token: member.token, body: {} })).status).toBe(404);
     expect(
       (
         await env.call('POST', `${P}/domains`, {
@@ -162,14 +135,7 @@ describe('sharing: quarantine, formats and quotas', () => {
       token: owner.token,
       body: { target_type: 'transfer', target_id: tr.body.id, permission: 'download' },
     });
-    await upload(
-      env,
-      owner.token,
-      owner.orgId,
-      { target: 'transfer', transfer_id: tr.body.id, name: 'pending.pdf' },
-      pdf('pending'),
-      { process: false },
-    );
+    await upload(env, owner.token, owner.orgId, { target: 'transfer', transfer_id: tr.body.id, name: 'pending.pdf' }, pdf('pending'), { process: false });
     await upload(
       env,
       owner.token,
@@ -188,12 +154,7 @@ describe('sharing: quarantine, formats and quotas', () => {
     );
     const tk = tokenOf(link.body.url);
     const open = await env.call('POST', `/api/v1/public/shares/${tk}/open`, { body: {} });
-    expect(
-      open.body.files.map((f: { status: string; downloadable: boolean }) => [
-        f.status,
-        f.downloadable,
-      ]),
-    ).toEqual([
+    expect(open.body.files.map((f: { status: string; downloadable: boolean }) => [f.status, f.downloadable])).toEqual([
       ['processing', false],
       ['processing', false],
       ['processing', false],
@@ -204,18 +165,9 @@ describe('sharing: quarantine, formats and quotas', () => {
       });
     expect((await tryGet(open.body.files[0].id)).status).toBe(409);
     await env.c.sharing.processJobs({ limit: 100 });
-    const files = (await env.call('GET', `${P}/transfers/${tr.body.id}`, { token: owner.token }))
-      .body.files;
+    const files = (await env.call('GET', `${P}/transfers/${tr.body.id}`, { token: owner.token })).body.files;
     const byName = (n: string) => files.find((f: { name: string }) => f.name === n);
-    expect(
-      files
-        .map((f: { name: string; status: string; reject_reason: string | null }) => [
-          f.name,
-          f.status,
-          f.reject_reason,
-        ])
-        .sort(),
-    ).toEqual([
+    expect(files.map((f: { name: string; status: string; reject_reason: string | null }) => [f.name, f.status, f.reject_reason]).sort()).toEqual([
       ['eicar.txt', 'rejected', 'malware_signature'],
       ['fake.pdf', 'rejected', 'content_does_not_match_type'],
       ['pending.pdf', 'available', null],
@@ -270,9 +222,7 @@ describe('sharing: quarantine, formats and quotas', () => {
     );
     expect(results.filter((r) => r.status === 201)).toHaveLength(8);
     expect(results.filter((r) => r.status === 409)).toHaveLength(1);
-    expect(
-      (await env.call('GET', `${P}/overview`, { token: owner.token })).body.usage.storage_bytes,
-    ).toBeLessThanOrEqual(2 * 1024 ** 3);
+    expect((await env.call('GET', `${P}/overview`, { token: owner.token })).body.usage.storage_bytes).toBeLessThanOrEqual(2 * 1024 ** 3);
     // Drafts accept PDFs only.
     const doc = await env.call('POST', `${P}/documents`, {
       token: owner.token,
@@ -348,9 +298,7 @@ describe('sharing: access policies', () => {
     expect(ok.status).toBe(200);
     // A grant bound to the recipient cannot be used without their session, or by someone else.
     const body = { grant: ok.body.grant, file_id: ok.body.files[0].id, disposition: 'attachment' };
-    expect(
-      (await env.call('POST', `/api/v1/public/shares/${s.token}/files/url`, { body })).status,
-    ).toBe(401);
+    expect((await env.call('POST', `/api/v1/public/shares/${s.token}/files/url`, { body })).status).toBe(401);
     expect(
       (
         await env.call('POST', `/api/v1/public/shares/${s.token}/files/url`, {
@@ -425,12 +373,7 @@ describe('sharing: access policies', () => {
     const s = await sharedTransfer(env, 'v@example.test', { permission: 'view' });
     const open = await env.call('POST', `/api/v1/public/shares/${s.token}/open`, { body: {} });
     expect(open.body.files[0]).toMatchObject({ viewable: true, downloadable: false });
-    const req = (
-      disposition: string,
-      t = s.token,
-      grant = open.body.grant,
-      fileId = open.body.files[0].id,
-    ) =>
+    const req = (disposition: string, t = s.token, grant = open.body.grant, fileId = open.body.files[0].id) =>
       env.call('POST', `/api/v1/public/shares/${t}/files/url`, {
         body: { grant, file_id: fileId, disposition },
       });
@@ -451,19 +394,10 @@ describe('sharing: access policies', () => {
     });
     const lt = tokenOf(limited.body.url);
     const lo = await env.call('POST', `/api/v1/public/shares/${lt}/open`, { body: {} });
-    const results = await Promise.all(
-      Array.from({ length: 6 }, () => req('attachment', lt, lo.body.grant, lo.body.files[0].id)),
-    );
+    const results = await Promise.all(Array.from({ length: 6 }, () => req('attachment', lt, lo.body.grant, lo.body.files[0].id)));
     expect(results.filter((r) => r.status === 200)).toHaveLength(2);
-    expect(
-      results
-        .filter((r) => r.status === 410)
-        .every((r) => r.body.details.state === 'download_limit_reached'),
-    ).toBe(true);
-    expect(
-      (await env.call('GET', `${s.P}/links/${limited.body.id}`, { token: s.owner.token })).body
-        .download_count,
-    ).toBe(2);
+    expect(results.filter((r) => r.status === 410).every((r) => r.body.details.state === 'download_limit_reached')).toBe(true);
+    expect((await env.call('GET', `${s.P}/links/${limited.body.id}`, { token: s.owner.token })).body.download_count).toBe(2);
     expect(
       (
         await env.call('PATCH', `${s.P}/links/${limited.body.id}`, {
@@ -503,19 +437,14 @@ describe('sharing: access policies', () => {
       token: s.owner.token,
     });
     expect(act.body.totals.password_failed.count + act.body.totals.password_failed.bots).toBe(10);
-    const all = JSON.stringify([
-      s.link,
-      (await env.call('GET', `${s.P}/links`, { token: s.owner.token })).body,
-    ]);
+    const all = JSON.stringify([s.link, (await env.call('GET', `${s.P}/links`, { token: s.owner.token })).body]);
     expect(all).not.toMatch(/scrypt|token_hash|salt/);
   });
 
   it('rejects malformed, unknown and forged references uniformly', async () => {
     env = await sharingEnv();
     const s = await sharedTransfer(env, 'u@example.test');
-    expect(
-      (await env.call('POST', `/api/v1/public/shares/${'A'.repeat(43)}/open`, { body: {} })).status,
-    ).toBe(404);
+    expect((await env.call('POST', `/api/v1/public/shares/${'A'.repeat(43)}/open`, { body: {} })).status).toBe(404);
     expect((await env.call('POST', `/api/v1/public/shares/short/open`, { body: {} })).status).toBe(400);
     const open = await env.call('POST', `/api/v1/public/shares/${s.token}/open`, { body: {} });
     const [, body, sig] = open.body.grant.split('.');
@@ -599,17 +528,11 @@ describe('sharing: isolated content origin', () => {
     const good = { k: 'o/org_x/blb_x', e: exp, d: 'attachment', t: 'application/pdf' };
     const sig = store.sign(good);
     // Extra or hostile keys are ignored, so they cannot alter the parameters or Object.prototype.
-    const v = store.verify(
-      { ...good, s: sig, ['__proto__']: 'polluted', constructor: 'x' } as Record<string, unknown>,
-      now,
-    );
+    const v = store.verify({ ...good, s: sig, ['__proto__']: 'polluted', constructor: 'x' } as Record<string, unknown>, now);
     expect(v && { ...v }).toEqual(good);
     expect(Object.getPrototypeOf(v)).toBeNull();
     expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
-    const polluted = await env.content(
-      'GET',
-      `${store.contentOrigin}/o/get?__proto__[x]=1&k=a&e=${exp}&s=bad`,
-    );
+    const polluted = await env.content('GET', `${store.contentOrigin}/o/get?__proto__[x]=1&k=a&e=${exp}&s=bad`);
     expect(polluted.status).toBe(403);
     expect(({} as Record<string, unknown>)['x']).toBeUndefined();
 
@@ -633,8 +556,7 @@ describe('sharing: short links and abuse', () => {
   it('separates public and confidential links and validates destinations without fetching them', async () => {
     env = await sharingEnv();
     const s = await sharedTransfer(env, 'sl@example.test');
-    const make = (body: Record<string, unknown>) =>
-      env.call('POST', `${s.P}/short-links`, { token: s.owner.token, body });
+    const make = (body: Record<string, unknown>) => env.call('POST', `${s.P}/short-links`, { token: s.owner.token, body });
     for (const destination_url of [
       'javascript:alert(1)',
       'http://169.254.169.254/latest/meta-data/',
@@ -643,10 +565,7 @@ describe('sharing: short links and abuse', () => {
       'file:///etc/passwd',
       `${env.c.config.shortOrigin}/l/loop`,
     ])
-      expect(
-        (await make({ kind: 'public', destination_type: 'external', destination_url })).status,
-        destination_url,
-      ).toBe(400);
+      expect((await make({ kind: 'public', destination_type: 'external', destination_url })).status, destination_url).toBe(400);
     // Confidential links: no alias, no external destination; the code is unpredictable.
     expect(
       (
@@ -683,9 +602,7 @@ describe('sharing: short links and abuse', () => {
       token: s.owner.token,
       body: { action: 'suspend' },
     });
-    expect((await env.call('POST', `/api/v1/public/shares/${s.token}/open`, { body: {} })).status).toBe(
-      410,
-    );
+    expect((await env.call('POST', `/api/v1/public/shares/${s.token}/open`, { body: {} })).status).toBe(410);
     // Aliases are unique per domain and cannot impersonate platform paths.
     expect(
       (
@@ -756,12 +673,7 @@ describe('sharing: short links and abuse', () => {
     const hist = await env.call('GET', `${P}/short-links/${ids[0]}/history`, {
       token: owner.token,
     });
-    expect(
-      hist.body.items.map((h: { destination_url: string; reason: string }) => [
-        h.destination_url,
-        h.reason,
-      ]),
-    ).toEqual([
+    expect(hist.body.items.map((h: { destination_url: string; reason: string }) => [h.destination_url, h.reason])).toEqual([
       ['https://alpha-one.example.com/', 'created'],
       ['https://new.example.com/landing', 'campaign moved'],
     ]);
@@ -770,20 +682,14 @@ describe('sharing: short links and abuse', () => {
       reason: 'campaign moved',
       metadata: { from_host: 'alpha-one.example.com', to_host: 'new.example.com' },
     });
-    expect(
-      (await env.call('GET', `${P}/short-links?q=alpha`, { token: owner.token })).body.items,
-    ).toHaveLength(2);
-    expect(
-      (await env.call('GET', `${P}/short-links?folder=Autumn`, { token: owner.token })).body.items,
-    ).toHaveLength(1);
+    expect((await env.call('GET', `${P}/short-links?q=alpha`, { token: owner.token })).body.items).toHaveLength(2);
+    expect((await env.call('GET', `${P}/short-links?folder=Autumn`, { token: owner.token })).body.items).toHaveLength(1);
     const bulk = await env.call('POST', `${P}/short-links/bulk`, {
       token: owner.token,
       body: { ids: ids.slice(0, 2), action: 'tag', tag: 'q2' },
     });
     expect(bulk.body.updated).toBe(2);
-    expect(
-      (await env.call('GET', `${P}/short-links?tag=q2`, { token: owner.token })).body.items,
-    ).toHaveLength(2);
+    expect((await env.call('GET', `${P}/short-links?tag=q2`, { token: owner.token })).body.items).toHaveLength(2);
     await env.call('POST', `${P}/short-links/bulk`, {
       token: owner.token,
       body: { ids, action: 'suspend' },
@@ -808,9 +714,7 @@ describe('sharing: short links and abuse', () => {
         })
       ).status,
     ).toBe(404);
-    expect(
-      (await env.call('GET', `${P}/short-links/${ids[0]}`, { token: owner.token })).body.status,
-    ).toBe('suspended');
+    expect((await env.call('GET', `${P}/short-links/${ids[0]}`, { token: owner.token })).body.status).toBe('suspended');
   });
 
   it('password-protected and sign-in public short links require an unlock step', async () => {
@@ -877,9 +781,7 @@ describe('sharing: short links and abuse', () => {
     });
     expect(report.status).toBe(202);
     expect(Object.keys(report.body).sort()).toEqual(Object.keys(unknown.body).sort());
-    expect(
-      (await env.call('GET', '/api/v1/admin/sharing/abuse-reports', { token: owner.token })).status,
-    ).toBe(403);
+    expect((await env.call('GET', '/api/v1/admin/sharing/abuse-reports', { token: owner.token })).status).toBe(403);
     const op = await env.operator('operator@example.test');
     const list = await env.call('GET', '/api/v1/admin/sharing/abuse-reports?status=open', {
       token: op,
@@ -930,13 +832,7 @@ describe('sharing: review, approval and branding', () => {
       token: author.token,
       body: { title: 'Annual report', require_approval: true },
     });
-    await upload(
-      env,
-      author.token,
-      author.orgId,
-      { target: 'draft', document_id: doc.body.id, name: 'r.pdf' },
-      pdf('report'),
-    );
+    await upload(env, author.token, author.orgId, { target: 'draft', document_id: doc.body.id, name: 'r.pdf' }, pdf('report'));
     const v1 = await env.call('POST', `${P}/documents/${doc.body.id}/export`, {
       token: author.token,
       body: {},
@@ -1035,11 +931,7 @@ describe('sharing: review, approval and branding', () => {
         })
       ).status,
     ).toBe(200);
-    const owner = await env.call(
-      'GET',
-      `${P}/documents/${doc.body.id}/versions/${v1.body.id}/review`,
-      { token: author.token },
-    );
+    const owner = await env.call('GET', `${P}/documents/${doc.body.id}/versions/${v1.body.id}/review`, { token: author.token });
     expect(owner.body.comments).toHaveLength(1);
   });
 

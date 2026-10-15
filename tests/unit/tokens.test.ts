@@ -25,9 +25,7 @@ describe('sharing tokens and grants', () => {
     expect(keys.verifyGrant(g, now)).toMatchObject({ s: 'lnk_1' });
     expect(keys.verifyGrant(g, now + 61_000)).toBeUndefined();
     const [, body, sig] = g.split('.');
-    const forged = Buffer.from(
-      JSON.stringify({ k: 'share', s: 'lnk_2', u: null, exp: now / 1000 + 60 }),
-    ).toString('base64url');
+    const forged = Buffer.from(JSON.stringify({ k: 'share', s: 'lnk_2', u: null, exp: now / 1000 + 60 })).toString('base64url');
     expect(keys.verifyGrant(`g1.${forged}.${sig}`, now)).toBeUndefined();
     expect(keys.verifyGrant(`g1.${body}.${'A'.repeat(43)}`, now)).toBeUndefined();
     expect(new SharingKeys('j'.repeat(40)).verifyGrant(g, now)).toBeUndefined();

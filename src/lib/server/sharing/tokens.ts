@@ -20,10 +20,7 @@ export class SharingKeys {
    * leak alone (which holds only the salt and the token's SHA-256) does not reveal it.
    */
   token(purpose: 'share' | 'request' | 'short', id: string, salt: string, length = 43): string {
-    return createHmac('sha256', this.#link)
-      .update(`${purpose}:${id}:${salt}`)
-      .digest('base64url')
-      .slice(0, length);
+    return createHmac('sha256', this.#link).update(`${purpose}:${id}:${salt}`).digest('base64url').slice(0, length);
   }
 
   /** Short-lived, stateless access grant (issued after password/recipient checks; re-checked on every use). */

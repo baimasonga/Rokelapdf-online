@@ -1,8 +1,7 @@
 import jsQRModule from 'jsqr';
 
 // jsqr ships CommonJS with a default export; normalize across loaders.
-const jsQR = ((jsQRModule as unknown as { default?: unknown }).default ??
-  jsQRModule) as unknown as (
+const jsQR = ((jsQRModule as unknown as { default?: unknown }).default ?? jsQRModule) as unknown as (
   data: Uint8ClampedArray,
   w: number,
   h: number,
@@ -28,9 +27,7 @@ function decode(text: string): string | undefined {
 
 describe('QR encoder', () => {
   it('matches the published Reed–Solomon example (HELLO WORLD, 1-M)', () => {
-    expect(
-      rsRemainder([32, 91, 11, 120, 209, 114, 220, 77, 67, 64, 236, 17, 236, 17, 236, 17], 10),
-    ).toEqual([196, 35, 39, 119, 235, 215, 231, 226, 93, 23]);
+    expect(rsRemainder([32, 91, 11, 120, 209, 114, 220, 77, 67, 64, 236, 17, 236, 17, 236, 17], 10)).toEqual([196, 35, 39, 119, 235, 215, 231, 226, 93, 23]);
   });
 
   it('round-trips through an independent decoder for every supported version', () => {
@@ -38,9 +35,7 @@ describe('QR encoder', () => {
       const t = `https://rokela.example/l/${'aB3-_x'.repeat(40)}`.slice(0, len);
       expect(decode(t), `length ${len}`).toBe(t);
     }
-    const versions = new Set(
-      [14, 26, 42, 62, 84, 106, 122, 152, 180, 213].map((n) => encodeQr('x'.repeat(n)).version),
-    );
+    const versions = new Set([14, 26, 42, 62, 84, 106, 122, 152, 180, 213].map((n) => encodeQr('x'.repeat(n)).version));
     expect([...versions].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 

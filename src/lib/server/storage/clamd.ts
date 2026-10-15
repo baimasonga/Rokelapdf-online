@@ -36,8 +36,7 @@ export class ClamdScanner implements FileScanner {
       socket.on('close', () => reject(new Error('clamd closed the connection')));
     });
     reply.catch(() => undefined);
-    const write = (b: Buffer) =>
-      new Promise<void>((res, rej) => socket.write(b, (e) => (e ? rej(e) : res())));
+    const write = (b: Buffer) => new Promise<void>((res, rej) => socket.write(b, (e) => (e ? rej(e) : res())));
     try {
       await new Promise<void>((res, rej) => {
         socket.once('connect', res);

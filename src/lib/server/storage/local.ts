@@ -7,12 +7,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { constantTimeEqual } from '../kernel';
-import {
-  contentDisposition,
-  type ObjectStore,
-  type SignedDownload,
-  type UploadedPart,
-} from '../sharing';
+import { contentDisposition, type ObjectStore, type SignedDownload, type UploadedPart } from '../sharing';
 
 // Local object storage with S3-style signed URLs, for development, tests and single-host deployments outside
 // production. Files live under one operator-chosen directory; every on-disk name is a digest or a random id, never
@@ -29,16 +24,9 @@ export class LocalObjectStore implements ObjectStore {
   readonly #key: Buffer;
   readonly #origin: string;
 
-  constructor(opts: {
-    root: string;
-    signingSecret: string;
-    contentOrigin: string;
-    minPartBytes?: number;
-  }) {
+  constructor(opts: { root: string; signingSecret: string; contentOrigin: string; minPartBytes?: number }) {
     this.#root = opts.root;
-    this.#key = createHmac('sha256', opts.signingSecret)
-      .update('rokela-sharing:local-content:v1')
-      .digest();
+    this.#key = createHmac('sha256', opts.signingSecret).update('rokela-sharing:local-content:v1').digest();
     this.#origin = opts.contentOrigin.replace(/\/$/, '');
     this.minPartBytes = opts.minPartBytes ?? 5 * 1024 * 1024;
   }
@@ -87,13 +75,7 @@ export class LocalObjectStore implements ObjectStore {
     return { uploadId };
   }
 
-  async signPart(
-    key: string,
-    uploadId: string,
-    partNumber: number,
-    bytes: number,
-    expiresAt: Date,
-  ) {
+  async signPart(key: string, uploadId: string, partNumber: number, bytes: number, expiresAt: Date) {
     return this.#url('/o/part', {
       k: key,
       u: uploadId,
@@ -114,18 +96,10 @@ export class LocalObjectStore implements ObjectStore {
   }
 
   /** Called by the content server for a verified part URL. Writes atomically; enforces the signed size. */
-  async putPart(
-    key: string,
-    uploadId: string,
-    partNumber: number,
-    bytes: number,
-    body: NodeJS.ReadableStream,
-  ) {
+  async putPart(key: string, uploadId: string, partNumber: number, bytes: number, body: NodeJS.ReadableStream) {
     const meta = await this.#meta(uploadId);
-    if (!meta || meta.key !== key)
-      throw Object.assign(new Error('no such upload'), { statusCode: 404 });
-    if (bytes < 1 || bytes > MAX_PART)
-      throw Object.assign(new Error('bad size'), { statusCode: 400 });
+    if (!meta || meta.key !== key) throw Object.assign(new Error('no such upload'), { statusCode: 404 });
+    if (bytes < 1 || bytes > MAX_PART) throw Object.assign(new Error('bad size'), { statusCode: 400 });
     const tmp = join(this.#mp(uploadId), `${partNumber}.${randomBytes(6).toString('hex')}.tmp`);
     const hash = createHash('md5');
     let seen = 0;
@@ -144,8 +118,7 @@ export class LocalObjectStore implements ObjectStore {
       await rename(tmp, join(this.#mp(uploadId), `part-${partNumber}-${etag}`));
       // A re-sent part replaces any earlier copy of the same number.
       for (const f of await readdir(this.#mp(uploadId)))
-        if (f.startsWith(`part-${partNumber}-`) && f !== `part-${partNumber}-${etag}`)
-          await rm(join(this.#mp(uploadId), f), { force: true });
+        if (f.startsWith(`part-${partNumber}-`) && f !== `part-${partNumber}-${etag}`) await rm(join(this.#mp(uploadId), f), { force: true });
       return etag;
     } catch (e) {
       await rm(tmp, { force: true });
@@ -169,11 +142,7 @@ export class LocalObjectStore implements ObjectStore {
     return out.sort((a, b) => a.partNumber - b.partNumber);
   }
 
-  async completeMultipart(
-    key: string,
-    uploadId: string,
-    parts: ReadonlyArray<{ partNumber: number; etag: string }>,
-  ) {
+  async completeMultipart(key: string, uploadId: string, parts: ReadonlyArray<{ partNumber: number; etag: string }>) {
     const meta = await this.#meta(uploadId);
     if (!meta || meta.key !== key) throw new Error('no such upload');
     await mkdir(join(this.#root, 'objects'), { recursive: true });
@@ -182,10 +151,7 @@ export class LocalObjectStore implements ObjectStore {
     try {
       for (const p of parts) {
         if (!/^[0-9a-f]{32}$/.test(p.etag)) throw new Error('bad etag');
-        for await (const chunk of createReadStream(
-          join(this.#mp(uploadId), `part-${p.partNumber}-${p.etag}`),
-        ))
-          if (!out.write(chunk)) await once(out, 'drain');
+        for await (const chunk of createReadStream(join(this.#mp(uploadId), `part-${p.partNumber}-${p.etag}`))) if (!out.write(chunk)) await once(out, 'drain');
       }
       await new Promise<void>((res, rej) => out.end((e?: Error | null) => (e ? rej(e) : res())));
       await rename(tmp, this.#obj(key));
@@ -234,11 +200,7 @@ export class LocalObjectStore implements ObjectStore {
 }
 
 /** Response headers for untrusted bytes. PDFs need the browser viewer, so only they skip the CSP sandbox. */
-export function untrustedContentHeaders(
-  contentType: string,
-  disposition: string,
-  frameAncestor: string,
-) {
+export function untrustedContentHeaders(contentType: string, disposition: string, frameAncestor: string) {
   const pdf = contentType === 'application/pdf';
   return {
     'content-type': contentType,
@@ -256,10 +218,7 @@ export function untrustedContentHeaders(
  * listener that accepts signed part uploads (CORS for the portal origin only) and serves signed downloads with safe
  * headers. It has no other routes and no access to sessions or the database.
  */
-export function createContentServer(
-  store: LocalObjectStore,
-  opts: { allowedOrigin: string; now?: () => number; rateLimitPerMinute?: number },
-): Server {
+export function createContentServer(store: LocalObjectStore, opts: { allowedOrigin: string; now?: () => number; rateLimitPerMinute?: number }): Server {
   const now = opts.now ?? Date.now;
   const limit = opts.rateLimitPerMinute ?? 1200;
   const hits = new Map<string, { window: number; count: number }>();
@@ -299,8 +258,7 @@ export function createContentServer(
       const p = store.verify(query, now());
       if (!p) return text(res, 403, 'Invalid or expired signature.', cors(origin));
       const bytes = Number(p['b']);
-      if (Number(req.headers['content-length']) !== bytes)
-        return text(res, 400, 'content-length must match the signed size', cors(origin));
+      if (Number(req.headers['content-length']) !== bytes) return text(res, 400, 'content-length must match the signed size', cors(origin));
       try {
         const etag = await store.putPart(p['k']!, p['u']!, Number(p['n']), bytes, req);
         res.writeHead(200, { ...cors(origin), etag: `"${etag}"` });

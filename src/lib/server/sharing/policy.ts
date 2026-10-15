@@ -75,14 +75,10 @@ const CEILING: Record<string, number> = {
  * value granted by any valid license, never below the free baseline and never above the hard ceiling. Only
  * server-resolved entitlements reach this function; client-supplied plan state never does.
  */
-export function resolveLimits(
-  entitlementSets: ReadonlyArray<Record<string, unknown>>,
-): SharingLimits {
+export function resolveLimits(entitlementSets: ReadonlyArray<Record<string, unknown>>): SharingLimits {
   const out: SharingLimits = { ...FREE_LIMITS };
   for (const ent of entitlementSets) {
-    for (const [field, key] of Object.entries(LIMIT_ENTITLEMENTS) as Array<
-      [keyof SharingLimits, string]
-    >) {
+    for (const [field, key] of Object.entries(LIMIT_ENTITLEMENTS) as Array<[keyof SharingLimits, string]>) {
       const v = ent[key];
       const cur = out[field];
       if (typeof cur === 'boolean') {
@@ -110,13 +106,7 @@ export interface FileKind {
   text: boolean;
 }
 
-const K = (
-  ext: string,
-  contentType: string,
-  inline: boolean,
-  magic: string[] | null,
-  text = false,
-): FileKind => ({ ext, contentType, inline, magic, text });
+const K = (ext: string, contentType: string, inline: boolean, magic: string[] | null, text = false): FileKind => ({ ext, contentType, inline, magic, text });
 
 const ZIP = ['504b0304'];
 export const FILE_KINDS: Readonly<Record<string, FileKind>> = Object.freeze({
@@ -129,19 +119,9 @@ export const FILE_KINDS: Readonly<Record<string, FileKind>> = Object.freeze({
   txt: K('txt', 'text/plain; charset=utf-8', true, null, true),
   csv: K('csv', 'text/csv; charset=utf-8', false, null, true),
   rtf: K('rtf', 'application/rtf', false, ['7b5c727466']),
-  docx: K(
-    'docx',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    false,
-    ZIP,
-  ),
+  docx: K('docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', false, ZIP),
   xlsx: K('xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', false, ZIP),
-  pptx: K(
-    'pptx',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    false,
-    ZIP,
-  ),
+  pptx: K('pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', false, ZIP),
   odt: K('odt', 'application/vnd.oasis.opendocument.text', false, ZIP),
   ods: K('ods', 'application/vnd.oasis.opendocument.spreadsheet', false, ZIP),
   odp: K('odp', 'application/vnd.oasis.opendocument.presentation', false, ZIP),
@@ -196,8 +176,7 @@ const CONTROL_TEXT =
 export function sanitizeFileName(raw: string): string {
   const base = raw.normalize('NFC').replace(CONTROL, '').split(/[\\/]/).pop()!.trim();
   const cleaned = base.replace(/^\.+/, '').replace(/["<>:|?*]/g, '_');
-  if (!cleaned || cleaned.length > 200)
-    throw new DomainError('invalid_request', 'invalid file name');
+  if (!cleaned || cleaned.length > 200) throw new DomainError('invalid_request', 'invalid file name');
   return cleaned;
 }
 
@@ -210,8 +189,7 @@ export function sanitizeFolderPath(raw: string | undefined): string {
     .split(/[\\/]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-  if (segments.length > 10 || segments.some((s) => s === '.' || s === '..' || s.length > 100))
-    throw new DomainError('invalid_request', 'invalid folder path');
+  if (segments.length > 10 || segments.some((s) => s === '.' || s === '..' || s.length > 100)) throw new DomainError('invalid_request', 'invalid folder path');
   const out = segments.map((s) => s.replace(/["<>:|?*]/g, '_')).join('/');
   if (out.length > 500) throw new DomainError('invalid_request', 'invalid folder path');
   return out;
@@ -235,19 +213,10 @@ export interface DestinationPolicy {
   blockedHosts: readonly string[];
 }
 
-const INTERNAL_SUFFIXES = [
-  '.local',
-  '.localhost',
-  '.internal',
-  '.lan',
-  '.home.arpa',
-  '.intranet',
-  '.corp',
-];
+const INTERNAL_SUFFIXES = ['.local', '.localhost', '.internal', '.lan', '.home.arpa', '.intranet', '.corp'];
 
 export function validateExternalDestination(raw: string, policy: DestinationPolicy): string {
-  const bad = (why: string) =>
-    new DomainError('invalid_request', `destination not permitted: ${why}`);
+  const bad = (why: string) => new DomainError('invalid_request', `destination not permitted: ${why}`);
   if (raw.length > 2048) throw bad('too long');
   let u: URL;
   try {
@@ -262,8 +231,7 @@ export function validateExternalDestination(raw: string, policy: DestinationPoli
   if (/^[0-9.]+$/.test(host) || host.startsWith('[') || /^0x/i.test(host)) throw bad('IP literal');
   if (INTERNAL_SUFFIXES.some((s) => host.endsWith(s))) throw bad('internal host');
   if (u.port && !['80', '443'].includes(u.port)) throw bad('port');
-  const matches = (list: readonly string[]) =>
-    list.some((h) => host === h.toLowerCase() || host.endsWith(`.${h.toLowerCase()}`));
+  const matches = (list: readonly string[]) => list.some((h) => host === h.toLowerCase() || host.endsWith(`.${h.toLowerCase()}`));
   if (matches(policy.reservedHosts)) throw bad('points at this service');
   if (matches(policy.blockedHosts)) throw bad('blocked host');
   return u.toString();
@@ -304,11 +272,7 @@ const RESERVED_ALIASES = new Set([
 /** Custom aliases for PUBLIC short links only: lowercase, readable, not impersonating platform paths. */
 export function validateAlias(alias: string): string {
   const a = alias.trim().toLowerCase();
-  if (
-    !/^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$/.test(a) ||
-    a.includes('--') ||
-    RESERVED_ALIASES.has(a)
-  )
+  if (!/^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$/.test(a) || a.includes('--') || RESERVED_ALIASES.has(a))
     throw new DomainError('invalid_request', 'alias not available');
   return a;
 }
@@ -364,11 +328,7 @@ export type LinkStatus = 'active' | 'suspended' | 'revoked';
 export type EffectiveLinkState = 'active' | 'suspended' | 'revoked' | 'expired' | 'unavailable';
 
 /** One evaluation used by every public path; owners see the same answer in their workspace. */
-export function effectiveLinkState(
-  link: { status: LinkStatus; expiresAt: Date | null },
-  now: Date,
-  targetUsable: boolean,
-): EffectiveLinkState {
+export function effectiveLinkState(link: { status: LinkStatus; expiresAt: Date | null }, now: Date, targetUsable: boolean): EffectiveLinkState {
   if (link.status !== 'active') return link.status;
   if (link.expiresAt && link.expiresAt.getTime() <= now.getTime()) return 'expired';
   if (!targetUsable) return 'unavailable';
@@ -379,10 +339,7 @@ export const PERMISSIONS = ['view', 'download', 'review'] as const;
 export type SharePermission = (typeof PERMISSIONS)[number];
 
 /** What a share permission lets a recipient do. View-only cannot prevent screenshots or copying. */
-export function permits(
-  permission: SharePermission,
-  action: 'view' | 'download' | 'comment',
-): boolean {
+export function permits(permission: SharePermission, action: 'view' | 'download' | 'comment'): boolean {
   if (action === 'view') return true;
   if (action === 'download') return permission === 'download';
   return permission === 'review';
@@ -396,20 +353,14 @@ export function dayKey(d: Date): string {
 }
 
 /** S3 multipart rules: parts of at least 5 MiB (except the last), at most 10 000 parts. */
-export function planParts(
-  size: number,
-  preferred = 8 * MiB,
-  minimum = 5 * MiB,
-): { partSize: number; partCount: number } {
-  if (!Number.isSafeInteger(size) || size < 1)
-    throw new DomainError('invalid_request', 'invalid size');
+export function planParts(size: number, preferred = 8 * MiB, minimum = 5 * MiB): { partSize: number; partCount: number } {
+  if (!Number.isSafeInteger(size) || size < 1) throw new DomainError('invalid_request', 'invalid size');
   const partSize = Math.max(preferred, minimum, Math.ceil(size / 10_000));
   return { partSize, partCount: Math.max(1, Math.ceil(size / partSize)) };
 }
 
 export function normalizeEmail(raw: string): string {
   const e = raw.trim().toLowerCase();
-  if (e.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
-    throw new DomainError('invalid_request', 'invalid email');
+  if (e.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new DomainError('invalid_request', 'invalid email');
   return e;
 }

@@ -23,10 +23,19 @@ export function buildRouter(): Router {
   const P = '/api/v1/workspaces/:orgId/sharing';
 
   // Public, non-secret client configuration (read at runtime, not baked into the build).
-  r.add('GET', '/api/v1/config', 'public', async (x) => ({ supabaseUrl: x.c.config.supabaseUrl, supabasePublishableKey: x.c.config.supabasePublishableKey }), 600);
+  r.add(
+    'GET',
+    '/api/v1/config',
+    'public',
+    async (x) => ({ supabaseUrl: x.c.config.supabaseUrl, supabasePublishableKey: x.c.config.supabasePublishableKey }),
+    600,
+  );
 
   // ---- account and workspaces ------------------------------------------------------------------------
-  r.add('GET', '/api/v1/me', 'user', async (x) => ({ user: { id: me(x).userId, email: me(x).email, emailVerified: me(x).emailVerified }, workspaces: await x.c.workspaces.list(me(x)) }));
+  r.add('GET', '/api/v1/me', 'user', async (x) => ({
+    user: { id: me(x).userId, email: me(x).email, emailVerified: me(x).emailVerified },
+    workspaces: await x.c.workspaces.list(me(x)),
+  }));
   r.add('POST', '/api/v1/workspaces', 'user', async (x) => created(await x.c.workspaces.createTeam(me(x), parse(teamBody, await x.body()).name)));
   r.add('GET', '/api/v1/workspaces/:orgId/members', 'user', async (x) => ({ items: await x.c.workspaces.members(me(x), org(x)) }));
   r.add('POST', '/api/v1/workspaces/:orgId/members', 'user', async (x) => {
@@ -70,7 +79,9 @@ export function buildRouter(): Router {
     const b = parse(s.transferPatchBody, await x.body());
     return sh(x).updateTransfer(me(x), ids(x).orgId, ids(x).id, { title: b.title, message: b.message, expiresAt: date(b.expires_at) });
   });
-  r.add('POST', `${P}/transfers/:id/revoke`, 'user', async (x) => sh(x).revokeTransfer(me(x), ids(x).orgId, ids(x).id, parse(s.optionalReasonBody, await x.body()).reason));
+  r.add('POST', `${P}/transfers/:id/revoke`, 'user', async (x) =>
+    sh(x).revokeTransfer(me(x), ids(x).orgId, ids(x).id, parse(s.optionalReasonBody, await x.body()).reason),
+  );
   r.add('POST', `${P}/transfers/:id/delete`, 'user', async (x) => {
     parse(s.emptyBody, await x.body());
     return sh(x).deleteTransfer(me(x), ids(x).orgId, ids(x).id);
@@ -97,7 +108,9 @@ export function buildRouter(): Router {
       }),
     );
   });
-  r.add('POST', `${P}/uploads/:id/parts`, 'user', async (x) => sh(x).signUploadParts(me(x), ids(x).orgId, ids(x).id, parse(s.partsBody, await x.body()).part_numbers));
+  r.add('POST', `${P}/uploads/:id/parts`, 'user', async (x) =>
+    sh(x).signUploadParts(me(x), ids(x).orgId, ids(x).id, parse(s.partsBody, await x.body()).part_numbers),
+  );
   r.add('GET', `${P}/uploads/:id`, 'user', async (x) => sh(x).uploadStatus(me(x), ids(x).orgId, ids(x).id));
   r.add('POST', `${P}/uploads/:id/complete`, 'user', async (x) => {
     parse(s.emptyBody, await x.body());
@@ -155,7 +168,9 @@ export function buildRouter(): Router {
   r.add('GET', `${P}/links/:id/activity`, 'user', async (x) => sh(x).linkActivity(me(x), ids(x).orgId, ids(x).id));
 
   // ---- short links ------------------------------------------------------------------------------------
-  r.add('GET', `${P}/short-links`, 'user', async (x) => ({ items: await sh(x).listShortLinks(me(x), org(x), parse(s.shortLinksQuery, Object.fromEntries(x.query))) }));
+  r.add('GET', `${P}/short-links`, 'user', async (x) => ({
+    items: await sh(x).listShortLinks(me(x), org(x), parse(s.shortLinksQuery, Object.fromEntries(x.query))),
+  }));
   r.add('POST', `${P}/short-links`, 'user', async (x) => {
     const b = parse(s.shortLinkBody, await x.body());
     return created(
@@ -227,7 +242,9 @@ export function buildRouter(): Router {
     );
   });
   r.add('GET', `${P}/upload-requests/:id`, 'user', async (x) => sh(x).getUploadRequest(me(x), ids(x).orgId, ids(x).id));
-  r.add('POST', `${P}/upload-requests/:id/status`, 'user', async (x) => sh(x).closeUploadRequest(me(x), ids(x).orgId, ids(x).id, parse(s.requestActionBody, await x.body()).action));
+  r.add('POST', `${P}/upload-requests/:id/status`, 'user', async (x) =>
+    sh(x).closeUploadRequest(me(x), ids(x).orgId, ids(x).id, parse(s.requestActionBody, await x.body()).action),
+  );
   r.add('GET', `${P}/notifications`, 'user', async (x) => ({ items: await sh(x).listNotifications(me(x), org(x)) }));
   r.add('POST', `${P}/notifications/read`, 'user', async (x) => sh(x).markNotificationsRead(me(x), org(x), parse(s.notificationsReadBody, await x.body()).ids));
   r.add('GET', `${P}/branding`, 'user', async (x) => sh(x).getBranding(me(x), org(x)));
@@ -272,7 +289,9 @@ export function buildRouter(): Router {
   });
   const R = '/api/v1/public/upload-requests/:token';
   r.add('POST', `${R}/open`, 'public', async (x) => sh(x).openUploadRequest(tok(x), parse(s.openBody, await x.body()), await x.publicCtx()));
-  r.add('POST', `${R}/submissions`, 'public', async (x) => created(await sh(x).startSubmission(tok(x), parse(s.submissionStartBody, await x.body()), await x.publicCtx())));
+  r.add('POST', `${R}/submissions`, 'public', async (x) =>
+    created(await sh(x).startSubmission(tok(x), parse(s.submissionStartBody, await x.body()), await x.publicCtx())),
+  );
   r.add('GET', `${R}/submission`, 'public', async (x) => sh(x).submissionStatus(tok(x), secret(x)));
   r.add('POST', `${R}/submission/submit`, 'public', async (x) => {
     parse(s.emptyBody, await x.body());
@@ -283,7 +302,9 @@ export function buildRouter(): Router {
     return created(await sh(x).beginSubmissionUpload(tok(x), secret(x), { requirementKey: b.requirement_key, name: b.name, size: b.size }));
   });
   const up = (x: Ctx) => parse(s.submissionUploadParams, x.params);
-  r.add('POST', `${R}/uploads/:uploadId/parts`, 'public', async (x) => sh(x).signSubmissionParts(up(x).token, secret(x), up(x).uploadId, parse(s.partsBody, await x.body()).part_numbers));
+  r.add('POST', `${R}/uploads/:uploadId/parts`, 'public', async (x) =>
+    sh(x).signSubmissionParts(up(x).token, secret(x), up(x).uploadId, parse(s.partsBody, await x.body()).part_numbers),
+  );
   r.add('GET', `${R}/uploads/:uploadId`, 'public', async (x) => sh(x).submissionUploadStatus(up(x).token, secret(x), up(x).uploadId));
   r.add('POST', `${R}/uploads/:uploadId/complete`, 'public', async (x) => {
     parse(s.emptyBody, await x.body());
@@ -296,7 +317,9 @@ export function buildRouter(): Router {
   r.add('POST', '/api/v1/public/abuse-reports', 'public', async (x) => json(await sh(x).reportAbuse(parse(s.abuseBody, await x.body())), 202), 10);
 
   // ---- operators --------------------------------------------------------------------------------------
-  r.add('GET', '/api/v1/admin/sharing/abuse-reports', 'operator', async (x) => ({ items: await sh(x).listAbuseReports(parse(s.abuseQuery, Object.fromEntries(x.query)).status) }));
+  r.add('GET', '/api/v1/admin/sharing/abuse-reports', 'operator', async (x) => ({
+    items: await sh(x).listAbuseReports(parse(s.abuseQuery, Object.fromEntries(x.query)).status),
+  }));
   r.add('POST', '/api/v1/admin/sharing/abuse-reports/:id/resolve', 'operator', async (x) => {
     const { id } = parse(s.abuseParams, x.params);
     return sh(x).resolveAbuseReport(me(x).userId, id, parse(s.abuseResolveBody, await x.body()));

@@ -14,10 +14,7 @@ const { T0 } = f;
 const at = (ms: number) => new Date(T0.getTime() + ms);
 
 /** One definition of correct SharingStore behaviour, run against every adapter. */
-export function sharingStoreContract(
-  name: string,
-  make: () => SharingHarness | Promise<SharingHarness>,
-) {
+export function sharingStoreContract(name: string, make: () => SharingHarness | Promise<SharingHarness>) {
   describe(`SharingStore contract: ${name}`, () => {
     it('round-trips rows exactly, including dates, numbers, booleans and JSON', async () => {
       const h = await make();
@@ -78,15 +75,8 @@ export function sharingStoreContract(
           }),
         );
       }
-      const current = await h.store.list(
-        'transferFile',
-        orgId,
-        { transferId: tr.id, status: 'current' },
-        { order: 'oldest' },
-      );
-      expect(current.map((x) => x.createdAt.getTime())).toEqual(
-        [0, 1000, 2000, 3000].map((ms) => T0.getTime() + ms),
-      );
+      const current = await h.store.list('transferFile', orgId, { transferId: tr.id, status: 'current' }, { order: 'oldest' });
+      expect(current.map((x) => x.createdAt.getTime())).toEqual([0, 1000, 2000, 3000].map((ms) => T0.getTime() + ms));
       const newest = await h.store.list('transferFile', orgId, { transferId: tr.id }, { limit: 2 });
       expect(newest.map((x) => x.status)).toEqual(['removed', 'current']);
     });
@@ -113,9 +103,7 @@ export function sharingStoreContract(
       const b = f.blob(orgId, { status: 'clean' });
       await h.store.insert('blob', b);
       await h.store.insert('version', f.version(orgId, d.id, b.id, userId, { number: 1 }));
-      await expect(
-        h.store.insert('version', f.version(orgId, d.id, b.id, userId, { number: 1 })),
-      ).rejects.toThrow('duplicate:version');
+      await expect(h.store.insert('version', f.version(orgId, d.id, b.id, userId, { number: 1 }))).rejects.toThrow('duplicate:version');
       await h.store.insert('domain', {
         id: 'dom_a1',
         orgId,
@@ -144,25 +132,15 @@ export function sharingStoreContract(
       const h = await make();
       const { orgId } = await h.seed();
       await h.store.insert('blob', f.blob(orgId, { declaredSize: 100 }));
-      await h.store.insert(
-        'blob',
-        f.blob(orgId, { declaredSize: 999, size: 250, status: 'clean' }),
-      );
-      await h.store.insert(
-        'blob',
-        f.blob(orgId, { declaredSize: 400, size: 400, status: 'deleted' }),
-      );
+      await h.store.insert('blob', f.blob(orgId, { declaredSize: 999, size: 250, status: 'clean' }));
+      await h.store.insert('blob', f.blob(orgId, { declaredSize: 400, size: 400, status: 'deleted' }));
       expect(await h.store.storageBytes(orgId)).toBe(350);
     });
 
     it('adds usage atomically under concurrency and reads it per period', async () => {
       const h = await make();
       const { orgId } = await h.seed();
-      const results = await Promise.all(
-        Array.from({ length: 20 }, () =>
-          h.store.transaction((tx) => tx.addUsage(orgId, '2026-03', 'bandwidth_bytes', 10)),
-        ),
-      );
+      const results = await Promise.all(Array.from({ length: 20 }, () => h.store.transaction((tx) => tx.addUsage(orgId, '2026-03', 'bandwidth_bytes', 10))));
       expect(Math.max(...results)).toBe(200);
       expect(new Set(results).size).toBe(20);
       await h.store.addUsage(orgId, '2026-04', 'bandwidth_bytes', 1);
@@ -183,27 +161,21 @@ export function sharingStoreContract(
       const shared = f.blob(orgId, { status: 'clean' });
       const removed = f.blob(orgId, { status: 'clean' });
       const submitted = f.blob(orgId, { status: 'clean' });
-      for (const b of [lone, draft, exported, shared, removed, submitted])
-        await h.store.insert('blob', b);
+      for (const b of [lone, draft, exported, shared, removed, submitted]) await h.store.insert('blob', b);
       const d = f.document(orgId, userId, { draftBlobId: draft.id });
       await h.store.insert('document', d);
       await h.store.insert('version', f.version(orgId, d.id, exported.id, userId));
       const tr = f.transfer(orgId, userId);
       await h.store.insert('transfer', tr);
       await h.store.insert('transferFile', f.transferFile(orgId, tr.id, shared.id));
-      await h.store.insert(
-        'transferFile',
-        f.transferFile(orgId, tr.id, removed.id, { status: 'removed' }),
-      );
+      await h.store.insert('transferFile', f.transferFile(orgId, tr.id, removed.id, { status: 'removed' }));
       const r = f.uploadRequest(orgId, userId);
       await h.store.insert('uploadRequest', r);
       const sub = f.submission(orgId, r.id);
       await h.store.insert('submission', sub);
       await h.store.insert('submissionFile', f.submissionFile(orgId, r.id, sub.id, submitted.id));
       const ref = (b: { id: string }) => h.store.blobReferenced(orgId, b.id);
-      expect(
-        await Promise.all([lone, draft, exported, shared, removed, submitted].map(ref)),
-      ).toEqual([false, true, true, true, false, true]);
+      expect(await Promise.all([lone, draft, exported, shared, removed, submitted].map(ref))).toEqual([false, true, true, true, false, true]);
       await h.store.update('document', orgId, d.id, { status: 'deleted' });
       expect(await ref(draft)).toBe(false);
       expect(await ref(exported)).toBe(false);
@@ -254,8 +226,7 @@ export function sharingStoreContract(
           lookupKey: 'p||spring-other',
         }),
       );
-      const codes = async (q: Parameters<SharingStore['searchShortLinks']>[1]) =>
-        (await h.store.searchShortLinks(orgId, q)).map((s) => s.code).sort();
+      const codes = async (q: Parameters<SharingStore['searchShortLinks']>[1]) => (await h.store.searchShortLinks(orgId, q)).map((s) => s.code).sort();
       expect(await codes({ q: 'SPRING' })).toEqual(['docs', 'spring-flyer']);
       expect(await codes({ folder: 'Campaigns' })).toEqual(['spring-flyer']);
       expect(await codes({ tag: 'print' })).toEqual(['spring-flyer']);
@@ -270,12 +241,8 @@ export function sharingStoreContract(
       await h.store.insert('job', f.job(orgId, { runAfter: at(60_000) }));
       const first = await h.store.transaction((tx) => tx.claimJobs(T0, 10, 'w1', at(30_000)));
       expect(first.map((j) => j.claim)).toEqual(['w1']);
-      expect(
-        await h.store.transaction((tx) => tx.claimJobs(at(1000), 10, 'w2', at(31_000))),
-      ).toEqual([]);
-      const later = await h.store.transaction((tx) =>
-        tx.claimJobs(at(60_000), 10, 'w3', at(90_000)),
-      );
+      expect(await h.store.transaction((tx) => tx.claimJobs(at(1000), 10, 'w2', at(31_000)))).toEqual([]);
+      const later = await h.store.transaction((tx) => tx.claimJobs(at(60_000), 10, 'w3', at(90_000)));
       expect(later.map((j) => j.claim).sort()).toEqual(['w3', 'w3']);
     });
 
@@ -294,11 +261,8 @@ export function sharingStoreContract(
         status: 'expired',
         kind: 'persistent',
       });
-      for (const t of [expired, live, deleted, persistentExpired])
-        await h.store.insert('transfer', t);
-      expect((await h.store.dueTransfers(T0, 100)).map((t) => t.id).sort()).toEqual(
-        [expired.id, deleted.id].sort(),
-      );
+      for (const t of [expired, live, deleted, persistentExpired]) await h.store.insert('transfer', t);
+      expect((await h.store.dueTransfers(T0, 100)).map((t) => t.id).sort()).toEqual([expired.id, deleted.id].sort());
       const due = f.uploadRequest(a.orgId, a.userId, { deleteAfter: at(-1) });
       const keep = f.uploadRequest(b.orgId, b.userId, { deleteAfter: null });
       await h.store.insert('uploadRequest', due);
@@ -336,9 +300,7 @@ export function sharingStoreContract(
 
     it('counts password failures atomically with lockout, clears and purges them', async () => {
       const h = await make();
-      await Promise.all(
-        Array.from({ length: 5 }, () => h.store.recordAttemptFailure('share:x', T0, 5, 60_000)),
-      );
+      await Promise.all(Array.from({ length: 5 }, () => h.store.recordAttemptFailure('share:x', T0, 5, 60_000)));
       expect(await h.store.findAttempt('share:x')).toEqual({ count: 5, lockedUntil: at(60_000) });
       await h.store.clearAttempt('share:x');
       expect(await h.store.findAttempt('share:x')).toBeUndefined();
