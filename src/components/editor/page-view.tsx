@@ -35,8 +35,18 @@ function PageCanvas({ doc, index, scale, rotation, w, h }: { doc: PDFDocumentPro
       const canvas = ref.current;
       canvas.width = Math.floor(vp.width);
       canvas.height = Math.floor(vp.height);
+      delete canvas.dataset['rendered'];
       task = page.render({ canvas, viewport: vp });
-      await task.promise.catch(() => undefined);
+      try {
+        await task.promise;
+        canvas.dataset['rendered'] = '1';
+      } catch (e) {
+        // A cancelled render (zoom, rotate, unmount) is expected; anything else is reported.
+        if ((e as Error)?.name !== 'RenderingCancelledException') {
+          canvas.dataset['renderError'] = String((e as Error)?.message ?? e).slice(0, 200);
+          console.error('page render failed', e);
+        }
+      }
     })();
     return () => {
       cancelled = true;

@@ -119,13 +119,20 @@ async function main() {
       .first()
       .setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
     await p.locator('.page').first().waitFor();
+    const canvas = p.locator('.page .page-canvas').first();
     await p.waitForFunction(() => {
-      const c = document.querySelector('.page-canvas');
-      if (!c || !c.width) return false;
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-      for (let i = 0; i < d.length; i += 4) if (d[i] < 128) return true; // some dark (text) pixels
-      return false;
+      const c = document.querySelector('.page .page-canvas');
+      return !!c && (c.dataset.rendered === '1' || !!c.dataset.renderError);
     });
+    const renderError = await canvas.getAttribute('data-render-error');
+    check(!renderError, `page rendered without error${renderError ? `: ${renderError}` : ''}`);
+    const dark = await canvas.evaluate((c) => {
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && d[i] < 128) n++;
+      return n;
+    });
+    check(dark > 50, `the page shows its text (${dark} dark pixels)`);
     ok('pdf.js rendered the page (worker loaded under CSP)');
     check((await p.locator('.thumb').count()) === 2, 'two page thumbnails');
     await p.getByRole('radio', { name: 'Text' }).click();

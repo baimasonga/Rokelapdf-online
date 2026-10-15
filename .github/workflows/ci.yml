@@ -40,4 +40,12 @@ jobs:
         run: |
           npx playwright@1.56.1 install --with-deps chromium
           psql "$DATABASE_URL" -c 'DROP SCHEMA IF EXISTS rokela CASCADE'
-          npm run e2e
+          mkdir -p e2e-artifacts
+          E2E_ARTIFACTS=$PWD/e2e-artifacts npm run e2e
+      - name: Keep e2e screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e-artifacts/
+          if-no-files-found: ignore
