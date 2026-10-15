@@ -74,3 +74,16 @@ describe('accounts and workspaces', () => {
     expect(r.text).not.toContain(env.c.config.sharingSecret);
   });
 });
+
+describe('health', () => {
+  it('reports database reachability without details', async () => {
+    env = await makeEnv();
+    const ok = await env.call('GET', '/api/v1/health');
+    expect(ok).toMatchObject({ status: 200, body: { ok: true } });
+    const broken = { ...env.c, pool: { query: async () => Promise.reject(new Error('connect ECONNREFUSED 10.0.0.5:5432')) } };
+    const { buildRouter } = await import('@/lib/server/api/routes');
+    const res = await buildRouter().handle(broken as unknown as typeof env.c, new Request('http://127.0.0.1:3000/api/v1/health'));
+    expect(res.status).toBe(503);
+    expect(await res.text()).toBe('{"ok":false}');
+  });
+});

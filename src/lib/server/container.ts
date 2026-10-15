@@ -9,6 +9,7 @@ import { RateLimiter } from './rate-limit';
 import type { PgPool } from './db/pg';
 import { PgSharingStore } from './db/pg-sharing-store';
 import { assertIdent } from './db/schema';
+import { connectionConfig } from './db/connect';
 import { LocalObjectStore } from './storage/local';
 import { S3ObjectStore } from './storage/s3';
 import { ClamdScanner } from './storage/clamd';
@@ -40,12 +41,7 @@ function poolFor(c: AppConfig): pg.Pool {
   const schema = assertIdent(c.dbSchema);
   // The search path is a connection startup parameter, so it is in place before the first query. `npm run db:grants`
   // also makes it the app role's default, which covers poolers that do not forward startup parameters.
-  let settings: pg.PoolConfig = { connectionString: c.databaseUrl, max: c.dbPoolMax, options: `-c search_path=${schema}` };
-  if (c.databaseCaPem) {
-    const u = new URL(c.databaseUrl);
-    for (const p of ['sslmode', 'ssl', 'sslrootcert', 'sslcert', 'sslkey']) u.searchParams.delete(p);
-    settings = { ...settings, connectionString: u.toString(), ssl: { ca: c.databaseCaPem, rejectUnauthorized: true } };
-  }
+  const settings: pg.PoolConfig = { ...connectionConfig(c.databaseUrl, c.databaseCaPem), max: c.dbPoolMax, options: `-c search_path=${schema}` };
   const pool = new pg.Pool(settings);
   return pool;
 }

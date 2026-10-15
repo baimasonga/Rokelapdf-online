@@ -31,6 +31,22 @@ export function buildRouter(): Router {
     600,
   );
 
+  // Liveness + database reachability for the platform's health check. Reveals nothing else.
+  r.add(
+    'GET',
+    '/api/v1/health',
+    'public',
+    async (x) => {
+      try {
+        await x.c.pool.query('SELECT 1');
+      } catch {
+        return json({ ok: false }, 503);
+      }
+      return { ok: true };
+    },
+    600,
+  );
+
   // ---- account and workspaces ------------------------------------------------------------------------
   r.add('GET', '/api/v1/me', 'user', async (x) => ({
     user: { id: me(x).userId, email: me(x).email, emailVerified: me(x).emailVerified },
