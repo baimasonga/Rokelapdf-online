@@ -1,7 +1,9 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  poweredByHeader: false,
+  reactStrictMode: true,
+  serverExternalPackages: ['pg'],
 };
 
 export default nextConfig;

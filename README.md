@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Rokela PDF Pro Web
 
-## Getting Started
+Browser PDF editor with integrated file sharing and link shortening.
 
-First, run the development server:
+- **Hosting:** Railway (Next.js app + background worker), Supabase (Auth + PostgreSQL), Cloudflare R2 (private file storage).
+- **Stack:** Next.js 15 (App Router) + TypeScript, `pg`, `zod`, `pdf-lib`, `pdfjs-dist`, `@supabase/supabase-js`.
+
+## Architecture in one paragraph
+
+Supabase Auth issues sessions; the browser sends `Authorization: Bearer <access token>` to the Next.js API
+(no cookies, so no CSRF surface). The server verifies the token with Supabase, then does **all** data access
+itself with application-level authorization. Data lives in a private Postgres schema (`rokela`, not exposed
+through the Supabase Data API) accessed by a least-privilege role. Files never pass through the app: uploads
+and downloads use short-lived signed URLs directly against R2.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — components, identity, data, documents/links, file flow, editor
+- [Deploying on Supabase + Cloudflare R2 + Railway](docs/deploy.md) — step by step, with a first-deploy checklist
+- [Security model](docs/security.md) — trust boundaries, controls, honest limits, retention
+- [Cost model and phased plan](docs/plan.md)
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm test            # unit + API tests against a throwaway PostgreSQL 16 cluster (or DATABASE_URL)
+npm run test:approle  # same suite as the least-privilege app role
+npm run typecheck
+npm run dev         # needs DATABASE_URL; uses local file storage on :3001 in development
+npm run build && npm run e2e   # browser end-to-end smoke test (Chromium) against the production build
+npm run check       # format, lint, typecheck, tests — run before pushing
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Production refuses to start on weak or missing configuration (`src/lib/server/config.ts`): R2 storage,
+a strong `SHARING_SECRET`, HTTPS origins, Supabase settings and ClamAV (or an explicit opt-out) are required.

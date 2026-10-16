@@ -1,0 +1,151 @@
+import { DomainError, newId, type AuditEventInput, type Clock, type UserPrincipal } from './kernel';
+import { withTransaction, type PgPool, type Queryable } from './db/pg';
+import { appendAuditInTx } from './db/audit';
+
+export const ROLES = ['owner', 'admin', 'member'] as const;
+export type Role = (typeof ROLES)[number];
+export type Permission = 'org:read' | 'org:manage_members' | 'share:read' | 'share:create' | 'share:manage';
+
+// Deny by default: a permission not listed for a role is not granted.
+const GRANTS: Record<Role, readonly Permission[]> = {
+  member: ['org:read', 'share:read', 'share:create'],
+  admin: ['org:read', 'org:manage_members', 'share:read', 'share:create', 'share:manage'],
+  owner: ['org:read', 'org:manage_members', 'share:read', 'share:create', 'share:manage'],
+};
+const RANK: Record<Role, number> = { member: 1, admin: 2, owner: 3 };
+
+export interface Workspace {
+  id: string;
+  name: string;
+  kind: 'personal' | 'team';
+  role: Role;
+}
+
+/**
+ * Workspaces, membership and roles. Identity comes from verified Supabase access tokens; this service mirrors the
+ * user, gives every user a personal workspace, and authorizes workspace-scoped actions. Non-members get 404 (no
+ * existence oracle); members lacking a permission get 403.
+ */
+export class WorkspaceService {
+  readonly #pool: PgPool;
+  readonly #clock: Clock;
+
+  constructor(pool: PgPool, clock: Clock) {
+    this.#pool = pool;
+    this.#clock = clock;
+  }
+
+  async #tx<T>(fn: (q: Queryable, audit: AuditEventInput[]) => Promise<T>): Promise<T> {
+    return withTransaction(this.#pool, async (client) => {
+      const audit: AuditEventInput[] = [];
+      const out = await fn(client, audit);
+      await appendAuditInTx(client, this.#clock, audit);
+      return out;
+    });
+  }
+
+  /** Upserts the user mirror and creates the personal workspace on first sign-in. Idempotent and race-safe. */
+  async sync(p: UserPrincipal): Promise<void> {
+    await this.#tx(async (q, audit) => {
+      const now = this.#clock.now();
+      const r = await q.query(
+        `INSERT INTO users (id, email, email_verified, created_at, updated_at) VALUES ($1,$2,$3,$4,$4)
+         ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, email_verified = EXCLUDED.email_verified, updated_at = EXCLUDED.updated_at
+         RETURNING (xmax = 0) AS inserted`,
+        [p.userId, p.email, p.emailVerified, now],
+      );
+      // Lock the user row so concurrent first requests create exactly one personal workspace.
+      await q.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [p.userId]);
+      const has = await q.query(`SELECT 1 FROM memberships m JOIN organizations o ON o.id = m.org_id WHERE m.user_id = $1 AND o.kind = 'personal'`, [p.userId]);
+      if (has.rowCount) return;
+      const id = newId('org');
+      await q.query("INSERT INTO organizations (id, name, kind, created_at) VALUES ($1, 'Personal', 'personal', $2)", [id, now]);
+      await q.query("INSERT INTO memberships (org_id, user_id, role, created_at) VALUES ($1,$2,'owner',$3)", [id, p.userId, now]);
+      audit.push({
+        actor: { type: 'user', id: p.userId },
+        action: r.rows[0]?.inserted ? 'user.registered' : 'org.created',
+        target: { type: 'org', id },
+        orgId: id,
+      });
+    });
+  }
+
+  async list(p: UserPrincipal): Promise<Workspace[]> {
+    const r = await this.#pool.query(
+      `SELECT o.id, o.name, o.kind, m.role FROM memberships m JOIN organizations o ON o.id = m.org_id
+       WHERE m.user_id = $1 ORDER BY (o.kind = 'personal') DESC, o.created_at`,
+      [p.userId],
+    );
+    return r.rows as Workspace[];
+  }
+
+  async require(p: UserPrincipal, orgId: string, permission: Permission): Promise<Role> {
+    const r = await this.#pool.query('SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2', [orgId, p.userId]);
+    const role = r.rows[0]?.role as Role | undefined;
+    if (!role) throw new DomainError('not_found', 'not found');
+    if (!GRANTS[role].includes(permission)) throw new DomainError('forbidden', 'insufficient permissions');
+    return role;
+  }
+
+  async isMember(orgId: string, userId: string): Promise<boolean> {
+    return !!(await this.#pool.query('SELECT 1 FROM memberships WHERE org_id = $1 AND user_id = $2', [orgId, userId])).rowCount;
+  }
+
+  async contact(userId: string): Promise<{ email: string; emailVerified: boolean } | undefined> {
+    const r = await this.#pool.query('SELECT email, email_verified FROM users WHERE id = $1', [userId]);
+    return r.rows[0] ? { email: r.rows[0].email, emailVerified: r.rows[0].email_verified } : undefined;
+  }
+
+  async isOperator(userId: string): Promise<boolean> {
+    return (await this.#pool.query('SELECT is_operator FROM users WHERE id = $1', [userId])).rows[0]?.is_operator === true;
+  }
+
+  /** Plan entitlements set by operators; an organization without a plan gets the free baseline. */
+  async entitlements(orgId: string): Promise<Array<Record<string, unknown>>> {
+    const r = await this.#pool.query('SELECT entitlements FROM org_plans WHERE org_id = $1', [orgId]);
+    return r.rows.map((x) => x.entitlements as Record<string, unknown>);
+  }
+
+  async createTeam(p: UserPrincipal, name: string): Promise<Workspace> {
+    const n = name.trim();
+    if (n.length < 1 || n.length > 200) throw new DomainError('invalid_request', 'invalid workspace name');
+    return this.#tx(async (q, audit) => {
+      const now = this.#clock.now();
+      const id = newId('org');
+      await q.query("INSERT INTO organizations (id, name, kind, created_at) VALUES ($1,$2,'team',$3)", [id, n, now]);
+      await q.query("INSERT INTO memberships (org_id, user_id, role, created_at) VALUES ($1,$2,'owner',$3)", [id, p.userId, now]);
+      audit.push({ actor: { type: 'user', id: p.userId }, action: 'org.created', target: { type: 'org', id }, orgId: id });
+      return { id, name: n, kind: 'team' as const, role: 'owner' as const };
+    });
+  }
+
+  async members(p: UserPrincipal, orgId: string) {
+    await this.require(p, orgId, 'org:read');
+    const r = await this.#pool.query(
+      'SELECT u.id AS user_id, u.email, m.role FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.org_id = $1 ORDER BY m.created_at',
+      [orgId],
+    );
+    return r.rows as Array<{ user_id: string; email: string; role: Role }>;
+  }
+
+  /** Adds an existing user (they must have signed in once). An actor may grant at most their own role. */
+  async addMember(p: UserPrincipal, orgId: string, email: string, role: Role) {
+    const actor = await this.require(p, orgId, 'org:manage_members');
+    if (RANK[role] > RANK[actor] || (role === 'owner' && actor !== 'owner')) throw new DomainError('forbidden', 'cannot grant a role above your own');
+    return this.#tx(async (q, audit) => {
+      const org = (await q.query('SELECT kind FROM organizations WHERE id = $1', [orgId])).rows[0];
+      if (!org || org.kind === 'personal') throw new DomainError('forbidden', 'personal workspaces cannot have members');
+      const u = (await q.query('SELECT id FROM users WHERE email = $1', [email.trim().toLowerCase()])).rows[0];
+      if (!u) throw new DomainError('not_found', 'no account with that email has signed in yet');
+      const ins = await q.query('INSERT INTO memberships (org_id, user_id, role, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [
+        orgId,
+        u.id,
+        role,
+        this.#clock.now(),
+      ]);
+      if (!ins.rowCount) throw new DomainError('conflict', 'already a member');
+      audit.push({ actor: { type: 'user', id: p.userId }, action: 'member.added', target: { type: 'user', id: u.id }, orgId, metadata: { role } });
+      return { userId: u.id as string, role };
+    });
+  }
+}

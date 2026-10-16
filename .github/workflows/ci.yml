@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Format, lint, typecheck, tests
+        run: npm run check
+      - name: Tests as the least-privilege app role
+        run: npm run test:approle
+      - name: Production build
+        run: npm run build
+      - name: Browser end-to-end smoke test
+        run: |
+          npx playwright@1.56.1 install --with-deps chromium
+          psql "$DATABASE_URL" -c 'DROP SCHEMA IF EXISTS rokela CASCADE'
+          mkdir -p e2e-artifacts
+          E2E_ARTIFACTS=$PWD/e2e-artifacts npm run e2e
+      - name: Keep e2e screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e-artifacts/
+          if-no-files-found: ignore
