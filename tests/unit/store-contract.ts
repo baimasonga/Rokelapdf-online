@@ -149,6 +149,7 @@ export function sharingStoreContract(name: string, make: () => SharingHarness | 
         api_requests: 0,
         processing_bytes: 0,
         upload_bytes: 0,
+        emails_sent: 0,
       });
     });
 

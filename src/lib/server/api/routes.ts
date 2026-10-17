@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { DomainError } from '../kernel';
 import * as s from './schemas';
 import { ROLES } from '../workspaces';
+import { FILE_KINDS } from '../sharing';
 import { Router, created, json, parse, type Ctx } from './router';
 
 const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
@@ -27,7 +28,12 @@ export function buildRouter(): Router {
     'GET',
     '/api/v1/config',
     'public',
-    async (x) => ({ supabaseUrl: x.c.config.supabaseUrl, supabasePublishableKey: x.c.config.supabasePublishableKey }),
+    async (x) => ({
+      supabaseUrl: x.c.config.supabaseUrl,
+      supabasePublishableKey: x.c.config.supabasePublishableKey,
+      email: x.c.sharing.emailEnabled,
+      transferTypes: Object.keys(FILE_KINDS),
+    }),
     600,
   );
 
@@ -181,6 +187,10 @@ export function buildRouter(): Router {
     const b = parse(s.statusBody, await x.body());
     return sh(x).setLinkStatus(me(x), ids(x).orgId, ids(x).id, b.action, b.reason);
   });
+  r.add('POST', `${P}/links/:id/email`, 'user', async (x) => {
+    const b = parse(s.linkEmailBody, await x.body());
+    return sh(x).emailLink(me(x), ids(x).orgId, ids(x).id, { to: b.to, message: b.message });
+  });
   r.add('GET', `${P}/links/:id/activity`, 'user', async (x) => sh(x).linkActivity(me(x), ids(x).orgId, ids(x).id));
 
   // ---- short links ------------------------------------------------------------------------------------
@@ -286,6 +296,7 @@ export function buildRouter(): Router {
     const b = parse(s.fileUrlBody, await x.body());
     return sh(x).shareFileUrl(tok(x), { grant: b.grant, fileId: b.file_id, disposition: b.disposition }, await x.publicCtx());
   });
+  r.add('POST', `${S}/archive`, 'public', async (x) => sh(x).shareArchive(tok(x), parse(s.archiveBody, await x.body()), await x.publicCtx()));
   r.add('POST', `${S}/acknowledge`, 'public', async (x) => {
     const b = parse(s.acknowledgeBody, await x.body());
     return sh(x).acknowledgeShare(tok(x), { grant: b.grant, declaredName: b.declared_name }, await x.publicCtx());

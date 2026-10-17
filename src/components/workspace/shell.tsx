@@ -20,7 +20,7 @@ import { Members } from './members';
 const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['overview', 'Home', House, 'Your workspace at a glance.'],
   ['documents', 'Documents', FileText, 'Drafts, versions and what is published.'],
-  ['transfers', 'Transfers', Send, 'Send files with links you control.'],
+  ['transfers', 'Send files', Send, 'Send files by email or link, and see who downloaded them.'],
   ['links', 'Share links', Share2, 'Every link to your documents and transfers.'],
   ['short-links', 'Short links', Link2, 'Short URLs and QR codes, with destination history and stats.'],
   ['requests', 'Upload requests', FileInput, 'Collect files from anyone, with a checklist and deadline.'],
@@ -43,7 +43,7 @@ export function WorkspaceApp() {
   const { signOut } = useAuth();
 
   useEffect(() => {
-    if (ready && !session) router.replace('/signin?next=/app');
+    if (ready && !session) router.replace(`/signin?next=${encodeURIComponent(`/app${window.location.search}`)}`);
   }, [ready, session, router]);
   const loadMe = useCallback(() => api('/api/v1/me').then(setMe, (e: Error) => setError(e.message)), []);
   useEffect(() => {

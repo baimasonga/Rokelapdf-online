@@ -13,6 +13,7 @@ import { connectionConfig } from './db/connect';
 import { LocalObjectStore } from './storage/local';
 import { S3ObjectStore } from './storage/s3';
 import { ClamdScanner } from './storage/clamd';
+import { ResendMailer, type Mailer } from './mail';
 import { BasicContentScanner, ChainedScanner, DEFAULT_SHARING_CONFIG, SharingKeys, SharingService, type FileScanner, type ObjectStore } from './sharing';
 
 export interface Container {
@@ -35,6 +36,7 @@ export interface Overrides {
   scanner?: FileScanner;
   resolveTxt?: (name: string) => Promise<string[][]>;
   sharing?: Partial<typeof DEFAULT_SHARING_CONFIG>;
+  mailer?: Mailer;
 }
 
 function poolFor(c: AppConfig): pg.Pool {
@@ -66,6 +68,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
       objects = localStore;
     } else objects = new S3ObjectStore(config.storage, { now: () => clock.now() });
   }
+  const mailer = o.mailer ?? (config.mail ? new ResendMailer(config.mail) : undefined);
   const basic = new BasicContentScanner();
   const scanner = o.scanner ?? (config.clamd ? new ChainedScanner([basic, new ClamdScanner(config.clamd)]) : basic);
   const sharing = new SharingService({
@@ -92,6 +95,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     entitlements: (orgId) => workspaces.entitlements(orgId),
     passwords: { hash: hashPassword, verify: verifyPassword },
     resolveTxt: o.resolveTxt ?? ((n) => resolveTxt(n)),
+    ...(mailer ? { mailer } : {}),
   });
   return {
     config,

@@ -13,6 +13,15 @@ import type { TokenVerifier } from '@/lib/server/auth';
 import type { UserPrincipal } from '@/lib/server/kernel';
 import { LocalObjectStore, createContentServer } from '@/lib/server/storage/local';
 import type { FileScanner } from '@/lib/server/sharing';
+import type { Mailer, OutgoingMail } from '@/lib/server/mail';
+
+/** Records emails instead of sending them. */
+export class FakeMailer implements Mailer {
+  readonly sent: OutgoingMail[] = [];
+  async send(m: OutgoingMail) {
+    this.sent.push(m);
+  }
+}
 
 export const DAY = 86_400_000;
 export const APP_ROLE = 'rokela_test_app';
@@ -95,7 +104,7 @@ export interface TestEnv {
 }
 
 export async function makeEnv(
-  o: { scanner?: FileScanner; resolveTxt?: (n: string) => Promise<string[][]>; env?: Record<string, string> } = {},
+  o: { scanner?: FileScanner; resolveTxt?: (n: string) => Promise<string[][]>; env?: Record<string, string>; mailer?: Mailer } = {},
 ): Promise<TestEnv> {
   let t = new Date('2026-03-01T00:00:00Z');
   const clock = { now: () => t, advance: (ms: number) => void (t = new Date(t.getTime() + ms)) };
@@ -125,6 +134,7 @@ export async function makeEnv(
     objects: store,
     ...(o.scanner ? { scanner: o.scanner } : {}),
     ...(o.resolveTxt ? { resolveTxt: o.resolveTxt } : {}),
+    ...(o.mailer ? { mailer: o.mailer } : {}),
     sharing: { partBytes: 8 },
   });
   (c as { localStore: LocalObjectStore | undefined }).localStore = store;

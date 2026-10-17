@@ -299,7 +299,7 @@ export interface NotificationRow {
 export interface JobRow {
   id: string;
   orgId: string;
-  kind: 'scan' | 'delete_blob' | 'notify_email';
+  kind: 'scan' | 'delete_blob' | 'notify_email' | 'share_email';
   subjectId: string;
   payload: Record<string, string>;
   runAfter: Date;
@@ -421,8 +421,8 @@ export interface ListOptions {
   order?: 'newest' | 'oldest';
 }
 
-export type UsageMetric = 'bandwidth_bytes' | 'api_requests' | 'processing_bytes' | 'upload_bytes';
-export const USAGE_METRICS: readonly UsageMetric[] = ['bandwidth_bytes', 'api_requests', 'processing_bytes', 'upload_bytes'];
+export type UsageMetric = 'bandwidth_bytes' | 'api_requests' | 'processing_bytes' | 'upload_bytes' | 'emails_sent';
+export const USAGE_METRICS: readonly UsageMetric[] = ['bandwidth_bytes', 'api_requests', 'processing_bytes', 'upload_bytes', 'emails_sent'];
 
 export interface StatRow {
   orgId: string;

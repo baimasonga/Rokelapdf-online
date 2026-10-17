@@ -70,7 +70,8 @@ describe('accounts and workspaces', () => {
   it('serves public client configuration without secrets', async () => {
     env = await makeEnv();
     const r = await env.call('GET', '/api/v1/config');
-    expect(Object.keys(r.body).sort()).toEqual(['supabase_publishable_key', 'supabase_url']);
+    expect(Object.keys(r.body).sort()).toEqual(['email', 'supabase_publishable_key', 'supabase_url', 'transfer_types']);
+    expect(r.body.email).toBe(false);
     expect(r.text).not.toContain(env.c.config.sharingSecret);
   });
 });

@@ -65,6 +65,12 @@ the R2 and Supabase connections are exercised for the first time on your first d
 | `CLAMD_HOST`, `CLAMD_PORT`                                             | `<clamav>.railway.internal`, `3310` — or `MALWARE_SCAN_DISABLED=true` (structural checks only) |
 | `TRUST_PROXY`                                                          | `1` (Railway's proxy sets `X-Forwarded-For`)                                                   |
 
+**Email (optional, off until you have a domain).** Sending transfers by email needs a sending domain you own, verified
+with an email provider. Until then the send form gives one personal link per recipient to copy or send from your own
+mail app, and download notifications stay in the app. To switch email on: create a [Resend](https://resend.com)
+account, add and verify your domain (DNS records), create an API key with _sending access_ only, then set
+`RESEND_API_KEY` and `MAIL_FROM` (e.g. `Rokela PDF Pro <transfers@yourdomain.com>`) and redeploy. Set both or neither.
+
 The app refuses to start in production if any of these is missing or weak (e.g. local storage, short secret,
 non-HTTPS origins, no ClamAV without the explicit opt-out).
 

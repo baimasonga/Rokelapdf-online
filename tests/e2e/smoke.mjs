@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { strFromU8, unzipSync } from 'fflate';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { startFakeSupabase } from './fake-supabase.mjs';
 
@@ -224,6 +225,79 @@ async function main() {
     await p.waitForURL(/\/app/);
     await p.getByRole('heading', { name: /Usage this month/ }).waitFor();
     ok('account created and personal workspace shown');
+
+    step('Send files, WeTransfer-style');
+    await p.goto(`${ORIGIN}/send`);
+    await p.waitForURL(/tab=transfers/);
+    await p.getByTestId('send-files').setInputFiles([
+      { name: 'contract.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() },
+      { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Meeting notes\nBring the drawings.\n') },
+    ]);
+    await p.getByRole('radio', { name: 'Get a link' }).click();
+    await p.getByLabel('Title').fill('Project pack');
+    await p.getByLabel('Message').fill('Here are the files we discussed.');
+    await p.getByRole('button', { name: 'Transfer', exact: true }).click();
+    await p.getByRole('heading', { name: 'Your link is ready' }).waitFor();
+    const packUrl = await p.getByLabel('Transfer link').inputValue();
+    check(/\/s\/[A-Za-z0-9_-]{43}$/.test(packUrl), 'link mode: files uploaded and one link created');
+    await shot(p, 'send-done');
+    await p.getByRole('button', { name: 'Send another' }).click();
+    await p.getByTestId('send-files').setInputFiles({ name: 'brief.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await p.getByRole('radio', { name: 'Send email' }).click();
+    await p.getByLabel('Email to').fill('client@example.test');
+    await p.keyboard.press('Enter');
+    await p.getByRole('button', { name: 'Transfer', exact: true }).click();
+    await p.getByRole('heading', { name: 'Your links are ready' }).waitFor();
+    check(
+      (await p.locator('a[href^="mailto:client%40example.test"]').count()) === 1,
+      'email mode without a mail provider: a personal link per recipient to send yourself',
+    );
+
+    const rc = await browser.newContext({ acceptDownloads: true });
+    // Force the in-memory ZIP path (headless Chromium has no save dialog to answer).
+    await rc.addInitScript(() => delete window.showSaveFilePicker);
+    const rp = await rc.newPage();
+    watch(rp, 'transfer-recipient');
+    await rp.goto(packUrl);
+    await rp.getByRole('heading', { name: 'Project pack' }).waitFor();
+    for (let i = 0; !(await rp.getByRole('button', { name: 'Download all' }).isVisible()); i++) {
+      if (i > 30) throw new Error('files never became available');
+      await new Promise((r) => setTimeout(r, 1000));
+      await rp.reload();
+      await rp.getByRole('heading', { name: 'Project pack' }).waitFor();
+    }
+    check(await rp.getByText('2 files').isVisible(), 'recipient sees the file count and size');
+    await rp
+      .locator('li', { hasText: 'notes.txt' })
+      .getByRole('button', { name: /Preview/ })
+      .click();
+    await rp.locator('.preview pre', { hasText: 'Meeting notes' }).waitFor();
+    ok('text file previewed in the page');
+    await rp.getByRole('button', { name: 'Close' }).click();
+    await rp
+      .locator('li', { hasText: 'contract.pdf' })
+      .getByRole('button', { name: /Preview/ })
+      .click();
+    await rp.locator('.preview .picker-page canvas').first().waitFor();
+    ok('PDF previewed in the page');
+    await rp.getByRole('button', { name: 'Close' }).click();
+    const [zipDl] = await Promise.all([rp.waitForEvent('download'), rp.getByRole('button', { name: 'Download all' }).click()]);
+    const zipped = unzipSync(new Uint8Array(readFileSync(await zipDl.path())));
+    check(
+      zipDl.suggestedFilename() === 'Project pack.zip' &&
+        Object.keys(zipped).sort().join(',') === 'contract.pdf,notes.txt' &&
+        strFromU8(zipped['notes.txt']).startsWith('Meeting notes'),
+      'download all: one ZIP with every file',
+    );
+    await shot(rp, 'transfer-recipient');
+    await rc.close();
+
+    await p.goto(`${ORIGIN}/app?tab=transfers`);
+    await p.getByRole('button', { name: /Project pack/ }).click();
+    await p.getByRole('heading', { name: 'Recipients and downloads' }).waitFor();
+    await p.locator('table', { hasText: 'Link' }).getByRole('cell', { name: '1', exact: true }).waitFor();
+    ok('sender sees the download on the transfer');
+    await shot(p, 'transfer-detail');
 
     step('Edit a PDF in the browser');
     await p.goto(`${ORIGIN}/edit`);

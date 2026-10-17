@@ -19,6 +19,8 @@ export interface AppConfig {
     | { kind: 'local'; root: string; contentOrigin: string; contentPort: number }
     | { kind: 's3'; endpoint: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string };
   clamd: { host: string; port: number } | undefined;
+  /** Transfer and notification emails (Resend). Off until a sending domain is verified. */
+  mail: { apiKey: string; from: string } | undefined;
   blockedHosts: string[];
   eventRetentionDays: number;
   jobIntervalSeconds: number;
@@ -97,6 +99,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   else if (prod && env['MALWARE_SCAN_DISABLED'] !== 'true')
     throw new Error('CLAMD_HOST is required in production (or set MALWARE_SCAN_DISABLED=true to accept structural checks only)');
 
+  // Both or neither: a half-configured mailer would fail only when the first email is due.
+  let mail: AppConfig['mail'];
+  if (env['RESEND_API_KEY'] || env['MAIL_FROM']) {
+    const from = need('MAIL_FROM');
+    if (!/^[^<>\r\n]{0,80}<[^\s@<>]+@[a-z0-9.-]+\.[a-z]{2,}>$|^[^\s@<>]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(from))
+      throw new Error('MAIL_FROM must be an address, e.g. "Rokela PDF Pro <transfers@example.com>"');
+    mail = { apiKey: need('RESEND_API_KEY'), from };
+  }
+
   const blockedHosts = (env['BLOCKED_HOSTS'] ?? '')
     .split(',')
     .map((h) => h.trim())
@@ -116,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sharingSecret,
     storage,
     clamd,
+    mail,
     blockedHosts,
     eventRetentionDays: int(env, 'EVENT_RETENTION_DAYS', 1, 3650, 180),
     jobIntervalSeconds: int(env, 'JOB_INTERVAL_SECONDS', 1, 3600, 5),

@@ -20,6 +20,7 @@ function recall(k: string): string | null {
   }
 }
 export const fileKey = (scope: string, file: File) => `${scope}:${file.webkitRelativePath || file.name}:${file.size}:${file.lastModified}`;
+const PARALLEL_PARTS = 4;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface UploadProgress {
@@ -67,21 +68,26 @@ export async function uploadFile<T>(o: UploadOps<T>): Promise<T> {
   for (let n = 1; n <= session.part_count; n++) if (!held.includes(n)) missing.push(n);
   for (let i = 0; i < missing.length; i += 20) {
     const signed = await o.sign(session.upload_id, missing.slice(i, i + 20));
-    for (const p of signed.parts) {
-      const blob = o.file.slice((p.part_number - 1) * size, p.part_number * size);
-      for (let attempt = 1; ; attempt++) {
-        try {
-          const res = await fetch(p.url, { method: 'PUT', body: blob, credentials: 'omit', mode: 'cors' });
-          if (!res.ok) throw new Error(`storage answered ${res.status}`);
-          break;
-        } catch (e) {
-          if (attempt >= 4) throw new Error(`Upload interrupted (${(e as Error).message}). Choose the same file again to resume.`);
-          await sleep(500 * 2 ** attempt);
+    const queue = [...signed.parts];
+    // A few parts in flight at once: much faster on high-latency links, still gentle on the browser.
+    const worker = async () => {
+      for (let p = queue.shift(); p; p = queue.shift()) {
+        const blob = o.file.slice((p.part_number - 1) * size, p.part_number * size);
+        for (let attempt = 1; ; attempt++) {
+          try {
+            const res = await fetch(p.url, { method: 'PUT', body: blob, credentials: 'omit', mode: 'cors' });
+            if (!res.ok) throw new Error(`storage answered ${res.status}`);
+            break;
+          } catch (e) {
+            if (attempt >= 4) throw new Error(`Upload interrupted (${(e as Error).message}). Choose the same file again to resume.`);
+            await sleep(500 * 2 ** attempt);
+          }
         }
+        sent += blob.size;
+        o.onProgress?.({ sent, total, resumed });
       }
-      sent += blob.size;
-      o.onProgress?.({ sent, total, resumed });
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_PARTS, queue.length) }, worker));
   }
   const done = await o.complete(session.upload_id);
   remember(o.resumeKey, null);

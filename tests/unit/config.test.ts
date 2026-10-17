@@ -40,3 +40,17 @@ describe('configuration fails closed in production', () => {
     expect(() => loadConfig(env({ DATABASE_URL: 'postgres://x', DB_SCHEMA: 'bad-name' }))).toThrow();
   });
 });
+
+describe('email delivery configuration', () => {
+  it('is off by default and needs both the API key and a sender address', () => {
+    expect(loadConfig(env(PROD)).mail).toBeUndefined();
+    expect(loadConfig(env({ ...PROD, RESEND_API_KEY: 're_x', MAIL_FROM: 'Rokela PDF Pro <transfers@rokela.example>' })).mail).toEqual({
+      apiKey: 're_x',
+      from: 'Rokela PDF Pro <transfers@rokela.example>',
+    });
+    expect(() => loadConfig(env({ ...PROD, RESEND_API_KEY: 're_x' }))).toThrow(/MAIL_FROM is required/);
+    expect(() => loadConfig(env({ ...PROD, MAIL_FROM: 'transfers@rokela.example' }))).toThrow(/RESEND_API_KEY is required/);
+    expect(() => loadConfig(env({ ...PROD, RESEND_API_KEY: 're_x', MAIL_FROM: 'nobody' }))).toThrow(/MAIL_FROM must be an address/);
+    expect(() => loadConfig(env({ ...PROD, RESEND_API_KEY: 're_x', MAIL_FROM: 'x <a@b.co>\r\nBcc: c@d.co' }))).toThrow(/MAIL_FROM must be an address/);
+  });
+});

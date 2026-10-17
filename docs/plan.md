@@ -30,11 +30,16 @@ bandwidth estimate and API changes, so a free account cannot create unbounded co
 - 20 browser PDF tools with their own pages (merge, split, delete/extract/add pages, rotate, crop, organize,
   watermark, page numbers, flatten, fill and create forms, sign, PDF ↔ JPG/PNG); nothing is uploaded.
 - Editor signatures (draw/type/upload) and fillable form fields.
+- WeTransfer-style sending: drag-and-drop files and folders, email or link mode, personal link per recipient with
+  per-person download tracking, message, expiry, password, download limit, download notifications, in-page previews,
+  _Download all_ as ZIP, sent history, extend expiry, forward/add recipient, resend, revoke per recipient. Email delivery
+  switches on with a verified sending domain (Resend).
 - Operator tooling: abuse reports, holds, audited plan changes. CI, browser end-to-end test, Railway config.
 
 **Phase 2 — next**
 
-- Email notifications (the sharing service has a mailer port; wire an SMTP/Resend adapter).
+- Verify a sending domain and switch on email (adapter is built; see deploy guide). Then: expiry reminder emails to
+  recipients who have not downloaded yet, and a "your files were downloaded" email digest.
 - Billing (e.g. Stripe) driving `org_plans` instead of the operator command.
 - Branding and custom domains in the UI (the API and data model already exist).
 - Editor: Unicode fonts (embed a font for non-Latin text), true redaction.

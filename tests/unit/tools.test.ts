@@ -256,3 +256,20 @@ describe('every tool refuses unreadable or encrypted input', () => {
     await expect(mergePdfs([junk, junk])).rejects.toThrow(/not a readable PDF/);
   });
 });
+
+describe('download-all archive paths', () => {
+  it('keeps folders, removes unsafe segments and numbers duplicates', async () => {
+    const { archivePaths } = await import('@/lib/client/zip-download');
+    expect(
+      archivePaths([
+        { name: 'a.pdf', folderPath: '' },
+        { name: 'a.pdf', folderPath: '' },
+        { name: 'A.PDF', folderPath: '' },
+        { name: 'plan.pdf', folderPath: 'site/../drawings' },
+        { name: 'x:y.txt', folderPath: '/abs' },
+        { name: 'noext', folderPath: '' },
+        { name: 'noext', folderPath: '' },
+      ]),
+    ).toEqual(['a.pdf', 'a (2).pdf', 'A (3).PDF', 'site/drawings/plan.pdf', 'abs/x_y.txt', 'noext', 'noext (2)']);
+  });
+});

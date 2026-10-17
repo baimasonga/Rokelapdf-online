@@ -1,9 +1,11 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, Download, FileText, Files } from 'lucide-react';
+import { Clock, Download, Eye, FileArchive, FileText, Files } from 'lucide-react';
 import { PasswordPrompt, PublicFrame, SenderBrand, SignInRequired } from '@/components/public';
-import { Badge, Button, Empty, Form, Muted, Panel, useNotice } from '@/components/ui';
+import { Badge, Button, Empty, Form, Modal, Muted, Panel, useNotice } from '@/components/ui';
+import { PagePicker } from '@/components/tools/page-picker';
+import { IN_MEMORY_LIMIT, downloadZip, pickSaveTarget } from '@/lib/client/zip-download';
 import { ApiError, api, enc } from '@/lib/client/api';
 import { useAuth } from '@/lib/client/auth';
 import { fmtBytes, when } from '@/lib/client/format';
@@ -97,6 +99,42 @@ function Manifest({
 }) {
   const notice = useNotice();
   const [acked, setAcked] = useState(false);
+  const [zipping, setZipping] = useState<{ done: number; total: number }>();
+  const [preview, setPreview] = useState<any>();
+  const ready = m.files.filter((f: any) => f.downloadable);
+  const totalBytes = m.files.reduce((n: number, f: any) => n + (f.size ?? 0), 0);
+
+  async function downloadAll() {
+    if (ready.length === 1) {
+      const url = await fileUrl(ready[0].id, 'attachment');
+      if (url) window.location.assign(url);
+      return;
+    }
+    const name = `${(m.title || 'files').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 100)}.zip`;
+    const target = await pickSaveTarget(name);
+    if (target === null) return; // cancelled
+    const size = ready.reduce((n: number, f: any) => n + f.size, 0);
+    if (!target && size > IN_MEMORY_LIMIT) {
+      notice('This set is too large to zip in this browser. Download the files one by one, or use Chrome or Edge.', true);
+      return;
+    }
+    setZipping({ done: 0, total: size });
+    try {
+      const a = await api(`${base}/archive`, { body: { grant: m.grant } });
+      await downloadZip(
+        a.files.map((f: any) => ({ name: f.name, folderPath: f.folder_path, url: f.url, size: f.size })),
+        name,
+        target,
+        (done, total) => setZipping({ done, total }),
+      );
+      notice('Download complete.');
+    } catch (e) {
+      notice((e as Error).message, true);
+    } finally {
+      setZipping(undefined);
+    }
+  }
+
   return (
     <>
       <Panel className="share-hero">
@@ -122,6 +160,24 @@ function Manifest({
             </span>
           )}
         </div>
+        {m.kind === 'transfer' && (
+          <p className="share-summary">
+            {m.files.length} file{m.files.length === 1 ? '' : 's'} · {fmtBytes(totalBytes)}
+          </p>
+        )}
+        {m.kind === 'transfer' && ready.length > 0 && (
+          <div className="share-download">
+            <button type="button" className="button accent lg" disabled={!!zipping} onClick={() => void downloadAll()}>
+              {ready.length > 1 ? <FileArchive size={18} aria-hidden="true" /> : <Download size={18} aria-hidden="true" />}
+              {zipping
+                ? `Downloading… ${zipping.total ? Math.round((zipping.done / zipping.total) * 100) : 0}%`
+                : ready.length > 1
+                  ? 'Download all'
+                  : 'Download'}
+            </button>
+            {zipping && <progress max={zipping.total || 1} value={zipping.done} aria-label="Download progress" />}
+          </div>
+        )}
         {m.kind === 'document' && m.version.mode !== 'fixed' && <p className="fine-print">{m.version.label}</p>}
         {m.version?.replacement_note && <p className="replacement">What changed: {m.version.replacement_note}</p>}
         {m.history?.length > 1 && (
@@ -151,13 +207,8 @@ function Manifest({
                 </div>
                 <div className="actions">
                   {f.viewable && (
-                    <Button
-                      onClick={async () => {
-                        const url = await fileUrl(f.id, 'inline');
-                        if (url) window.open(url, '_blank', 'noopener,noreferrer');
-                      }}
-                    >
-                      View
+                    <Button onClick={() => setPreview(f)}>
+                      <Eye size={16} aria-hidden="true" /> {m.permission === 'view' ? 'View' : 'Preview'}
                     </Button>
                   )}
                   {f.downloadable && (
@@ -179,6 +230,9 @@ function Manifest({
           <Empty>No files are available yet.</Empty>
         )}
       </Panel>
+      <Modal open={!!preview} onClose={() => setPreview(undefined)} title={preview?.name ?? 'Preview'}>
+        {preview && <Preview key={preview.id} file={preview} fileUrl={fileUrl} />}
+      </Modal>
       {m.permission === 'review' && <Review base={base} grant={m.grant} />}
       <Panel title="Confirm receipt">
         <p className="muted">Let the sender know you received this. A visit or download alone is not a confirmation.</p>
@@ -216,6 +270,51 @@ function Manifest({
         </Panel>
       )}
     </>
+  );
+}
+
+/** In-page preview of an image, PDF or text file; fetched from its signed inline URL (counted as a view). */
+function Preview({ file, fileUrl }: { file: any; fileUrl: (id: string, d: 'inline' | 'attachment') => Promise<string | undefined> }) {
+  const [state, setState] = useState<{ url?: string; img?: string; pdf?: Uint8Array; text?: string; error?: string }>({});
+  useEffect(() => {
+    let live = true;
+    let objectUrl: string | undefined;
+    (async () => {
+      const url = await fileUrl(file.id, 'inline');
+      if (!url || !live) return;
+      const res = await fetch(url, { credentials: 'omit' });
+      if (!res.ok) throw new Error('The preview could not be loaded.');
+      const type = String(file.content_type ?? '');
+      if (type.startsWith('image/')) {
+        objectUrl = URL.createObjectURL(await res.blob());
+        if (live) setState({ url, img: objectUrl });
+      } else if (type === 'application/pdf') {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (live) setState({ url, pdf: bytes });
+      } else {
+        const text = (await res.text()).slice(0, 100_000);
+        if (live) setState({ url, text });
+      }
+    })().catch((e: Error) => live && setState({ error: e.message }));
+    return () => {
+      live = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // Load once per file: `fileUrl` is recreated on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file]);
+  if (state.error) return <p className="tool-error">{state.error}</p>;
+  if (!state.url) return <Muted>Loading preview…</Muted>;
+  return (
+    <div className="preview">
+      {/* eslint-disable-next-line @next/next/no-img-element -- a local blob: URL of the shared image */}
+      {state.img && <img src={state.img} alt={file.name} />}
+      {state.pdf && <PagePicker bytes={state.pdf} />}
+      {state.text !== undefined && <pre>{state.text}</pre>}
+      <a href={state.url} target="_blank" rel="noopener noreferrer" className="button ghost">
+        Open in a new tab
+      </a>
+    </div>
   );
 }
 

@@ -21,6 +21,8 @@ export interface SharingLimits {
   apiRequestsPerMonth: number;
   /** Bytes run through quarantine checks per UTC month. */
   processingBytesPerMonth: number;
+  /** Transfer emails sent to recipients per UTC month. */
+  emailsPerMonth: number;
   uploadRequests: boolean;
   customDomains: boolean;
   branding: boolean;
@@ -39,6 +41,7 @@ export const FREE_LIMITS: Readonly<SharingLimits> = Object.freeze({
   bandwidthBytesPerMonth: 20 * GiB,
   apiRequestsPerMonth: 20_000,
   processingBytesPerMonth: 10 * GiB,
+  emailsPerMonth: 300,
   uploadRequests: false,
   customDomains: false,
   branding: false,
@@ -54,6 +57,7 @@ export const LIMIT_ENTITLEMENTS = {
   bandwidthBytesPerMonth: 'share_bandwidth_bytes_per_month',
   apiRequestsPerMonth: 'share_api_requests_per_month',
   processingBytesPerMonth: 'share_processing_bytes_per_month',
+  emailsPerMonth: 'share_emails_per_month',
   uploadRequests: 'share_upload_requests',
   customDomains: 'share_custom_domains',
   branding: 'share_branding',
@@ -68,6 +72,7 @@ const CEILING: Record<string, number> = {
   bandwidthBytesPerMonth: 1024 * 1024 * GiB,
   apiRequestsPerMonth: 100_000_000,
   processingBytesPerMonth: 1024 * 1024 * GiB,
+  emailsPerMonth: 1_000_000,
 };
 
 /**
@@ -109,6 +114,8 @@ export interface FileKind {
 const K = (ext: string, contentType: string, inline: boolean, magic: string[] | null, text = false): FileKind => ({ ext, contentType, inline, magic, text });
 
 const ZIP = ['504b0304'];
+/** ISO base media files (MP4, MOV, HEIC…) carry "ftyp" at byte offset 4; checked specially in magicMatches. */
+const FTYP = ['ftyp'];
 export const FILE_KINDS: Readonly<Record<string, FileKind>> = Object.freeze({
   pdf: K('pdf', 'application/pdf', true, ['255044462d']),
   png: K('png', 'image/png', true, ['89504e470d0a1a0a']),
@@ -126,6 +133,22 @@ export const FILE_KINDS: Readonly<Record<string, FileKind>> = Object.freeze({
   ods: K('ods', 'application/vnd.oasis.opendocument.spreadsheet', false, ZIP),
   odp: K('odp', 'application/vnd.oasis.opendocument.presentation', false, ZIP),
   zip: K('zip', 'application/zip', false, ZIP),
+  // Download-only formats common in file transfers. Never shown inline; always served as attachments.
+  key: K('key', 'application/vnd.apple.keynote', false, ZIP),
+  pages: K('pages', 'application/vnd.apple.pages', false, ZIP),
+  numbers: K('numbers', 'application/vnd.apple.numbers', false, ZIP),
+  ai: K('ai', 'application/postscript', false, ['255044462d']),
+  psd: K('psd', 'image/vnd.adobe.photoshop', false, ['38425053']),
+  heic: K('heic', 'image/heic', false, FTYP),
+  mp4: K('mp4', 'video/mp4', false, FTYP),
+  m4v: K('m4v', 'video/x-m4v', false, FTYP),
+  mov: K('mov', 'video/quicktime', false, FTYP),
+  m4a: K('m4a', 'audio/mp4', false, FTYP),
+  mp3: K('mp3', 'audio/mpeg', false, ['494433', 'fffb', 'fff3', 'fff2']),
+  wav: K('wav', 'audio/wav', false, ['52494646']),
+  '7z': K('7z', 'application/x-7z-compressed', false, ['377abcaf271c']),
+  rar: K('rar', 'application/vnd.rar', false, ['526172211a07']),
+  gz: K('gz', 'application/gzip', false, ['1f8b']),
 });
 
 /** Formats documents (editable PDFs) accept. */
@@ -154,6 +177,8 @@ export function magicMatches(kind: FileKind, head: Uint8Array): boolean {
   }
   const hex = Buffer.from(head.subarray(0, 16)).toString('hex');
   if (kind.ext === 'webp') return hex.startsWith('52494646') && hex.slice(16, 24) === '57454250';
+  if (kind.ext === 'wav') return hex.startsWith('52494646') && hex.slice(16, 24) === '57415645';
+  if (kind.magic === FTYP) return hex.slice(8, 16) === '66747970';
   return kind.magic.some((m) => hex.startsWith(m));
 }
 

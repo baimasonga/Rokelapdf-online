@@ -75,6 +75,18 @@ tables — `share_documents`, `share_versions`, `share_blobs` (every stored obje
 4. Downloads are short-lived signed GET URLs with safe `Content-Disposition`/`Content-Type`, served by R2 (a separate
    origin from the app).
 
+**Sending files (WeTransfer-style).** The send form (`/send` → workspace → _Send files_) creates a temporary transfer,
+uploads the files (two at a time, four parts in parallel each, resumable) and then creates share links: one link in
+_Get a link_ mode, or **one personal link per recipient** in _Send email_ mode, labelled with the address, so downloads
+are tracked per person and one person's link can be revoked alone. With a mail provider configured
+(`RESEND_API_KEY` + `MAIL_FROM`), `POST …/links/:id/email` queues a `share_email` job per recipient; the worker
+derives the link token again at send time (the token is never stored in the job) and skips links revoked meanwhile.
+Without one, the form shows each personal link to copy or send with the sender's own mail app. The transfer's expiry
+governs every link; extending it (`PATCH …/transfers/:id`) extends them all. The recipient page previews images, PDFs
+(pdf.js) and text in the page, and _Download all_ (`POST /public/shares/:token/archive`) counts as one download,
+meters the bandwidth of every file and returns signed URLs that the browser streams into a ZIP (straight to disk where
+the File System Access API exists, otherwise in memory up to 2 GB).
+
 Cleanup jobs delete expired temporary files and abandoned uploads; they never delete an object still referenced by a
 version, a transfer file, a replacement in progress or a submission.
 

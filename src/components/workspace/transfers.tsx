@@ -1,10 +1,11 @@
 'use client';
-import { useState } from 'react';
-import { Badge, Button, Details, Empty, Form, Muted, Panel, Progress, Table, ask, confirmAction, useNotice } from '@/components/ui';
+import { useEffect, useState } from 'react';
+import { Badge, Button, Details, Empty, Muted, Panel, Progress, Table, ask, confirmAction, useNotice } from '@/components/ui';
 import { api, enc } from '@/lib/client/api';
 import { fmtBytes, inDays, when } from '@/lib/client/format';
 import type { UploadProgress } from '@/lib/client/uploader';
 import { ownerDownload, ownerUpload, useLoad, usePollWhile, useWs } from './context';
+import { SendPanel } from './send';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function Transfers() {
@@ -14,62 +15,173 @@ export function Transfers() {
 
 function TransferList() {
   const { P, go } = useWs();
-  const { data, error } = useLoad<any>(() => api(`${P}/transfers`), [P]);
+  const { data, error, reload } = useLoad<any>(() => api(`${P}/transfers`), [P]);
+  const items = (data?.items ?? []).slice().sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
   return (
-    <>
-      <Panel title="New transfer">
-        <Form
-          fields={[
-            { name: 'title', label: 'Title' },
-            { name: 'message', label: 'Message to recipients', type: 'textarea', optional: true },
-            {
-              name: 'kind',
-              label: 'Kind',
-              type: 'select',
-              options: [
-                ['temporary', 'Temporary (files deleted at expiry)'],
-                ['persistent', 'Persistent (plan feature)'],
-              ],
-            },
-            { name: 'days', label: 'Days until expiry', type: 'number', value: '7', min: 1, show: (v) => v.kind === 'temporary' },
-          ]}
-          submit="Create transfer"
-          onSubmit={async (v) => {
-            const t = await api(`${P}/transfers`, {
-              body: {
-                title: v.title,
-                ...(v.message ? { message: v.message } : {}),
-                kind: v.kind,
-                ...(v.kind === 'temporary' ? { expires_at: inDays(v.days || 7) } : {}),
-              },
-            });
-            go('transfers', t.id);
-          }}
-        />
-      </Panel>
-      <Panel title="Transfers">
+    <div className="send-layout">
+      <SendPanel onSent={reload} />
+      <Panel title="Sent">
         {error ? (
           <p>{error.message}</p>
         ) : !data ? (
           <Muted>Loading…</Muted>
-        ) : data.items.length ? (
-          <Table
-            head={['Transfer', 'Kind', 'State', 'Expires', '']}
-            rows={data.items.map((t: any) => [
-              t.title,
-              t.kind,
-              <Badge key="s" state={t.status} />,
-              when(t.expires_at),
-              <Button key="o" onClick={() => go('transfers', t.id)}>
-                Open
-              </Button>,
-            ])}
-          />
+        ) : items.length ? (
+          <ul className="sent-list">
+            {items.map((t: any) => (
+              <li key={t.id}>
+                <button type="button" onClick={() => go('transfers', t.id)}>
+                  <span className="sent-title">{t.title}</span>
+                  <span className="muted">
+                    {t.file_count} file{t.file_count === 1 ? '' : 's'} · {fmtBytes(t.total_bytes)} · {t.downloads} download{t.downloads === 1 ? '' : 's'}
+                  </span>
+                  <span className="sent-meta">
+                    <Badge state={t.status} />
+                    <span className="muted">{t.status === 'active' ? expiresIn(t.expires_at) : when(t.created_at)}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <Empty>No transfers yet.</Empty>
+          <Empty>Nothing sent yet. Add files to start a transfer.</Empty>
         )}
       </Panel>
-    </>
+    </div>
+  );
+}
+
+const expiresIn = (at: string | null) => {
+  if (!at) return 'never expires';
+  const ms = new Date(at).getTime() - Date.now();
+  if (ms <= 0) return 'expired';
+  const d = Math.round(ms / 86_400_000);
+  const h = Math.floor(ms / 3_600_000);
+  return d >= 1 ? `expires in ${d} day${d === 1 ? '' : 's'}` : `expires in ${Math.max(1, h)} hour${h === 1 ? '' : 's'}`;
+};
+
+/** Recipients of a transfer = its share links (one per person when sent by email), with downloads and actions. */
+function Recipients({ transfer }: { transfer: any }) {
+  const { P, go, me } = useWs();
+  const notice = useNotice();
+  const [cfg, setCfg] = useState<{ email: boolean }>();
+  const [to, setTo] = useState('');
+  const { data, reload } = useLoad<any>(() => api(`${P}/links?target_id=${enc(transfer.id)}`), [P, transfer.id]);
+  useEffect(() => {
+    api('/api/v1/config', { auth: false }).then(
+      (c) => setCfg({ email: !!c.email }),
+      () => setCfg({ email: false }),
+    );
+  }, []);
+  const canEmail = !!cfg?.email && me.email_verified;
+  const urlOf = async (id: string) => (await api(`${P}/links/${enc(id)}`)).url as string;
+  const copy = async (id: string) => {
+    const url = await urlOf(id);
+    try {
+      await navigator.clipboard.writeText(url);
+      notice('Link copied.');
+    } catch {
+      window.prompt('Copy the link:', url);
+    }
+  };
+  const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  const forward = async () => {
+    const addr = to.trim().toLowerCase();
+    if (!isEmail(addr)) return notice('Enter an email address.', true);
+    const l = await api(`${P}/links`, {
+      body: { target_type: 'transfer', target_id: transfer.id, permission: 'download', notify_on_access: true, label: addr },
+    });
+    if (canEmail) {
+      await api(`${P}/links/${enc(l.id)}/email`, { body: { to: [addr], ...(transfer.message ? { message: transfer.message } : {}) } });
+      notice(`Sent to ${addr}.`);
+    } else {
+      try {
+        await navigator.clipboard.writeText(l.url);
+        notice(`Personal link for ${addr} copied. Email delivery is not switched on yet, so send it yourself.`);
+      } catch {
+        window.prompt(`Personal link for ${addr}:`, l.url);
+      }
+    }
+    setTo('');
+    reload();
+  };
+  const links: any[] = data?.items ?? [];
+  return (
+    <Panel title="Recipients and downloads">
+      {links.length ? (
+        <Table
+          head={['Recipient / link', 'Downloads', 'State', '']}
+          rows={links.map((l) => [
+            <span key="l">
+              {l.label ?? 'Link'}
+              {l.has_password ? ' · password' : ''}
+            </span>,
+            `${l.download_count}${l.max_downloads ? ` of ${l.max_downloads}` : ''}`,
+            <Badge key="s" state={l.state} />,
+            <div key="a" className="actions">
+              <Button onClick={() => copy(l.id)}>Copy link</Button>
+              {canEmail && l.state === 'active' && isEmail(l.label ?? '') && (
+                <Button
+                  onClick={async () => {
+                    await api(`${P}/links/${enc(l.id)}/email`, { body: { to: [l.label], ...(transfer.message ? { message: transfer.message } : {}) } });
+                    notice(`Email sent again to ${l.label}.`);
+                  }}
+                >
+                  Resend
+                </Button>
+              )}
+              <Button kind="ghost" onClick={() => go('links', l.id)}>
+                Activity
+              </Button>
+              {l.status === 'active' && (
+                <Button
+                  kind="ghost"
+                  onClick={async () => {
+                    if (!confirmAction(`Stop the link for ${l.label ?? 'this link'}? Other recipients keep access.`)) return;
+                    await api(`${P}/links/${enc(l.id)}/status`, { body: { action: 'revoke' } });
+                    reload();
+                  }}
+                >
+                  Revoke
+                </Button>
+              )}
+            </div>,
+          ])}
+        />
+      ) : (
+        <Empty>No links yet.</Empty>
+      )}
+      {transfer.status === 'active' && (
+        <div className="forward">
+          <input
+            type="email"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="name@example.com"
+            aria-label="Forward to"
+            onKeyDown={(e) => e.key === 'Enter' && void forward()}
+          />
+          <Button kind="primary" onClick={forward}>
+            {canEmail ? 'Forward' : 'Add recipient'}
+          </Button>
+          <Button
+            onClick={async () => {
+              const l = await api(`${P}/links`, {
+                body: { target_type: 'transfer', target_id: transfer.id, permission: 'download', notify_on_access: true, label: 'Link' },
+              });
+              reload();
+              try {
+                await navigator.clipboard.writeText(l.url);
+                notice('New link copied.');
+              } catch {
+                window.prompt('Copy the link:', l.url);
+              }
+            }}
+          >
+            New link
+          </Button>
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -138,7 +250,36 @@ function TransferDetail({ id }: { id: string }) {
           items={[
             ['Kind', t.kind],
             ['State', <Badge key="s" state={t.status} />],
-            ['Expires', when(t.expires_at)],
+            [
+              'Expires',
+              <span key="e" className="actions inline-actions">
+                {when(t.expires_at)}
+                {t.status === 'active' && t.kind === 'temporary' && (
+                  <select
+                    aria-label="Extend expiry"
+                    value=""
+                    onChange={async (e) => {
+                      const days = Number(e.target.value);
+                      if (!days) return;
+                      try {
+                        await api(`${P}/transfers/${enc(id)}`, { method: 'PATCH', body: { expires_at: inDays(days) } });
+                        notice(`Now expires in ${days} day${days === 1 ? '' : 's'}.`);
+                        reload();
+                      } catch (err) {
+                        notice((err as Error).message, true);
+                      }
+                    }}
+                  >
+                    <option value="">Change expiry…</option>
+                    {[1, 3, 7, 14, 30].map((d) => (
+                      <option key={d} value={d}>
+                        {d} day{d === 1 ? '' : 's'} from now
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </span>,
+            ],
             ['Files deleted', t.files_deleted_at ? when(t.files_deleted_at) : t.kind === 'temporary' ? 'at expiry' : 'kept until you delete the transfer'],
           ]}
         />
@@ -201,12 +342,11 @@ function TransferDetail({ id }: { id: string }) {
           <Empty>No files yet.</Empty>
         )}
       </Panel>
-      <Panel title="Share">
+      <Recipients transfer={t} />
+      <Panel title="Manage">
         <div className="actions">
           {t.status === 'active' && (
-            <Button kind="primary" onClick={() => go('links', undefined, { target_type: 'transfer', target_id: id, label: t.title })}>
-              Create a share link
-            </Button>
+            <Button onClick={() => go('links', undefined, { target_type: 'transfer', target_id: id, label: t.title })}>Advanced link…</Button>
           )}
           {t.status === 'active' && (
             <Button

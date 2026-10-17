@@ -107,7 +107,7 @@ export interface SharingDeps {
     verify(pw: string, hash: string): Promise<boolean>;
   };
   /** Optional email delivery for opt-in notifications (sent by the job worker, never inline). */
-  mailer?: { send(m: { id: string; to: string; subject: string; text: string }): Promise<unknown> };
+  mailer?: { send(m: { id: string; to: string; subject: string; text: string; replyTo?: string | undefined }): Promise<unknown> };
   /** DNS TXT lookup for custom-domain verification. DNS only: the platform never fetches tenant URLs. */
   resolveTxt?: (name: string) => Promise<string[][]>;
 }
@@ -518,8 +518,24 @@ export class SharingService {
 
   async listTransfers(p: UserPrincipal, orgId: string) {
     await this.#d.authorize(p, orgId, 'share:read');
-    const rows = await this.#d.store.list('transfer', orgId, {}, { limit: 500 });
-    return rows.filter((t) => t.status !== 'purged' && t.status !== 'deleted').map((t) => transferView(t, this.#now()));
+    const rows = (await this.#d.store.list('transfer', orgId, {}, { limit: 500 })).filter((t) => t.status !== 'purged' && t.status !== 'deleted');
+    const now = this.#now();
+    // A summary per transfer for the "sent" list: files, size, recipients (links) and downloads.
+    return Promise.all(
+      rows.map(async (t) => {
+        const [files, links] = await Promise.all([
+          this.#d.store.list('transferFile', orgId, { transferId: t.id, status: 'current' }, { limit: 5000 }),
+          this.#d.store.list('link', orgId, { targetId: t.id }, { limit: 1000 }),
+        ]);
+        return {
+          ...transferView(t, now),
+          fileCount: files.length,
+          totalBytes: files.reduce((n, f) => n + f.size, 0),
+          linkCount: links.length,
+          downloads: links.reduce((n, l) => n + l.downloadCount, 0),
+        };
+      }),
+    );
   }
 
   async getTransfer(p: UserPrincipal, orgId: string, transferId: string) {
@@ -983,8 +999,8 @@ export class SharingService {
     return this.#signedDownload(b, name, 'attachment');
   }
 
-  async #signedDownload(b: BlobRow, filename: string, disposition: 'inline' | 'attachment') {
-    const expiresAt = this.#at(this.#c.downloadUrlTtlSeconds * 1000);
+  async #signedDownload(b: BlobRow, filename: string, disposition: 'inline' | 'attachment', ttlSeconds = this.#c.downloadUrlTtlSeconds) {
+    const expiresAt = this.#at(ttlSeconds * 1000);
     const url = await this.#d.objects.signDownload(b.objectKey, {
       filename,
       contentType: FILE_KINDS[b.ext]?.contentType ?? 'application/octet-stream',
@@ -1083,6 +1099,34 @@ export class SharingService {
         },
       );
       return this.#linkView(link, now, true);
+    });
+  }
+
+  /** Whether links can be emailed from this deployment (a mail provider is configured). */
+  get emailEnabled(): boolean {
+    return !!this.#d.mailer;
+  }
+
+  /**
+   * Emails a share link to recipients with an optional personal message (WeTransfer-style "send by email"). The worker
+   * sends each email and derives the link token again at that moment; it is never stored in the job. Senders must have
+   * a confirmed address (it is shown to the recipient and used as reply-to), and emails are capped per month.
+   */
+  async emailLink(p: UserPrincipal, orgId: string, linkId: string, input: { to: string[]; message?: string | undefined }) {
+    if (!this.#d.mailer) throw new DomainError('conflict', 'email delivery is not set up yet; copy the link and send it yourself');
+    if (!p.emailVerified) throw new DomainError('forbidden', 'confirm your email address before sending emails');
+    const to = [...new Set(input.to.map(normalizeEmail))];
+    if (!to.length || to.length > 20) throw invalid('send to between 1 and 20 addresses');
+    const message = text(input.message, 2000, 'message');
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
+      const l = await tx.getForUpdate('link', orgId, linkId);
+      if (!l) throw notFound();
+      await this.#requireManager(p, orgId, l.createdBy);
+      if (effectiveLinkState(l, now, true) !== 'active') throw invalid('this link is no longer active');
+      if ((await tx.addUsage(orgId, monthKey(now), 'emails_sent', to.length)) > limits.emailsPerMonth) throw quota('email');
+      for (const addr of to) await this.#enqueue(tx, orgId, 'share_email', l.id, now, { to: addr, from: p.email, message: message ?? '' });
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.link.emailed', { type: 'share_link', id: l.id }, { recipients: to.length });
+      return { sent: to.length };
     });
   }
 
@@ -1578,6 +1622,61 @@ export class SharingService {
         );
     });
     return this.#signedDownload(blob, name, input.disposition);
+  }
+
+  /**
+   * "Download all" for a transfer: counts as ONE download against the link's limit, meters the bandwidth of every
+   * file, and returns signed URLs that the recipient's browser fetches and zips. The URLs live a little longer than
+   * single-file ones so a large set can be fetched in turn.
+   */
+  async shareArchive(token: string, input: { grant: string }, ctx: PublicContext) {
+    const { l, target, who } = await this.#useGrant(token, input.grant, ctx);
+    if (!target.transfer) throw invalid('only transfers can be downloaded as a whole');
+    if (!permits(l.permission, 'download')) throw new DomainError('forbidden', 'this link is view-only');
+    const files = await this.#d.store.list('transferFile', l.orgId, { transferId: target.transfer.id, status: 'current' }, { limit: 5000, order: 'oldest' });
+    const ready: Array<{ f: (typeof files)[number]; blob: BlobRow }> = [];
+    for (const f of files) {
+      const blob = await this.#d.store.get('blob', l.orgId, f.blobId);
+      if (blob?.status === 'clean') ready.push({ f, blob });
+    }
+    if (!ready.length) throw new DomainError('conflict', 'no files are available yet');
+    const limits = await this.limits(l.orgId);
+    await this.#d.store.transaction(async (tx) => {
+      const now = this.#now();
+      await tx.lockAccount(l.orgId, now);
+      const cur = await tx.getForUpdate('link', l.orgId, l.id);
+      if (!cur || cur.status !== 'active') throw unavailable(cur?.status ?? 'revoked');
+      if (cur.maxDownloads !== null && cur.downloadCount >= cur.maxDownloads) throw unavailable('download_limit_reached');
+      await tx.update('link', l.orgId, l.id, { downloadCount: cur.downloadCount + 1 });
+      const bytes = ready.reduce((n, x) => n + (x.blob.size ?? 0), 0);
+      if ((await tx.addUsage(l.orgId, monthKey(now), 'bandwidth_bytes', bytes)) > limits.bandwidthBytesPerMonth)
+        throw new DomainError('quota_exceeded', 'this share is temporarily unavailable');
+      await this.#recordEvent(tx, { orgId: l.orgId, subjectType: 'share', subjectId: l.id }, 'download', ctx, {
+        userId: who?.userId ?? null,
+        email: who?.email ?? null,
+      });
+      if (l.notifyOnAccess && !looksAutomated(ctx.userAgent))
+        await this.#notify(
+          tx,
+          l.orgId,
+          l.createdBy,
+          'share.downloaded',
+          { type: 'share_link', id: l.id },
+          `${who?.email ?? 'A recipient'} downloaded all files from your shared link${l.label ? ` "${l.label}"` : ''}.`,
+          true,
+        );
+    });
+    const ttl = Math.max(this.#c.downloadUrlTtlSeconds, 900);
+    const out = [];
+    for (const { f, blob } of ready)
+      out.push({
+        id: f.id,
+        name: f.name,
+        folderPath: f.folderPath,
+        size: blob.size ?? f.size,
+        ...(await this.#signedDownload(blob, f.name, 'attachment', ttl)),
+      });
+    return { title: target.transfer.title, files: out };
   }
 
   /** Explicit acknowledgement, recorded as its own event (never inferred from a visit or download). */
@@ -2959,6 +3058,11 @@ export class SharingService {
       });
       return;
     }
+    if (job.kind === 'share_email') {
+      await this.#sendShareEmail(job);
+      await s.transaction((tx) => this.#finish(tx, job, claim));
+      return;
+    }
     // notify_email
     const who = job.payload['userId'] ? await this.#d.identity(job.payload['userId']) : undefined;
     if (this.#d.mailer && who)
@@ -2969,6 +3073,41 @@ export class SharingService {
         text: job.payload['text'] ?? '',
       });
     await s.transaction((tx) => this.#finish(tx, job, claim));
+  }
+
+  /** Sends one emailed link. Skipped (not retried) when the link is no longer usable by the time the job runs. */
+  async #sendShareEmail(job: JobRow) {
+    const s = this.#d.store;
+    const now = this.#now();
+    const l = await s.get('link', job.orgId, job.subjectId);
+    if (!this.#d.mailer || !l || effectiveLinkState(l, now, true) !== 'active') return;
+    const subjectRow = l.targetType === 'transfer' ? await s.get('transfer', l.orgId, l.targetId) : await s.get('document', l.orgId, l.targetId);
+    if (!subjectRow || subjectRow.status !== 'active') return;
+    const oneLine = (v: string, max: number) =>
+      v
+        .replace(/[\r\n\t]+/g, ' ')
+        .slice(0, max)
+        .trim();
+    const from = oneLine(job.payload['from'] ?? '', 254);
+    const what = oneLine(subjectRow.title, 120) || 'files';
+    const message = job.payload['message'] ?? '';
+    const lines = [
+      `${from} sent you "${what}" with Rokela PDF Pro.`,
+      ...(message ? ['', message] : []),
+      '',
+      `Open and download: ${this.#shareUrl(l)}`,
+      ...(l.expiresAt ? [`Available until ${l.expiresAt.toUTCString()}.`] : []),
+      ...(l.passwordHash ? ['The sender protected this link with a password. Ask them for it.'] : []),
+      '',
+      `You received this because ${from} entered your address. If you did not expect it, ignore this email or report it: ${this.#c.publicOrigin}/report`,
+    ];
+    await this.#d.mailer.send({
+      id: job.id,
+      to: job.payload['to'] ?? '',
+      subject: oneLine(`${from} sent you ${what}`, 150),
+      text: lines.join('\n'),
+      replyTo: from || undefined,
+    });
   }
 
   async #ownerOf(r: SharingRepo, b: BlobRow): Promise<string | null> {

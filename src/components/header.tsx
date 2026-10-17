@@ -26,6 +26,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
       {!minimal && (
         <nav aria-label="Main">
           <Link href="/tools">Tools</Link>
+          <Link href="/send">Send files</Link>
           <Link href="/edit">Editor</Link>
           {session && <Link href="/app">Files &amp; links</Link>}
           {ready &&
