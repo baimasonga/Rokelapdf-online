@@ -14,8 +14,11 @@ export const ERROR_STATUS = {
   conflict: 409,
   quota_exceeded: 409,
   link_unavailable: 410,
+  too_large: 413,
+  unprocessable: 422,
   rate_limited: 429,
   internal: 500,
+  unavailable: 503,
 } as const;
 export type ErrorCode = keyof typeof ERROR_STATUS;
 

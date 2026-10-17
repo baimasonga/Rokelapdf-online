@@ -21,6 +21,8 @@ export interface AppConfig {
   clamd: { host: string; port: number } | undefined;
   /** Transfer and notification emails (Resend). Off until a sending domain is verified. */
   mail: { apiKey: string; from: string } | undefined;
+  /** The Office conversion service (a separate private service). Off unless both URL and token are set. */
+  converter: { url: string; token: string } | undefined;
   blockedHosts: string[];
   eventRetentionDays: number;
   jobIntervalSeconds: number;
@@ -108,6 +110,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mail = { apiKey: need('RESEND_API_KEY'), from };
   }
 
+  // Both or neither, like mail. In production the converter must be reached over HTTPS or Railway's private network.
+  let converter: AppConfig['converter'];
+  if (env['CONVERTER_URL'] || env['CONVERTER_TOKEN']) {
+    const raw = need('CONVERTER_URL');
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      throw new Error('CONVERTER_URL must be an origin');
+    }
+    const privateNet = u.protocol === 'http:' && u.hostname.endsWith('.railway.internal');
+    if (u.username || u.password || u.pathname !== '/' || u.search || u.hash || !['http:', 'https:'].includes(u.protocol))
+      throw new Error('CONVERTER_URL must be an origin');
+    if (prod && u.protocol !== 'https:' && !privateNet) throw new Error('CONVERTER_URL must be HTTPS or a *.railway.internal address in production');
+    const token = need('CONVERTER_TOKEN');
+    if (token.length < 32) throw new Error('CONVERTER_TOKEN must be at least 32 characters');
+    converter = { url: u.origin, token };
+  }
+
   const blockedHosts = (env['BLOCKED_HOSTS'] ?? '')
     .split(',')
     .map((h) => h.trim())
@@ -128,6 +149,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     storage,
     clamd,
     mail,
+    converter,
     blockedHosts,
     eventRetentionDays: int(env, 'EVENT_RETENTION_DAYS', 1, 3650, 180),
     jobIntervalSeconds: int(env, 'JOB_INTERVAL_SECONDS', 1, 3600, 5),

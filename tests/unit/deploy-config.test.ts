@@ -25,4 +25,14 @@ describe('deployment configuration', () => {
     expect(existsSync(clam.build.dockerfilePath)).toBe(true);
     expect(readFileSync(clam.build.dockerfilePath, 'utf8')).toMatch(/StreamMaxLength 300M/);
   });
+
+  it('builds the converter as a non-root, health-checked service from its own directory', () => {
+    const conv = json('converter/railway.json');
+    expect(conv.build).toEqual({ builder: 'DOCKERFILE', dockerfilePath: 'Dockerfile' });
+    expect(conv.deploy.healthcheckPath).toBe('/health');
+    const docker = readFileSync('converter/Dockerfile', 'utf8');
+    expect(docker).toMatch(/^USER converter$/m);
+    expect(docker).toMatch(/libreoffice-writer-nogui/);
+    expect(readFileSync('converter/requirements.txt', 'utf8')).not.toMatch(/^(pymupdf|pdf2docx|fitz)\b/im); // AGPL: kept out
+  });
 });

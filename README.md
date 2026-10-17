@@ -1,9 +1,11 @@
 # Rokela PDF Pro Web
 
-Browser PDF editor and 24 private, in-browser PDF tools (including OCR), with integrated file sharing and link shortening.
+Browser PDF editor and 30 PDF tools — 24 private, in-browser tools (including OCR) and Office conversion (PDF ↔ Word,
+Excel, PowerPoint) for signed-in users — with integrated file sharing and link shortening.
 
-- **Hosting:** Railway (Next.js app + background worker), Supabase (Auth + PostgreSQL), Cloudflare R2 (private file storage).
-- **Stack:** Next.js 15 (App Router) + TypeScript, `pg`, `zod`, `pdf-lib`, `pdfjs-dist`, `@supabase/supabase-js`.
+- **Hosting:** Railway (Next.js app + background worker, and the private Office converter in [`converter/`](converter/README.md)),
+  Supabase (Auth + PostgreSQL), Cloudflare R2 (private file storage).
+- **Stack:** Next.js 16 (App Router) + TypeScript, `pg`, `zod`, `pdf-lib`, `pdfjs-dist`, `@supabase/supabase-js`.
 
 ## Architecture in one paragraph
 
@@ -30,6 +32,7 @@ npm run typecheck
 npm run dev         # needs DATABASE_URL; uses local file storage on :3001 in development
 npm run build && npm run e2e   # browser end-to-end smoke test (Chromium) against the production build
 npm run check       # format, lint, typecheck, tests — run before pushing
+(cd converter && python3 -m unittest -v)   # Office converter tests (needs LibreOffice + converter/requirements.txt)
 ```
 
 Production refuses to start on weak or missing configuration (`src/lib/server/config.ts`): R2 storage,

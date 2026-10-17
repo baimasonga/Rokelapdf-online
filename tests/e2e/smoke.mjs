@@ -4,12 +4,13 @@
 //
 // Run: npm run e2e  (starts a throwaway PostgreSQL, a local Supabase Auth stand-in and `next start`; needs `npm run build`)
 import { spawn, execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { PDFDocument, StandardFonts, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from 'pdf-lib';
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { startFakeSupabase } from './fake-supabase.mjs';
 
@@ -35,6 +36,54 @@ async function fixturePdf() {
   return Buffer.from(await d.save());
 }
 
+/** A minimal Word document (what LibreOffice needs to open it). */
+function fixtureDocx(text) {
+  const x = (s) => strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${s}`);
+  return Buffer.from(
+    zipSync({
+      '[Content_Types].xml': x(
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+      ),
+      '_rels/.rels': x(
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+      ),
+      'word/document.xml': x(
+        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`,
+      ),
+    }),
+  );
+}
+
+/**
+ * Stands in for the converter service (converter/) unless E2E_CONVERTER_URL points at a real one. It checks the
+ * shared token like the real service and answers with files that contain the same text a real conversion would.
+ */
+async function startFakeConverter(port, token) {
+  const srv = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    if (req.headers.authorization !== `Bearer ${token}`) return res.writeHead(401).end('{"code":"unauthorized"}');
+    const target = new URL(req.url, 'http://x').pathname.split('/').pop();
+    if (target === 'docx') {
+      const text = (await textOf(Buffer.concat(chunks))).join(' ');
+      const doc = strToU8(
+        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`,
+      );
+      return res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(Buffer.from(zipSync({ 'word/document.xml': doc })));
+    }
+    if (target === 'pdf') {
+      const d = await PDFDocument.create();
+      const f = await d.embedFont(StandardFonts.Helvetica);
+      const words = strFromU8(unzipSync(new Uint8Array(Buffer.concat(chunks)))['word/document.xml']).replace(/<[^>]+>/g, '');
+      d.addPage([595, 842]).drawText(words, { x: 72, y: 760, size: 14, font: f });
+      return res.writeHead(200, { 'content-type': 'application/pdf' }).end(Buffer.from(await d.save()));
+    }
+    res.writeHead(422, { 'content-type': 'application/json' }).end('{"code":"unconvertible","message":"Not supported by the test converter."}');
+  });
+  await new Promise((r) => srv.listen(port, '127.0.0.1', r));
+  return srv;
+}
+
 async function textOf(bytes) {
   const doc = await getDocument({ data: new Uint8Array(bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` }).promise;
   const out = [];
@@ -48,6 +97,8 @@ async function main() {
     env: { ...process.env, DB_SCHEMA: 'rokela' },
   });
   const auth = await startFakeSupabase(AUTH_PORT);
+  const converterToken = process.env.E2E_CONVERTER_TOKEN ?? 'e2e-converter-token-'.padEnd(48, 'x');
+  const converter = process.env.E2E_CONVERTER_URL ? undefined : await startFakeConverter(3102, converterToken);
   const env = {
     ...process.env,
     APP_ENV: 'development',
@@ -60,6 +111,8 @@ async function main() {
     LOCAL_STORAGE_DIR: mkdtempSync(join(tmpdir(), 'rokela-e2e-')),
     JOB_INTERVAL_SECONDS: '1',
     RATE_LIMIT_PER_MINUTE: '100000',
+    CONVERTER_URL: process.env.E2E_CONVERTER_URL ?? 'http://127.0.0.1:3102',
+    CONVERTER_TOKEN: converterToken,
   };
   const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], {
     env,
@@ -321,6 +374,13 @@ async function main() {
     await v.locator('.thumb').nth(1).waitFor();
     ok('home page drop opens the PDF in the editor');
     await shot(v, 'tools');
+    await v.goto(`${ORIGIN}/tools/pdf-to-word`);
+    await v.getByText('Log in to use PDF to Word').waitFor();
+    check(
+      (await v.getByText('Log in to use PDF to Word').count()) === 1 && (await v.getByTestId('tool-input').count()) === 0,
+      'office conversion asks visitors to log in before any file is chosen',
+    );
+    await shot(v, 'convert-gate');
     check(uploads.length === 0, `browser tools sent no files to the server${uploads.length ? `: ${uploads.join(', ')}` : ''}`);
 
     step('Sign up');
@@ -331,6 +391,36 @@ async function main() {
     await p.waitForURL(/\/app/);
     await p.getByRole('heading', { name: 'What would you like to do?' }).waitFor();
     ok('account created and personal workspace shown');
+
+    step('Office conversions (signed in, on the converter)');
+    await p.goto(`${ORIGIN}/tools/pdf-to-word`);
+    await p.getByText(/Converted on our secure server/).waitFor();
+    await p.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await p.getByRole('button', { name: 'PDF to Word', exact: true }).click();
+    await p.locator('.results').waitFor({ timeout: 120_000 });
+    const [wordDl] = await Promise.all([p.waitForEvent('download'), p.getByRole('link', { name: /^Download/ }).click()]);
+    const word = unzipSync(new Uint8Array(readFileSync(await wordDl.path())));
+    check(
+      wordDl.suggestedFilename() === 'contract.docx' && strFromU8(word['word/document.xml']).includes('Original page 1'),
+      'PDF to Word returns an editable document with the text',
+    );
+    await shot(p, 'pdf-to-word');
+    await p.goto(`${ORIGIN}/tools/word-to-pdf`);
+    await p.getByTestId('tool-input').setInputFiles({
+      name: 'letter.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer: fixtureDocx('Hello from Word'),
+    });
+    await p.getByRole('button', { name: 'Word to PDF', exact: true }).click();
+    await p.locator('.results').waitFor({ timeout: 120_000 });
+    const [pdfDl] = await Promise.all([p.waitForEvent('download'), p.getByRole('link', { name: /^Download/ }).click()]);
+    const fromWord = readFileSync(await pdfDl.path());
+    check(pdfDl.suggestedFilename() === 'letter.pdf' && (await textOf(fromWord)).join(' ').includes('Hello from Word'), 'Word to PDF keeps the text');
+    const wrong = await p.goto(`${ORIGIN}/tools/excel-to-pdf`);
+    check(wrong.ok(), 'excel to pdf page loads');
+    await p.getByTestId('tool-input').setInputFiles({ name: 'letter.docx', mimeType: 'application/octet-stream', buffer: fixtureDocx('x') });
+    await p.getByText(/“letter\.docx” is not an Excel file/).waitFor();
+    ok('a Word file is refused by Excel to PDF before upload');
 
     step('Send files, WeTransfer-style');
     await p.goto(`${ORIGIN}/send`);
@@ -586,6 +676,7 @@ async function main() {
     process.exitCode = 1;
   } finally {
     await browser.close();
+    converter?.close();
     app.kill('SIGTERM');
     auth.close();
   }

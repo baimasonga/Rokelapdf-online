@@ -14,6 +14,7 @@ import { LocalObjectStore } from './storage/local';
 import { S3ObjectStore } from './storage/s3';
 import { ClamdScanner } from './storage/clamd';
 import { ResendMailer, type Mailer } from './mail';
+import { ConversionService, HttpConverter, type ConversionLimits, type Converter } from './convert';
 import { BasicContentScanner, ChainedScanner, DEFAULT_SHARING_CONFIG, SharingKeys, SharingService, type FileScanner, type ObjectStore } from './sharing';
 
 export interface Container {
@@ -24,6 +25,7 @@ export interface Container {
   workspaces: WorkspaceService;
   sharing: SharingService;
   rateLimiter: RateLimiter;
+  conversions: ConversionService;
   localStore: LocalObjectStore | undefined;
   close(): Promise<void>;
 }
@@ -37,6 +39,8 @@ export interface Overrides {
   resolveTxt?: (name: string) => Promise<string[][]>;
   sharing?: Partial<typeof DEFAULT_SHARING_CONFIG>;
   mailer?: Mailer;
+  converter?: Converter;
+  conversionLimits?: Partial<ConversionLimits>;
 }
 
 function poolFor(c: AppConfig): pg.Pool {
@@ -97,6 +101,12 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     resolveTxt: o.resolveTxt ?? ((n) => resolveTxt(n)),
     ...(mailer ? { mailer } : {}),
   });
+  const rateLimiter = new RateLimiter(pool, clock);
+  const conversions = new ConversionService({
+    converter: o.converter ?? (config.converter ? new HttpConverter(config.converter) : undefined),
+    hit: (key, limit, windowSeconds) => rateLimiter.hit(key, limit, windowSeconds),
+    ...(o.conversionLimits ? { limits: o.conversionLimits } : {}),
+  });
   return {
     config,
     clock,
@@ -104,7 +114,8 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     verifier,
     workspaces,
     sharing,
-    rateLimiter: new RateLimiter(pool, clock),
+    rateLimiter,
+    conversions,
     localStore,
     close: async () => void (await ownPool?.end()),
   };

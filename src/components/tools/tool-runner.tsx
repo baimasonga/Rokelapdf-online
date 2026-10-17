@@ -3,8 +3,23 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { zipSync } from 'fflate';
-import { ArrowLeft, ArrowRight, CheckCircle2, Download, FileArchive, FilePen, Loader2, Lock, Plus, RotateCcw, Upload, X } from 'lucide-react';
-import { toolBySlug, type ToolSlug } from '@/lib/tools/registry';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  CloudUpload,
+  Download,
+  FileArchive,
+  FilePen,
+  Loader2,
+  Lock,
+  LogIn,
+  Plus,
+  RotateCcw,
+  Upload,
+  X,
+} from 'lucide-react';
+import { OFFICE_INPUTS, toolBySlug, type ToolDef, type ToolSlug } from '@/lib/tools/registry';
 import {
   addBlankPages,
   addPageNumbers,
@@ -29,14 +44,19 @@ import {
 } from '@/lib/tools/ops';
 import { browserRecoder, imageForPdf, pdfToImages } from '@/lib/client/raster';
 import { putHandoff } from '@/lib/client/handoff';
+import { useAuth } from '@/lib/client/auth';
+import { convertEnabled, convertOnServer } from '@/lib/client/convert';
 import { fmtBytes } from '@/lib/client/format';
 import { FirstPageThumb, PagePicker, toRanges } from './page-picker';
 import { Organizer } from './organizer';
 
 // One component runs every single-step tool: choose files, set options, run the operation in this browser and
 // download the result. Nothing is uploaded. Interactive tools (sign, edit…) hand the file to the editor instead.
+// The exception is Office conversion (`tool.server`): signed-in users send the file to our converter and get the
+// result back in the same response; the page says so wherever it would otherwise say "nothing is uploaded".
 
 const MAX_FILE = 300 * 1024 * 1024;
+const MAX_SERVER_FILE = 50 * 1024 * 1024;
 const MAX_FILES = 50;
 
 interface Picked {
@@ -58,6 +78,10 @@ const isPdf = (b: Uint8Array) => {
   const head = new TextDecoder('latin1').decode(b.subarray(0, 1024));
   return head.includes('%PDF-');
 };
+const extOf = (n: string) => /\.([a-z0-9]{2,5})$/i.exec(n)?.[1]?.toLowerCase() ?? '';
+const officeExts = (t: ToolDef) => (t.accept === 'word' || t.accept === 'excel' || t.accept === 'powerpoint' ? OFFICE_INPUTS[t.accept] : undefined);
+const OFFICE_NOUN = { word: 'Word file', excel: 'Excel file', powerpoint: 'PowerPoint file' } as const;
+const withArticle = (noun: string) => `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`;
 const pdfBlob = (b: Uint8Array) => new Blob([b as BlobPart], { type: 'application/pdf' });
 let seq = 0;
 
@@ -120,6 +144,8 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   const [over, setOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const otherRef = useRef<HTMLInputElement>(null);
+  const { ready: authReady, session } = useAuth();
+  const [convertOn, setConvertOn] = useState<boolean>();
 
   // ---- options (one flat set; each tool reads the ones it needs) ----------------------------------------------
   const [spec, setSpec] = useState('');
@@ -153,6 +179,16 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   const isBatch = !!tool.batch && files.length > 1;
   const name = first ? baseName(first.file.name) : 'document';
 
+  // Server conversions: is the converter switched on?
+  useEffect(() => {
+    if (!tool.server) return;
+    let live = true;
+    void convertEnabled().then((on) => live && setConvertOn(on));
+    return () => {
+      live = false;
+    };
+  }, [tool.server]);
+
   // Release object URLs for old results.
   useEffect(() => () => outputs.forEach((o) => URL.revokeObjectURL(o.url)), [outputs]);
 
@@ -178,7 +214,11 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   async function read(list: FileList | File[]): Promise<Picked[]> {
     const out: Picked[] = [];
     for (const file of Array.from(list)) {
-      if (file.size > MAX_FILE) throw new Error(`“${file.name}” is larger than ${fmtBytes(MAX_FILE)}.`);
+      const max = tool.server ? MAX_SERVER_FILE : MAX_FILE;
+      if (file.size > max) throw new Error(`“${file.name}” is larger than ${fmtBytes(max)}.`);
+      const exts = officeExts(tool);
+      if (exts && !exts.includes(extOf(file.name)))
+        throw new Error(`“${file.name}” is not ${withArticle(OFFICE_NOUN[tool.accept as keyof typeof OFFICE_NOUN])} (${exts.map((x) => `.${x}`).join(', ')}).`);
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (tool.accept === 'pdf' && !isPdf(bytes)) throw new Error(`“${file.name}” is not a PDF.`);
       if (tool.accept === 'image' && !file.type.startsWith('image/')) throw new Error(`“${file.name}” is not an image.`);
@@ -273,6 +313,16 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
 
   async function computeOne(b: Uint8Array, name: string): Promise<Result[]> {
     const pdf = (n: string, b: Uint8Array) => [{ name: n, blob: pdfBlob(b), pdf: b }];
+    if (tool.server) {
+      setBusy('Converting…');
+      const blob = await convertOnServer(tool.server.target, first!.file);
+      const out = `${name}.${tool.server.target}`;
+      if (tool.server.target === 'pdf') {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        return [{ name: out, blob: pdfBlob(bytes), pdf: bytes }];
+      }
+      return [{ name: out, blob }];
+    }
     switch (slug) {
       case 'merge-pdf':
         if (files.length < 2) throw new Error('Add at least two PDFs to merge.');
@@ -395,7 +445,8 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   }
 
   // ---- view -----------------------------------------------------------------------------------------------------
-  const accept = tool.accept === 'pdf' ? 'application/pdf,.pdf' : 'image/*';
+  const exts = officeExts(tool);
+  const accept = exts ? exts.map((x) => `.${x}`).join(',') : tool.accept === 'pdf' ? 'application/pdf,.pdf' : 'image/*';
   const picker = (mark: 'check' | 'remove' = 'check', interactive = true) =>
     first && (
       <PagePicker
@@ -766,6 +817,30 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
       );
       ready = !!first && count > 0;
       break;
+    case 'pdf-to-word':
+    case 'pdf-to-excel':
+    case 'pdf-to-powerpoint':
+      preview = picker('check', false);
+      options = (
+        <p className="muted">
+          {
+            {
+              'pdf-to-word':
+                'Paragraphs, fonts, tables and pictures are rebuilt as an editable Word document. Scanned pages have no text to rebuild — run OCR PDF first.',
+              'pdf-to-excel': 'Tables become rows and columns, one sheet per page, with numbers as real numbers. Text outside tables follows below.',
+              'pdf-to-powerpoint': 'Each page becomes one slide that looks exactly like the page. The page text goes into the slide notes.',
+            }[slug]
+          }
+        </p>
+      );
+      ready = !!first && convertOn !== false;
+      break;
+    case 'word-to-pdf':
+    case 'excel-to-pdf':
+    case 'powerpoint-to-pdf':
+      options = <p className="muted">The layout is kept as it is in the original. Password-protected files cannot be converted.</p>;
+      ready = !!first && convertOn !== false;
+      break;
     case 'jpg-to-pdf':
       options = (
         <>
@@ -823,7 +898,46 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
       }}
     />
   );
-  const noun = tool.accept === 'image' ? 'images' : many ? 'PDF files' : 'PDF file';
+  const noun = tool.accept === 'image' ? 'images' : exts ? OFFICE_NOUN[tool.accept as keyof typeof OFFICE_NOUN] : many ? 'PDF files' : 'PDF file';
+  const serverNote = (
+    <span className="bigdrop-note">
+      <CloudUpload size={13} aria-hidden="true" /> Converted on our secure server — your file is deleted as soon as it is done
+    </span>
+  );
+  const signInHref = (mode: 'signin' | 'signup') => `/signin?${mode === 'signup' ? 'mode=signup&' : ''}next=${encodeURIComponent(`/tools/${slug}`)}`;
+
+  // 0. Office conversion needs an account (it uses our server), and the converter must be switched on.
+  if (tool.server && !files.length && (convertOn === false || (authReady && !session))) {
+    return (
+      <div className="tool-run">
+        <div className="bigdrop gate">
+          {convertOn === false ? (
+            <>
+              <strong className="gate-title">{tool.title} is coming soon</strong>
+              <span className="bigdrop-hint">Office conversion is being set up. In the meantime, every other tool works right here in your browser.</span>
+              <Link href="/tools" className="button xl">
+                See all tools
+              </Link>
+            </>
+          ) : (
+            <>
+              <strong className="gate-title">Log in to use {tool.title}</strong>
+              <span className="bigdrop-hint">It’s free. Office conversions run on our server, so they need an account.</span>
+              <div className="gate-actions">
+                <Link href={signInHref('signin')} className="button primary xl">
+                  <LogIn size={22} aria-hidden="true" /> Log in
+                </Link>
+                <Link href={signInHref('signup')} className="button xl">
+                  Sign up free
+                </Link>
+              </div>
+              {serverNote}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // 1. Nothing chosen yet: one big button, like the big PDF tool sites.
   if (!files.length) {
@@ -842,10 +956,14 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
             {busy ? <Loader2 size={22} className="spin" aria-hidden="true" /> : <Upload size={22} aria-hidden="true" />}
             {busy ?? `Select ${noun}`}
           </button>
-          <span className="bigdrop-hint">or drop {many ? noun : `a ${noun.replace(/s$/, '')}`} here</span>
-          <span className="bigdrop-note">
-            <Lock size={13} aria-hidden="true" /> Processed in your browser — files are never uploaded
-          </span>
+          <span className="bigdrop-hint">or drop {many ? noun : withArticle(noun.replace(/s$/, ''))} here</span>
+          {tool.server ? (
+            serverNote
+          ) : (
+            <span className="bigdrop-note">
+              <Lock size={13} aria-hidden="true" /> Processed in your browser — files are never uploaded
+            </span>
+          )}
           {fileInput('tool-input')}
         </div>
         {error && (
@@ -910,9 +1028,15 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
               <RotateCcw size={16} aria-hidden="true" /> Start over
             </button>
           </div>
-          <p className="bigdrop-note">
-            <Lock size={13} aria-hidden="true" /> Made in your browser — nothing was uploaded
-          </p>
+          {tool.server ? (
+            <p className="bigdrop-note">
+              <CloudUpload size={13} aria-hidden="true" /> Converted on our server — your file has already been deleted there
+            </p>
+          ) : (
+            <p className="bigdrop-note">
+              <Lock size={13} aria-hidden="true" /> Made in your browser — nothing was uploaded
+            </p>
+          )}
         </section>
       </div>
     );
@@ -1003,9 +1127,15 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
             )}
           </button>
           {fileInput()}
-          <p className="bigdrop-note">
-            <Lock size={13} aria-hidden="true" /> Processed in your browser
-          </p>
+          {tool.server ? (
+            <p className="bigdrop-note">
+              <CloudUpload size={13} aria-hidden="true" /> Sent to our converter, deleted right after
+            </p>
+          ) : (
+            <p className="bigdrop-note">
+              <Lock size={13} aria-hidden="true" /> Processed in your browser
+            </p>
+          )}
         </aside>
       </div>
     </div>

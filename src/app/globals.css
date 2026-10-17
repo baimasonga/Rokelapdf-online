@@ -2692,6 +2692,20 @@ button.xl {
   color: var(--muted);
   font-size: 0.84rem;
 }
+.bigdrop.gate {
+  border-style: solid;
+  text-align: center;
+}
+.gate-title {
+  font-size: 1.25rem;
+}
+.gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0;
+}
 .home-tools {
   max-width: 1200px;
   margin: 0 auto;

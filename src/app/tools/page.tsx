@@ -5,7 +5,7 @@ import { ToolGrid } from '@/components/tools/tool-grid';
 
 export const metadata: Metadata = {
   title: 'All PDF tools',
-  description: 'Free PDF tools that run in your browser: merge, split, rotate, crop, watermark, number pages, sign, fill forms and convert to images.',
+  description: 'Free PDF tools: merge, split, compress, edit, sign, fill forms, OCR, and convert PDF to Word, Excel, PowerPoint and images — and back.',
 };
 
 export default function ToolsPage() {
@@ -15,7 +15,10 @@ export default function ToolsPage() {
       <main className="tool-page">
         <section className="tool-hero">
           <h1>All PDF tools</h1>
-          <p>Every tool is free and runs in your browser — your files are never uploaded.</p>
+          <p>
+            Every tool is free. PDF tools run in your browser, so those files are never uploaded; Word, Excel and PowerPoint conversions use our server with a
+            free account and delete the file straight after.
+          </p>
         </section>
         <div className="tools-all">
           <ToolGrid />

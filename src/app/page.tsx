@@ -66,7 +66,10 @@ export default function Home() {
           <div>
             <Lock size={26} aria-hidden="true" />
             <h3>Private by design</h3>
-            <p>PDF tools run on your device. Files you send are stored privately and deleted when the transfer expires.</p>
+            <p>
+              PDF tools run on your device. Office conversions are deleted from our server the moment they finish, and files you send are stored privately until
+              the transfer expires.
+            </p>
           </div>
           <div>
             <BadgeCheck size={26} aria-hidden="true" />

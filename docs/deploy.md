@@ -46,7 +46,15 @@ the R2 and Supabase connections are exercised for the first time on your first d
    the previous version keeps serving), start `npm start`, health check `/api/v1/health`.
 2. Optional malware scanning: _New → GitHub repo_ (same repo) → service Settings → _Config file path_
    `infra/clamav/railway.json`. ~2 GB memory, **no public domain**. Its private host is `<name>.railway.internal`.
-3. App service → Settings → _Networking_: add your custom domain (Railway issues the certificate).
+3. Optional Office conversion (PDF ↔ Word/Excel/PowerPoint): _New → GitHub repo_ (same repo) → service Settings →
+   _Root directory_ `converter` and _Config file path_ `/converter/railway.json` (its own `Dockerfile`,
+   health check `/health`). **No public domain.** 2 GB memory
+   is comfortable (two conversions at a time); roughly $5–20/month depending on use. Variables:
+   `CONVERTER_TOKEN` = `openssl rand -base64 48` (secret). Optional: `CONVERTER_CONCURRENCY` (2),
+   `CONVERTER_TIMEOUT` seconds (120), `CONVERTER_MAX_BYTES` (52428800), `CONVERTER_MAX_PAGES` (200),
+   `CONVERTER_MEMORY_MB` per job (3072). Then set `CONVERTER_URL` = `http://<converter>.railway.internal:8080` and the
+   same `CONVERTER_TOKEN` on the app. Until then the six Office tools show “coming soon”.
+4. App service → Settings → _Networking_: add your custom domain (Railway issues the certificate).
 
 ### App variables (mark secrets as secret)
 
@@ -64,6 +72,7 @@ the R2 and Supabase connections are exercised for the first time on your first d
 | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | from §2                                                                                        |
 | `CLAMD_HOST`, `CLAMD_PORT`                                             | `<clamav>.railway.internal`, `3310` — or `MALWARE_SCAN_DISABLED=true` (structural checks only) |
 | `TRUST_PROXY`                                                          | `1` (Railway's proxy sets `X-Forwarded-For`)                                                   |
+| `CONVERTER_URL`, `CONVERTER_TOKEN` (optional)                          | `http://<converter>.railway.internal:8080` and the converter's token — set both or neither     |
 
 **Email (optional, off until you have a domain).** Sending transfers by email needs a sending domain you own, verified
 with an email provider. Until then the send form gives one personal link per recipient to copy or send from your own
@@ -99,6 +108,8 @@ non-HTTPS origins, no ClamAV without the explicit opt-out).
 - [ ] The document page shows the draft checked within seconds (if not: ClamAV reachable? `CLAMD_HOST`).
 - [ ] Export, publish, create a share link, open it in a private window, download.
 - [ ] Revoke the link → the private window shows “revoked”.
+- [ ] If the converter is deployed: signed in, _PDF to Word_ and _Word to PDF_ each return a file; signed out, the
+      tool asks you to log in.
 - [ ] Supabase → Table editor shows no `rokela` tables under the API; Settings → API exposed schemas = `public` only.
 
 ## Local development

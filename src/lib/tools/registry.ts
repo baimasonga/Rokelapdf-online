@@ -26,7 +26,21 @@ export type ToolSlug =
   | 'pdf-to-jpg'
   | 'pdf-to-png'
   | 'jpg-to-pdf'
-  | 'ocr-pdf';
+  | 'ocr-pdf'
+  | 'pdf-to-word'
+  | 'pdf-to-excel'
+  | 'pdf-to-powerpoint'
+  | 'word-to-pdf'
+  | 'excel-to-pdf'
+  | 'powerpoint-to-pdf';
+
+/** What a tool takes as input. Office kinds name the file extensions they accept. */
+export type ToolInput = 'pdf' | 'image' | 'word' | 'excel' | 'powerpoint';
+export const OFFICE_INPUTS: Record<'word' | 'excel' | 'powerpoint', string[]> = {
+  word: ['docx', 'doc', 'odt', 'rtf'],
+  excel: ['xlsx', 'xls', 'ods'],
+  powerpoint: ['pptx', 'ppt', 'odp'],
+};
 
 export interface ToolDef {
   slug: ToolSlug;
@@ -39,20 +53,25 @@ export interface ToolDef {
   icon: string; // lucide icon name, resolved in the UI
   /** The tool's own colour (icon tile background); white icons must stay legible on it. */
   color: string;
-  accept: 'pdf' | 'image';
+  accept: ToolInput;
   multiple: boolean;
   /** Tools that work interactively open the editor with this tool selected. */
   editorTool?: 'select' | 'text' | 'highlight' | 'rect' | 'ink' | 'signature' | 'field';
   /** Can run on many PDFs at once (same settings for each, results as a ZIP). */
   batch?: boolean;
   popular?: boolean;
+  /**
+   * Converted on the server (LibreOffice and layout analysis cannot run in a browser): signed-in users only, the file
+   * is sent to the converter and the result returned straight away — nothing is stored.
+   */
+  server?: { target: 'docx' | 'xlsx' | 'pptx' | 'pdf' };
 }
 
 export const GROUPS: Array<{ id: ToolGroup; title: string; blurb: string }> = [
   { id: 'organize', title: 'Organize & optimize', blurb: 'Merge, split, compress, reorder and tidy up pages.' },
   { id: 'edit', title: 'Edit & annotate', blurb: 'Add text, highlights, watermarks and page numbers.' },
   { id: 'sign', title: 'Sign, forms & security', blurb: 'Sign documents, fill or create forms, add or remove passwords.' },
-  { id: 'convert', title: 'Convert & OCR', blurb: 'PDFs to images and back, and searchable text from scans.' },
+  { id: 'convert', title: 'Convert & OCR', blurb: 'PDF to Word, Excel, PowerPoint and images — and back — plus searchable text from scans.' },
 ];
 
 export const TOOLS: ToolDef[] = [
@@ -292,6 +311,84 @@ export const TOOLS: ToolDef[] = [
     icon: 'LockOpen',
     accept: 'pdf',
     multiple: false,
+  },
+  {
+    slug: 'pdf-to-word',
+    color: '#1d4ed8',
+    title: 'PDF to Word',
+    short: 'Turn a PDF into an editable Word document.',
+    description:
+      'Convert PDF to an editable Word (DOCX) document — paragraphs, fonts, tables and pictures are rebuilt so you can edit the text. Free with an account; files are deleted right after converting.',
+    group: 'convert',
+    icon: 'FileText',
+    accept: 'pdf',
+    multiple: false,
+    popular: true,
+    server: { target: 'docx' },
+  },
+  {
+    slug: 'pdf-to-excel',
+    color: '#15803d',
+    title: 'PDF to Excel',
+    short: 'Pull tables out of a PDF into a spreadsheet.',
+    description:
+      'Convert PDF tables to an Excel (XLSX) spreadsheet with one sheet per page and numbers as real numbers. Free with an account; files are deleted right after converting.',
+    group: 'convert',
+    icon: 'FileSpreadsheet',
+    accept: 'pdf',
+    multiple: false,
+    server: { target: 'xlsx' },
+  },
+  {
+    slug: 'pdf-to-powerpoint',
+    color: '#c2410c',
+    title: 'PDF to PowerPoint',
+    short: 'Make a slide deck from a PDF, one slide per page.',
+    description:
+      'Convert a PDF to a PowerPoint (PPTX) presentation — every page becomes a sharp slide, with its text in the slide notes. Free with an account; files are deleted right after converting.',
+    group: 'convert',
+    icon: 'Presentation',
+    accept: 'pdf',
+    multiple: false,
+    server: { target: 'pptx' },
+  },
+  {
+    slug: 'word-to-pdf',
+    color: '#2563eb',
+    title: 'Word to PDF',
+    short: 'Convert DOCX and DOC documents to PDF.',
+    description: 'Convert Word documents (DOCX, DOC, ODT, RTF) to PDF with the layout kept. Free with an account; files are deleted right after converting.',
+    group: 'convert',
+    icon: 'FileType',
+    accept: 'word',
+    multiple: false,
+    popular: true,
+    server: { target: 'pdf' },
+  },
+  {
+    slug: 'excel-to-pdf',
+    color: '#059669',
+    title: 'Excel to PDF',
+    short: 'Convert spreadsheets to PDF.',
+    description: 'Convert Excel spreadsheets (XLSX, XLS, ODS) to PDF, every sheet included. Free with an account; files are deleted right after converting.',
+    group: 'convert',
+    icon: 'Sheet',
+    accept: 'excel',
+    multiple: false,
+    server: { target: 'pdf' },
+  },
+  {
+    slug: 'powerpoint-to-pdf',
+    color: '#ea580c',
+    title: 'PowerPoint to PDF',
+    short: 'Convert presentations to PDF.',
+    description:
+      'Convert PowerPoint presentations (PPTX, PPT, ODP) to PDF, one page per slide. Free with an account; files are deleted right after converting.',
+    group: 'convert',
+    icon: 'FileDown',
+    accept: 'powerpoint',
+    multiple: false,
+    server: { target: 'pdf' },
   },
   {
     slug: 'pdf-to-jpg',

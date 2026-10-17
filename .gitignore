@@ -44,3 +44,7 @@ next-env.d.ts
 /public/pdfjs/
 /public/ocr/
 /e2e-artifacts/
+
+# converter (Python)
+/converter/.venv/
+__pycache__/

@@ -5,6 +5,7 @@ Rokela PDF Pro Web is one Next.js application (UI + API + background jobs) with 
 ```
                     ┌────────────────────────── Railway ───────────────────────────┐
  Browser ──HTTPS──▶ │ Next.js app (pages, /api/v1/*, /l /d redirects, jobs)       │──▶ ClamAV (private, optional)
+   │   ▲            │                                                              │──▶ Converter (private, optional)
    │   ▲            └───────────────┬──────────────────────────────┬──────────────┘
    │   │                            │ SQL (app role, private schema) │ S3 API (signed requests)
    │   │                            ▼                              ▼
@@ -18,10 +19,11 @@ Rokela PDF Pro Web is one Next.js application (UI + API + background jobs) with 
 | ----------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | **Browser**             | PDF rendering (pdf.js) and editing (pdf-lib), upload/download of bytes via signed URLs                  | Authorization decisions, holding storage credentials          |
 | **Supabase Auth**       | Accounts, passwords, email confirmation, password reset, sessions                                       | Data access — the Data API cannot see the app's schema        |
-| **Next.js app**         | Every authorization decision, all database access, signing storage URLs, link resolution, rate limits   | Streaming file bytes (they go browser ⇄ R2 directly)          |
+| **Next.js app**         | Every authorization decision, all database access, signing storage URLs, link resolution, rate limits   | Streaming stored files (they go browser ⇄ R2 directly)        |
 | **Postgres (`rokela`)** | Users mirror, workspaces, documents, versions, transfers, links, short links, requests, audit log, jobs | Being reachable by browsers (not exposed via the Data API)    |
 | **R2**                  | Private file storage                                                                                    | Public access; anything without a valid short-lived signature |
 | **ClamAV**              | Malware scanning of uploads during quarantine                                                           | Being publicly reachable                                      |
+| **Converter**           | Office conversions (LibreOffice + layout analysis), one sandboxed process per file                      | Storing files, logging names or contents, being public        |
 
 ## Identity and authorization
 
@@ -107,7 +109,7 @@ does not remove it (not redaction); encrypted PDFs must be unlocked first.
 
 ## Browser tools
 
-`/tools` lists 24 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
+`/tools` lists 30 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
 `/tools/<slug>` page is server-rendered for search engines; one-step tools (merge, split, delete/extract pages, rotate,
 add pages, crop, compress, watermark, page numbers, flatten, fill form, PDF ↔ images) run in the browser on `src/lib/tools/ops.ts`
 (pdf-lib) and `src/lib/client/raster.ts` (pdf.js + canvas); several results download as a ZIP. Interactive tools
@@ -135,6 +137,37 @@ pdf.js, read with the English LSTM model, and words above 40% confidence are add
 invisible text layer (rendering mode 3), positioned through pdf.js's viewport so it is right on rotated and cropped
 pages. The worker, cores and model are copied to `public/ocr` at install time and served from this origin
 (`script-src` already allows `'wasm-unsafe-eval'`; no CDN). The model (~3 MB) is cached by the browser.
+
+## Office conversion
+
+PDF → Word / Excel / PowerPoint and Word / Excel / PowerPoint → PDF cannot be done well in a browser (they need an
+office suite and layout analysis), so these six tools are the only ones that send a file anywhere. They are for
+signed-in users with a confirmed email address.
+
+```
+Browser ──POST /api/v1/convert/<docx|xlsx|pptx|pdf>?name=…  (bearer token, file as body)──▶ Next.js app
+        ◀──────────── converted file (Content-Disposition: attachment), nothing stored ─────────┘ │
+                                                                                               ▼
+                         Railway private network, shared CONVERTER_TOKEN ──▶ converter (converter/)
+```
+
+- **App** (`src/lib/server/convert.ts`): checks the session, the confirmed email, the conversion and the file type
+  (name and first bytes must agree), reads the body with a hard 50 MB cap, applies per-user limits (6 per minute,
+  100 per day, both counted on every attempt), forwards the bytes and streams the result back. Nothing is written to
+  the database or R2, and file names and contents are never logged. Without `CONVERTER_URL` + `CONVERTER_TOKEN` the
+  tools show “coming soon” and the endpoint answers 503.
+- **Converter** (`converter/`, Python standard-library HTTP server): requires the token (constant-time compare),
+  checks type and size again, allows two jobs at a time (others get “busy” after 30 s), and runs each conversion in
+  its own process group in a fresh private temp directory with CPU, memory and file-size limits and a hard timeout;
+  the directory is deleted afterwards and the whole group is killed. It logs only status, types, sizes and timings.
+- **Engines** (`converter/rokela_convert/engines.py`, permissive licences only): PDF → Word rebuilds paragraphs (font,
+  size, bold/italic, alignment), tables and pictures with pdfplumber + python-docx; PDF → Excel puts each page's
+  tables (and the text around them) on its own sheet, numbers as numbers and text never as formulas; PDF → PowerPoint
+  makes one slide per page from a sharp render (PDFium) with the page text in the notes; Office → PDF uses headless
+  LibreOffice with a hardened profile (macros disabled, linked content never updated, untrusted remote links blocked
+  — a test proves a linked remote image is not fetched).
+- Limits: scanned PDFs have no text to rebuild (run OCR PDF first); PDF → Word recreates flowing text, so complex
+  multi-column layouts may need tidying; password-protected files are refused with a clear message; 200 pages max.
 
 ## Background work
 

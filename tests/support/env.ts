@@ -14,6 +14,7 @@ import type { UserPrincipal } from '@/lib/server/kernel';
 import { LocalObjectStore, createContentServer } from '@/lib/server/storage/local';
 import type { FileScanner } from '@/lib/server/sharing';
 import type { Mailer, OutgoingMail } from '@/lib/server/mail';
+import type { ConversionLimits, Converter } from '@/lib/server/convert';
 
 /** Records emails instead of sending them. */
 export class FakeMailer implements Mailer {
@@ -82,7 +83,7 @@ export interface TestEnv {
   call(
     method: string,
     path: string,
-    o?: { token?: string; body?: unknown; headers?: Record<string, string> },
+    o?: { token?: string; body?: unknown; raw?: Uint8Array; headers?: Record<string, string> },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test responses are loosely typed JSON
   ): Promise<{ status: number; body: any; headers: Headers; text: string }>;
   /** Signs a user in (creates them on first use). */
@@ -104,7 +105,14 @@ export interface TestEnv {
 }
 
 export async function makeEnv(
-  o: { scanner?: FileScanner; resolveTxt?: (n: string) => Promise<string[][]>; env?: Record<string, string>; mailer?: Mailer } = {},
+  o: {
+    scanner?: FileScanner;
+    resolveTxt?: (n: string) => Promise<string[][]>;
+    env?: Record<string, string>;
+    mailer?: Mailer;
+    converter?: Converter;
+    conversionLimits?: Partial<ConversionLimits>;
+  } = {},
 ): Promise<TestEnv> {
   let t = new Date('2026-03-01T00:00:00Z');
   const clock = { now: () => t, advance: (ms: number) => void (t = new Date(t.getTime() + ms)) };
@@ -135,6 +143,8 @@ export async function makeEnv(
     ...(o.scanner ? { scanner: o.scanner } : {}),
     ...(o.resolveTxt ? { resolveTxt: o.resolveTxt } : {}),
     ...(o.mailer ? { mailer: o.mailer } : {}),
+    ...(o.converter ? { converter: o.converter } : {}),
+    ...(o.conversionLimits ? { conversionLimits: o.conversionLimits } : {}),
     sharing: { partBytes: 8 },
   });
   (c as { localStore: LocalObjectStore | undefined }).localStore = store;
@@ -155,6 +165,7 @@ export async function makeEnv(
             ...opt.headers,
           },
           ...(opt.body !== undefined ? { body: JSON.stringify(opt.body) } : {}),
+          ...(opt.raw !== undefined ? { body: opt.raw as BodyInit } : {}),
         }),
       );
       const text = await res.text();

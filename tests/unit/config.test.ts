@@ -54,3 +54,29 @@ describe('email delivery configuration', () => {
     expect(() => loadConfig(env({ ...PROD, RESEND_API_KEY: 're_x', MAIL_FROM: 'x <a@b.co>\r\nBcc: c@d.co' }))).toThrow(/MAIL_FROM must be an address/);
   });
 });
+
+describe('office converter configuration', () => {
+  const TOKEN = 'c'.repeat(40);
+  it('is off by default and needs both the URL and a strong token', () => {
+    expect(loadConfig(env(PROD)).converter).toBeUndefined();
+    expect(loadConfig(env({ ...PROD, CONVERTER_URL: 'https://convert.rokela.example', CONVERTER_TOKEN: TOKEN })).converter).toEqual({
+      url: 'https://convert.rokela.example',
+      token: TOKEN,
+    });
+    expect(() => loadConfig(env({ ...PROD, CONVERTER_URL: 'https://convert.rokela.example' }))).toThrow(/CONVERTER_TOKEN/);
+    expect(() => loadConfig(env({ ...PROD, CONVERTER_TOKEN: TOKEN }))).toThrow(/CONVERTER_URL/);
+    expect(() => loadConfig(env({ ...PROD, CONVERTER_URL: 'https://convert.rokela.example', CONVERTER_TOKEN: 'short' }))).toThrow(/32/);
+  });
+  it('in production allows plain HTTP only on the Railway private network', () => {
+    const at = (url: string) => loadConfig(env({ ...PROD, CONVERTER_URL: url, CONVERTER_TOKEN: TOKEN })).converter?.url;
+    expect(at('http://converter.railway.internal:8080')).toBe('http://converter.railway.internal:8080');
+    expect(() => at('http://convert.rokela.example')).toThrow(/HTTPS or a \*\.railway\.internal/);
+    expect(() => at('http://railway.internal.evil.example')).toThrow(/HTTPS/);
+    expect(() => at('https://u:p@convert.rokela.example')).toThrow(/origin/);
+    expect(() => at('https://convert.rokela.example/path')).toThrow(/origin/);
+    expect(() => at('ftp://convert.rokela.example')).toThrow(/origin/);
+    expect(loadConfig(env({ DATABASE_URL: 'postgres://x', CONVERTER_URL: 'http://127.0.0.1:8080', CONVERTER_TOKEN: TOKEN })).converter?.url).toBe(
+      'http://127.0.0.1:8080',
+    );
+  });
+});

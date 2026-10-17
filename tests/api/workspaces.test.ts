@@ -68,11 +68,14 @@ describe('accounts and workspaces', () => {
   });
 
   it('serves public client configuration without secrets', async () => {
-    env = await makeEnv();
+    const converterToken = 'converter-secret-'.padEnd(48, 'z');
+    env = await makeEnv({ env: { CONVERTER_URL: 'http://127.0.0.1:9', CONVERTER_TOKEN: converterToken } });
     const r = await env.call('GET', '/api/v1/config');
-    expect(Object.keys(r.body).sort()).toEqual(['email', 'supabase_publishable_key', 'supabase_url', 'transfer_types']);
-    expect(r.body.email).toBe(false);
+    expect(Object.keys(r.body).sort()).toEqual(['convert', 'email', 'supabase_publishable_key', 'supabase_url', 'transfer_types']);
+    expect([r.body.email, r.body.convert]).toEqual([false, true]);
     expect(r.text).not.toContain(env.c.config.sharingSecret);
+    expect(r.text).not.toContain(converterToken);
+    expect(r.text).not.toContain('127.0.0.1:9');
   });
 });
 

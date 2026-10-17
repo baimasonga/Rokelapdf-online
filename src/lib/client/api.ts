@@ -72,3 +72,16 @@ export async function fetchSigned(url: string): Promise<Uint8Array> {
 
 export const enc = encodeURIComponent;
 export const sharingPath = (orgId: string) => `/api/v1/workspaces/${enc(orgId)}/sharing`;
+
+/** Uploads a file as the raw request body (signed in) and returns the response file. */
+export async function apiSendFile(path: string, file: Blob): Promise<Blob> {
+  const token = await tokenProvider();
+  const res = await fetch(path, {
+    method: 'POST',
+    credentials: 'omit',
+    headers: { 'content-type': 'application/octet-stream', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: file,
+  });
+  if (!res.ok) return fail(res);
+  return res.blob();
+}

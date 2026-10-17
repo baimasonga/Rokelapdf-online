@@ -4,10 +4,12 @@ import * as s from './schemas';
 import { ROLES } from '../workspaces';
 import { FILE_KINDS } from '../sharing';
 import { Router, created, json, parse, type Ctx } from './router';
+import { attachment, readBody } from '../convert';
 
 const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
 const dateOpt = (v: string | undefined) => (v === undefined ? undefined : new Date(v));
 const teamBody = z.object({ name: z.string().min(1).max(200) }).strict();
+const convertQuery = z.object({ name: z.string().min(1).max(255) }).strict();
 const memberBody = z.object({ email: z.string().min(3).max(254), role: z.enum(ROLES) }).strict();
 
 /**
@@ -32,6 +34,7 @@ export function buildRouter(): Router {
       supabaseUrl: x.c.config.supabaseUrl,
       supabasePublishableKey: x.c.config.supabasePublishableKey,
       email: x.c.sharing.emailEnabled,
+      convert: x.c.conversions.enabled,
       transferTypes: Object.keys(FILE_KINDS),
     }),
     600,
@@ -63,6 +66,19 @@ export function buildRouter(): Router {
   r.add('POST', '/api/v1/workspaces/:orgId/members', 'user', async (x) => {
     const b = parse(memberBody, await x.body());
     return created(await x.c.workspaces.addMember(me(x), org(x), b.email, b.role));
+  });
+
+  // ---- Office conversions (forwarded to the private converter; nothing is stored) ----------------------
+  r.add('POST', '/api/v1/convert/:target', 'user', async (x) => {
+    const q = parse(convertQuery, Object.fromEntries(x.query));
+    const conv = x.c.conversions;
+    const declared = x.req.headers.get('content-length');
+    const job = await conv.admit(me(x), x.params['target']!, q.name, declared && /^\d+$/.test(declared) ? Number(declared) : undefined);
+    const bytes = await readBody(x.req, conv.limits.maxBytes, () => new DomainError('too_large', 'This file is too large to convert.'));
+    const out = await conv.convert(job, q.name, bytes);
+    return new Response(out.bytes as BodyInit, {
+      headers: { 'content-type': out.mime, 'content-disposition': attachment(out.name), 'content-length': String(out.bytes.byteLength) },
+    });
   });
 
   // ---- overview and documents ------------------------------------------------------------------------
