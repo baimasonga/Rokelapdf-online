@@ -161,6 +161,25 @@ async function main() {
       'watermark on every page',
     );
 
+    // Batch: the same tool on two PDFs (with the same name) gives one ZIP with both results.
+    await v.goto(`${ORIGIN}/tools/watermark-pdf`);
+    await v.getByTestId('tool-input').setInputFiles([
+      { name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf },
+      { name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf },
+    ]);
+    await v.getByText('The same settings are applied to each file').waitFor();
+    await v.getByRole('button', { name: /^Add watermark/ }).click();
+    await v.getByText('2 files are ready').waitFor();
+    const batchZip = await fetchDownload(v.getByRole('button', { name: /Download all/ }));
+    const batch = unzipSync(new Uint8Array(batchZip.bytes));
+    const batchNames = Object.keys(batch).sort();
+    let batchMarked = true;
+    for (const n of batchNames) batchMarked &&= (await textOf(Buffer.from(batch[n]))).every((t) => t.includes('CONFIDENTIAL'));
+    check(
+      batchNames.join(',') === 'contract-watermarked (2).pdf,contract-watermarked.pdf' && batchMarked,
+      'batch: two PDFs watermarked in one go, distinct names in the ZIP',
+    );
+
     // A PDF with a large photo-like image (stored losslessly) and some text.
     const photoPdf = await (async () => {
       const d = await PDFDocument.create();

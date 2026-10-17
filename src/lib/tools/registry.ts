@@ -40,6 +40,8 @@ export interface ToolDef {
   multiple: boolean;
   /** Tools that work interactively open the editor with this tool selected. */
   editorTool?: 'select' | 'text' | 'highlight' | 'rect' | 'ink' | 'signature' | 'field';
+  /** Can run on many PDFs at once (same settings for each, results as a ZIP). */
+  batch?: boolean;
   popular?: boolean;
 }
 
@@ -99,6 +101,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     slug: 'rotate-pdf',
+    batch: true,
     color: '#8b5cf6',
     title: 'Rotate PDF',
     short: 'Turn all pages or just the ones you pick.',
@@ -132,6 +135,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     slug: 'crop-pdf',
+    batch: true,
     color: '#22c55e',
     title: 'Crop PDF',
     short: 'Trim margins from every page or selected pages.',
@@ -143,6 +147,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     slug: 'compress-pdf',
+    batch: true,
     color: '#65a30d',
     title: 'Compress PDF',
     short: 'Make a PDF smaller while keeping text sharp.',
@@ -192,6 +197,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     slug: 'watermark-pdf',
+    batch: true,
     color: '#0891b2',
     title: 'Add watermark',
     short: 'Stamp text like “CONFIDENTIAL” on every page.',
@@ -203,6 +209,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     slug: 'page-numbers',
+    batch: true,
     color: '#4f46e5',
     title: 'Add page numbers',
     short: 'Number pages in any corner, in your format.',
@@ -214,6 +221,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     slug: 'flatten-pdf',
+    batch: true,
     color: '#64748b',
     title: 'Flatten PDF',
     short: 'Lock form fields into the page.',

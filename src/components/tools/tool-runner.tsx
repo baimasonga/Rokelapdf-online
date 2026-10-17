@@ -143,6 +143,9 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   const [level, setLevel] = useState<CompressLevel>('recommended');
 
   const first = files[0];
+  const many = tool.multiple || !!tool.batch;
+  /** Batch mode: a single-file tool run on several PDFs with the same settings. */
+  const isBatch = !!tool.batch && files.length > 1;
   const name = first ? baseName(first.file.name) : 'document';
 
   // Release object URLs for old results.
@@ -183,7 +186,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
     if (!list || !list.length) return;
     setError(undefined);
     try {
-      const picked = await read(tool.multiple ? list : [list[0]!]);
+      const picked = await read(many ? list : [list[0]!]);
       if (tool.editorTool) {
         // Interactive tools continue in the editor with the file and the tool already chosen.
         setBusy('Opening the editor…');
@@ -191,11 +194,11 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
         router.push(`/edit?handoff=1&tool=${tool.editorTool}`);
         return;
       }
-      const next = tool.multiple ? [...files, ...picked] : picked;
+      const next = many ? [...files, ...picked] : picked;
       if (next.length > MAX_FILES) throw new Error(`Choose up to ${MAX_FILES} files.`);
       setOutputs([]);
       setFiles(next);
-      if (!tool.multiple) {
+      if (!tool.multiple && next.length === 1) {
         setSpec('');
         setCount(0);
       }
@@ -245,9 +248,26 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   };
 
   // ---- running --------------------------------------------------------------------------------------------------
-  async function compute(): Promise<Array<{ name: string; blob: Blob; pdf?: Uint8Array; note?: string }>> {
+  type Result = { name: string; blob: Blob; pdf?: Uint8Array; note?: string };
+  async function compute(): Promise<Result[]> {
+    if (!isBatch) return computeOne(first!.bytes, name);
+    const out: Result[] = [];
+    const used = new Set<string>();
+    for (const [i, f] of files.entries()) {
+      setBusy(`Working on file ${i + 1} of ${files.length}…`);
+      for (const r of await computeOne(f.bytes, baseName(f.file.name))) {
+        // Same-named inputs must not overwrite each other in the ZIP.
+        let n = r.name;
+        for (let k = 2; used.has(n.toLowerCase()); k++) n = r.name.replace(/(\.[^.]+)?$/, ` (${k})$1`);
+        used.add(n.toLowerCase());
+        out.push({ ...r, name: n });
+      }
+    }
+    return out;
+  }
+
+  async function computeOne(b: Uint8Array, name: string): Promise<Result[]> {
     const pdf = (n: string, b: Uint8Array) => [{ name: n, blob: pdfBlob(b), pdf: b }];
-    const b = first!.bytes;
     switch (slug) {
       case 'merge-pdf':
         if (files.length < 2) throw new Error('Add at least two PDFs to merge.');
@@ -362,11 +382,12 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
         mark={mark}
       />
     );
-  const rangeField = (label: string, hint: string) => (
-    <Field label={label} hint={hint}>
-      <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder={count ? `e.g. 1-${Math.min(3, count)}` : 'e.g. 1-3, 5'} />
-    </Field>
-  );
+  const rangeField = (label: string, hint: string) =>
+    isBatch ? null : (
+      <Field label={label} hint={hint}>
+        <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder={count ? `e.g. 1-${Math.min(3, count)}` : 'e.g. 1-3, 5'} />
+      </Field>
+    );
 
   let options: ReactNode = null;
   let preview: ReactNode = null;
@@ -721,7 +742,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
       ref={inputRef}
       type="file"
       accept={accept}
-      multiple={tool.multiple}
+      multiple={many}
       hidden
       {...(testId ? { 'data-testid': testId } : {})}
       onChange={(e) => {
@@ -731,7 +752,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
       }}
     />
   );
-  const noun = tool.accept === 'image' ? 'images' : tool.multiple ? 'PDF files' : 'PDF file';
+  const noun = tool.accept === 'image' ? 'images' : many ? 'PDF files' : 'PDF file';
 
   // 1. Nothing chosen yet: one big button, like the big PDF tool sites.
   if (!files.length) {
@@ -750,7 +771,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
             {busy ? <Loader2 size={22} className="spin" aria-hidden="true" /> : <Upload size={22} aria-hidden="true" />}
             {busy ?? `Select ${noun}`}
           </button>
-          <span className="bigdrop-hint">or drop {tool.multiple ? noun : `a ${noun.replace(/s$/, '')}`} here</span>
+          <span className="bigdrop-hint">or drop {many ? noun : `a ${noun.replace(/s$/, '')}`} here</span>
           <span className="bigdrop-note">
             <Lock size={13} aria-hidden="true" /> Processed in your browser — files are never uploaded
           </span>
@@ -800,7 +821,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
                   <a href={o.url} download={o.name} className="result-link">
                     <Download size={15} aria-hidden="true" /> {o.name}
                   </a>
-                  <span className="muted">{fmtBytes(o.blob.size)}</span>
+                  <span className="muted">{o.note && o.note.includes('%') ? o.note.split(' · ')[0] : fmtBytes(o.blob.size)}</span>
                 </li>
               ))}
             </ul>
@@ -831,7 +852,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
     <div className="tool-run">
       <div className="tool-work">
         <div className="tool-main">
-          {tool.multiple ? (
+          {tool.multiple || isBatch ? (
             <ul className="file-cards" aria-label="Files">
               {files.map((f, i) => (
                 <li key={f.id} className="file-card">
@@ -879,12 +900,17 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
                 {fmtBytes(first!.file.size)}
                 {count ? ` · ${count} page${count === 1 ? '' : 's'}` : ''}
               </span>
+              {tool.batch && (
+                <button type="button" className="button ghost" onClick={() => inputRef.current?.click()}>
+                  <Plus size={16} aria-hidden="true" /> Add files
+                </button>
+              )}
               <button type="button" className="button ghost" onClick={reset}>
                 Change file
               </button>
             </div>
           )}
-          {preview}
+          {isBatch ? <p className="muted batch-note">The same settings are applied to each file. You will get one ZIP with every result.</p> : preview}
         </div>
         <aside className="tool-side" aria-label="Options">
           <h2>{tool.title}</h2>

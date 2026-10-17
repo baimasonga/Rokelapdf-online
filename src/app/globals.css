@@ -3933,6 +3933,11 @@ button.org-page:hover:not(:disabled) {
   }
 }
 
+.batch-note {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+
 /* ---- responsive --------------------------------------------------------------------------------------- */
 @media (max-width: 900px) {
   .hero-inner,
