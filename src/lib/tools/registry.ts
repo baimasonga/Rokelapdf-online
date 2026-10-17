@@ -113,12 +113,11 @@ export const TOOLS: ToolDef[] = [
     color: '#f59e0b',
     title: 'Organize pages',
     short: 'Reorder, rotate and delete pages visually.',
-    description: 'Rearrange PDF pages with thumbnails: move, rotate, delete and insert pages, then save.',
+    description: 'Rearrange PDF pages visually: drag to reorder, rotate, delete, add blank pages or pages from other PDFs, then download.',
     group: 'organize',
     icon: 'LayoutGrid',
     accept: 'pdf',
     multiple: false,
-    editorTool: 'select',
   },
   {
     slug: 'add-pages',

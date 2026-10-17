@@ -5,7 +5,7 @@ import { Check } from 'lucide-react';
 import { openPdf } from '@/components/editor/pdfjs';
 
 /** One lazily rendered page thumbnail. */
-function Thumb({ doc, index }: { doc: PDFDocumentProxy; index: number }) {
+export function Thumb({ doc, index }: { doc: PDFDocumentProxy; index: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const el = ref.current;

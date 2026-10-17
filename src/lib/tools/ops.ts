@@ -158,6 +158,36 @@ export async function reorderPages(bytes: Uint8Array, order: number[]): Promise<
   return save(await copy(src, order));
 }
 
+/** One page of an organized document: a page from one of the source PDFs (with added rotation), or a blank page. */
+export type PagePlan = { src: number; index: number; rotate: 0 | 90 | 180 | 270 } | { blank: true };
+
+/**
+ * Builds a new PDF from pages of several source PDFs in the given order, adding rotation, with blank pages where asked
+ * (sized like the page before them, or A4 at the start).
+ */
+export async function organizePdf(sources: Uint8Array[], plan: PagePlan[]): Promise<Uint8Array> {
+  if (!plan.length) fail('Keep at least one page.');
+  if (plan.length > 5000) fail('That is too many pages.');
+  const docs = [];
+  for (const b of sources) docs.push(await load(b));
+  const out = await PDFDocument.create();
+  let last: [number, number] = [...SIZES.A4] as [number, number];
+  for (const p of plan) {
+    if ('blank' in p) {
+      out.addPage(last);
+      continue;
+    }
+    const src = docs[p.src];
+    if (!src || !Number.isInteger(p.index) || p.index < 0 || p.index >= src.getPageCount()) fail('A page in the new order no longer exists.');
+    if (![0, 90, 180, 270].includes(p.rotate)) fail('Pages can only be turned in quarter turns.');
+    const [page] = await out.copyPages(src!, [p.index]);
+    page!.setRotation(degrees(norm(page!.getRotation().angle + p.rotate)));
+    out.addPage(page!);
+    last = [page!.getWidth(), page!.getHeight()];
+  }
+  return save(out);
+}
+
 export interface Margins {
   top: number;
   right: number;

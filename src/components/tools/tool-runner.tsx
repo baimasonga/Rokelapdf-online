@@ -31,6 +31,7 @@ import { browserRecoder, imageForPdf, pdfToImages } from '@/lib/client/raster';
 import { putHandoff } from '@/lib/client/handoff';
 import { fmtBytes } from '@/lib/client/format';
 import { FirstPageThumb, PagePicker, toRanges } from './page-picker';
+import { Organizer } from './organizer';
 
 // One component runs every single-step tool: choose files, set options, run the operation in this browser and
 // download the result. Nothing is uploaded. Interactive tools (sign, edit…) hand the file to the editor instead.
@@ -763,6 +764,8 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
       </div>
     );
   }
+
+  if (slug === 'organize-pdf') return <Organizer file={{ name: first!.file.name, bytes: first!.bytes }} onReset={reset} />;
 
   // 3. Finished: a clear, celebratory result with one big download.
   if (outputs.length) {

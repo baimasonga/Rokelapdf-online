@@ -20,6 +20,7 @@ import {
   reorderPages,
   rotatePages,
   splitPdf,
+  organizePdf,
 } from '@/lib/tools/ops';
 
 const FONTS = `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/`;
@@ -271,5 +272,29 @@ describe('download-all archive paths', () => {
         { name: 'noext', folderPath: '' },
       ]),
     ).toEqual(['a.pdf', 'a (2).pdf', 'A (3).PDF', 'site/drawings/plan.pdf', 'abs/x_y.txt', 'noext', 'noext (2)']);
+  });
+});
+
+describe('organize pages', () => {
+  it('builds a new order from several PDFs with rotation and blank pages', async () => {
+    const a = await numbered(3, { tag: 'A', rotate: 90 });
+    const b = await numbered(1, { tag: 'B', size: [350, 620] });
+    const out = await organizePdf(
+      [a, b],
+      [{ src: 1, index: 0, rotate: 90 }, { blank: true }, { src: 0, index: 2, rotate: 0 }, { src: 0, index: 0, rotate: 270 }],
+    );
+    const pages = await read(out);
+    expect(pages.map((p) => p.text)).toEqual(['B1', '', 'A3', 'A1']);
+    const doc = await PDFDocument.load(out);
+    expect(doc.getPages().map((p) => p.getRotation().angle)).toEqual([90, 0, 90, 0]); // A1 was at 90°, +270° = 0°
+    expect([doc.getPage(1).getWidth(), doc.getPage(1).getHeight()]).toEqual([350, 620]); // blank sized like the page before
+  });
+
+  it('refuses empty results, pages that do not exist and odd rotations', async () => {
+    const a = await numbered(2);
+    await expect(organizePdf([a], [])).rejects.toThrow(/at least one page/);
+    await expect(organizePdf([a], [{ src: 0, index: 5, rotate: 0 }])).rejects.toThrow(/no longer exists/);
+    await expect(organizePdf([a], [{ src: 1, index: 0, rotate: 0 }])).rejects.toThrow(/no longer exists/);
+    await expect(organizePdf([a], [{ src: 0, index: 0, rotate: 45 as 90 }])).rejects.toThrow(/quarter turns/);
   });
 });

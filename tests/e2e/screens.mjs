@@ -85,6 +85,11 @@ try {
     await p.getByTestId('tool-input').setInputFiles({ name: 'agreement.pdf', mimeType: 'application/pdf', buffer: file });
     await p.locator('.picker-page canvas').nth(2).waitFor();
     await shot('05-tool-pages');
+    await p.goto(`${ORIGIN}/tools/organize-pdf`);
+    await p.getByTestId('tool-input').setInputFiles({ name: 'agreement.pdf', mimeType: 'application/pdf', buffer: file });
+    await p.locator('.org-card canvas').nth(2).waitFor();
+    await p.locator('.org-page').nth(1).click();
+    await shot('05b-organize');
     await p.goto(`${ORIGIN}/edit`);
     await shot('06-editor-empty');
     await p.locator('input[type=file]').first().setInputFiles({ name: 'agreement.pdf', mimeType: 'application/pdf', buffer: file });

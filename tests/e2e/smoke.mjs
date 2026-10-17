@@ -243,6 +243,28 @@ async function main() {
     const fields = (await PDFDocument.load(fillable.bytes)).getForm().getFields();
     check(fields.map((f) => f.constructor.name).join(',') === 'PDFTextField,PDFCheckBox', 'create fillable: text field and checkbox added');
 
+    await v.goto(`${ORIGIN}/tools/organize-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.locator('.org-card canvas').nth(1).waitFor();
+    await v.getByRole('button', { name: 'Rotate page 1' }).click();
+    await v.getByRole('button', { name: 'Move page 2 earlier' }).click();
+    await v.getByRole('button', { name: /Add a blank page/ }).click();
+    await v.getByTestId('organize-add').setInputFiles({ name: 'annex.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.locator('.org-card').nth(4).waitFor();
+    // Drag the last page in front of the first.
+    await v
+      .locator('.org-card')
+      .nth(4)
+      .dragTo(v.locator('.org-card').nth(0), { targetPosition: { x: 8, y: 60 } });
+    await v.getByRole('button', { name: /^Organize PDF/ }).click();
+    const organized = await fetchDownload(v.getByRole('link', { name: /^Download/ }));
+    const orgDoc = await PDFDocument.load(organized.bytes);
+    check(
+      (await textOf(organized.bytes)).join('|') === 'Original page 2|Original page 2|Original page 1||Original page 1' &&
+        orgDoc.getPage(2).getRotation().angle === 90,
+      'organize: rotate, move, blank page, second PDF and drag-and-drop all applied',
+    );
+
     await v.goto(ORIGIN);
     await v.locator('.home-hero input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
     await v.waitForURL(/\/edit\?handoff=1/);
