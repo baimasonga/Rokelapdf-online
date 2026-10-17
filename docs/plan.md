@@ -27,6 +27,9 @@ bandwidth estimate and API changes, so a free account cannot create unbounded co
 - Short links: public (alias, editable destination with history, folders/tags/search/bulk, aggregate stats) and
   confidential; QR codes.
 - Upload requests with checklists and deadlines; in-app notifications.
+- 20 browser PDF tools with their own pages (merge, split, delete/extract/add pages, rotate, crop, organize,
+  watermark, page numbers, flatten, fill and create forms, sign, PDF ↔ JPG/PNG); nothing is uploaded.
+- Editor signatures (draw/type/upload) and fillable form fields.
 - Operator tooling: abuse reports, holds, audited plan changes. CI, browser end-to-end test, Railway config.
 
 **Phase 2 — next**
@@ -34,7 +37,9 @@ bandwidth estimate and API changes, so a free account cannot create unbounded co
 - Email notifications (the sharing service has a mailer port; wire an SMTP/Resend adapter).
 - Billing (e.g. Stripe) driving `org_plans` instead of the operator command.
 - Branding and custom domains in the UI (the API and data model already exist).
-- Editor: Unicode fonts (embed a font for non-Latin text), signatures, form filling, true redaction.
+- Editor: Unicode fonts (embed a font for non-Latin text), true redaction.
+- More tools: compress, protect/unlock (needs encryption support beyond pdf-lib), PDF ↔ Office conversion (server-side
+  worker), OCR.
 - Admin UI for abuse reports (API exists).
 
 **Phase 3 — later**

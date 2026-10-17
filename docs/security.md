@@ -26,6 +26,9 @@ User documents and transferred files (R2), link and request tokens, account sess
 - A short URL is not access control; confidential links rely on the share link's own protections.
 - _Whiteout_ in the editor covers content visually; the text underneath remains in the file. It is not redaction.
 - Names typed by recipients and submitters are unverified and labelled as such.
+- Signatures made in the editor are images placed on the page, not cryptographic (certificate) signatures.
+- Browser tools never upload files; a file handed from a tool page to the editor waits in this browser's IndexedDB for at
+  most 10 minutes and is deleted when read.
 - Session tokens live in browser storage (Supabase default); the CSP is the main XSS mitigation.
 
 ## Retention

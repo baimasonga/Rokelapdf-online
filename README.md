@@ -1,6 +1,6 @@
 # Rokela PDF Pro Web
 
-Browser PDF editor with integrated file sharing and link shortening.
+Browser PDF editor and 20 private, in-browser PDF tools, with integrated file sharing and link shortening.
 
 - **Hosting:** Railway (Next.js app + background worker), Supabase (Auth + PostgreSQL), Cloudflare R2 (private file storage).
 - **Stack:** Next.js 15 (App Router) + TypeScript, `pg`, `zod`, `pdf-lib`, `pdfjs-dist`, `@supabase/supabase-js`.

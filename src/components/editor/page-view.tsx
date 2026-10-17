@@ -1,7 +1,20 @@
 'use client';
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
-import { ASCENT, LINE_HEIGHT, boxFrom, displaySize, toDisplay, toPage, type Annot, type BoxAnnot, type InkAnnot, type Rotation } from '@/lib/editor/model';
+import {
+  ASCENT,
+  LINE_HEIGHT,
+  boxFrom,
+  displaySize,
+  moveAnnot,
+  toDisplay,
+  toPage,
+  type Annot,
+  type BoxAnnot,
+  type FieldAnnot,
+  type InkAnnot,
+  type Rotation,
+} from '@/lib/editor/model';
 
 export interface PageInfo {
   /** Unrotated visible size in points. */
@@ -10,7 +23,12 @@ export interface PageInfo {
   /** /Rotate of the source page. */
   base: Rotation;
 }
-export type Tool = 'select' | 'text' | 'highlight' | 'rect' | 'whiteout' | 'ink';
+export type Tool = 'select' | 'text' | 'highlight' | 'rect' | 'whiteout' | 'ink' | 'signature' | 'field';
+/** A signature ready to place: PNG data URL and its width / height. */
+export interface Signature {
+  src: string;
+  aspect: number;
+}
 
 /** Renders one page to a canvas when it scrolls into view. */
 function PageCanvas({ doc, index, scale, rotation, w, h }: { doc: PDFDocumentProxy; index: number; scale: number; rotation: Rotation; w: number; h: number }) {
@@ -116,6 +134,51 @@ export function AnnotLayer({
     const p1 = pt(a.x, a.y);
     const p2 = pt(a.x + a.w, a.y + a.h);
     const r = { x: Math.min(p1.x, p2.x), y: Math.min(p1.y, p2.y), width: Math.abs(p2.x - p1.x), height: Math.abs(p2.y - p1.y) };
+    if (a.kind === 'image') {
+      // Upright in the view it was placed in, turned with any rotation added since.
+      const turn = (((total - a.rot) % 360) + 360) % 360;
+      const [w, h] = turn % 180 ? [r.height, r.width] : [r.width, r.height];
+      const cx = r.x + r.width / 2;
+      const cy = r.y + r.height / 2;
+      return (
+        <g key={a.id} {...common}>
+          <rect {...r} fill="transparent" />
+          <image
+            href={a.src}
+            x={cx - w / 2}
+            y={cy - h / 2}
+            width={w}
+            height={h}
+            preserveAspectRatio="none"
+            transform={turn ? `rotate(${turn} ${cx} ${cy})` : undefined}
+          />
+        </g>
+      );
+    }
+    if (a.kind === 'field')
+      return (
+        <g key={a.id} {...common} className={`${common.className} field`}>
+          <rect {...r} fill="rgb(219 234 254 / 55%)" stroke={a.color} strokeWidth={1} />
+          {a.field === 'checkbox' ? (
+            <path
+              d={`M${r.x + r.width * 0.22} ${r.y + r.height * 0.52} l${r.width * 0.2} ${r.height * 0.2} l${r.width * 0.36} ${-r.height * 0.42}`}
+              fill="none"
+              stroke={a.color}
+              strokeWidth={1.2}
+            />
+          ) : (
+            <text
+              x={r.x + 3}
+              y={r.y + Math.min(r.height - 3, 11)}
+              fontSize={Math.min(9, r.height * 0.7)}
+              fill={a.color}
+              fontFamily="Helvetica, Arial, sans-serif"
+            >
+              {a.name}
+            </text>
+          )}
+        </g>
+      );
     if (a.kind === 'highlight') return <rect key={a.id} {...common} {...r} fill={a.color} fillOpacity={0.35} style={{ mixBlendMode: 'multiply' }} />;
     if (a.kind === 'whiteout')
       return <rect key={a.id} {...common} {...r} fill="#ffffff" stroke={a.id === selected ? '#1e88e5' : '#d0d7de'} strokeDasharray="3 2" strokeWidth={0.5} />;
@@ -146,6 +209,10 @@ interface PageViewProps {
   onCreate(a: Annot): void;
   onChange(a: Annot, commit: boolean): void;
   onEditText(id: string): void;
+  /** The signature tool was used before a signature was created. */
+  onNeedSignature(): void;
+  signature: Signature | undefined;
+  fieldType: FieldAnnot['field'];
   label: string;
 }
 
@@ -158,15 +225,31 @@ export function PageView(p: PageViewProps) {
   const d = displaySize(p.info.w, p.info.h, total);
   const box = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<Annot>();
-  const drag = useRef<{ start: { x: number; y: number }; annot?: Annot; last?: { x: number; y: number }; moved?: boolean; points?: Array<[number, number]> }>(
-    undefined,
-  );
+  const drag = useRef<{
+    start: { x: number; y: number };
+    annot?: Annot;
+    last?: { x: number; y: number };
+    moved?: boolean;
+    points?: Array<[number, number]>;
+    click?: RPointerEvent;
+  }>(undefined);
 
-  const at = (e: RPointerEvent) => {
+  const shown = (e: RPointerEvent) => {
     const r = box.current!.getBoundingClientRect();
-    const u = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const v = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    return { u: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), v: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
+  };
+  const at = (e: RPointerEvent) => {
+    const { u, v } = shown(e);
     return toPage(u, v, total);
+  };
+  /** A page-space box of w × h display points centred on the click, kept on the page. */
+  const boxAt = (e: RPointerEvent, w: number, h: number) => {
+    const { u, v } = shown(e);
+    const bw = Math.min(1, w / d.w);
+    const bh = Math.min(1, h / d.h);
+    const u0 = Math.min(1 - bw, Math.max(0, u - bw / 2));
+    const v0 = Math.min(1 - bh, Math.max(0, v - bh / 2));
+    return boxFrom(toPage(u0, v0, total), toPage(u0 + bw, v0 + bh, total));
   };
 
   const down = (e: RPointerEvent<HTMLDivElement>) => {
@@ -190,8 +273,20 @@ export function PageView(p: PageViewProps) {
       p.onEditText(a.id);
       return;
     }
+    if (p.tool === 'signature') {
+      e.preventDefault();
+      if (!p.signature) return p.onNeedSignature();
+      const w = Math.min(180, d.w * 0.35);
+      p.onCreate({ id: nid(), kind: 'image', ...boxAt(e, w, w / p.signature.aspect), src: p.signature.src, rot: total, color: '#000000' });
+      return;
+    }
+    if (p.tool === 'field' && p.fieldType === 'checkbox') {
+      e.preventDefault();
+      p.onCreate({ id: nid(), kind: 'field', field: 'checkbox', name: 'Checkbox', ...boxAt(e, 14, 14), color: p.color });
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { start: pos, points: [[pos.x, pos.y]] };
+    drag.current = { start: pos, points: [[pos.x, pos.y]], click: e };
   };
 
   const move = (e: RPointerEvent<HTMLDivElement>) => {
@@ -203,12 +298,7 @@ export function PageView(p: PageViewProps) {
       const dy = pos.y - g.last!.y;
       g.last = pos;
       g.moved = true;
-      const cur = g.annot;
-      const c = (n: number) => Math.min(1, Math.max(0, n));
-      const moved: Annot =
-        cur.kind === 'ink'
-          ? { ...cur, points: cur.points.map(([x, y]) => [c(x + dx), c(y + dy)] as [number, number]) }
-          : { ...cur, x: c(cur.x + dx), y: c(cur.y + dy) };
+      const moved = moveAnnot(g.annot, dx, dy);
       g.annot = moved;
       p.onChange(moved, false);
       return;
@@ -219,7 +309,8 @@ export function PageView(p: PageViewProps) {
       return;
     }
     const b = boxFrom(g.start, pos);
-    setPreview({ id: 'preview', kind: p.tool as BoxAnnot['kind'], ...b, color: p.color });
+    if (p.tool === 'field') setPreview({ id: 'preview', kind: 'field', field: 'text', name: 'Text field', ...b, color: p.color });
+    else setPreview({ id: 'preview', kind: p.tool as BoxAnnot['kind'], ...b, color: p.color });
   };
 
   const up = () => {
@@ -232,6 +323,12 @@ export function PageView(p: PageViewProps) {
     }
     const pv = preview;
     setPreview(undefined);
+    // A click (no drag) with the field tool adds a field of a typical size.
+    const small = !pv || (pv.kind !== 'ink' && pv.kind !== 'text' && pv.kind !== 'image' && (pv.w * d.w <= 3 || pv.h * d.h <= 3));
+    if (p.tool === 'field' && small && g.click) {
+      p.onCreate({ id: nid(), kind: 'field', field: 'text', name: 'Text field', ...boxAt(g.click, 180, 22), color: p.color });
+      return;
+    }
     if (!pv) return;
     if (pv.kind === 'ink') {
       if (pv.points.length > 1) p.onCreate({ ...pv, id: nid() });

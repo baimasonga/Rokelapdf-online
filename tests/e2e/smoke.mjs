@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { startFakeSupabase } from './fake-supabase.mjs';
 
 const APP_PORT = 3100;
@@ -100,8 +100,121 @@ async function main() {
       'strict nonce-based CSP without unsafe-eval',
     );
     check(res.headers()['x-frame-options'] === 'DENY', 'framing denied');
-    await p.getByRole('heading', { name: /Edit, finish and share PDFs/ }).waitFor();
+    await p.getByRole('heading', { name: /Every PDF tool you need/ }).waitFor();
+    check((await p.locator('.tool-grid a.tool[href^="/tools/"]').count()) >= 20, 'home page lists every tool');
     ok('landing page renders');
+    await shot(p, 'home');
+
+    step('Browser tools (no account, nothing uploaded)');
+    const visitor = await browser.newContext({ acceptDownloads: true });
+    const v = await visitor.newPage();
+    watch(v, 'visitor');
+    const uploads = [];
+    v.on('request', (rq) => rq.method() !== 'GET' && uploads.push(`${rq.method()} ${rq.url()}`));
+    const fetchDownload = async (locator) => {
+      const [dl] = await Promise.all([v.waitForEvent('download'), locator.click()]);
+      return { name: dl.suggestedFilename(), bytes: readFileSync(await dl.path()) };
+    };
+    const pdf = await fixturePdf();
+    const runTool = async (slug, files, title) => {
+      await v.goto(`${ORIGIN}/tools/${slug}`);
+      await v.getByTestId('tool-input').setInputFiles(files);
+      await v.getByRole('button', { name: title, exact: true }).click();
+      await v.locator('.results').waitFor();
+    };
+
+    await runTool(
+      'merge-pdf',
+      [
+        { name: 'a.pdf', mimeType: 'application/pdf', buffer: pdf },
+        { name: 'b.pdf', mimeType: 'application/pdf', buffer: pdf },
+      ],
+      'Merge PDF',
+    );
+    const merged = await fetchDownload(v.getByRole('link', { name: /^Download a-merged\.pdf/ }));
+    check((await PDFDocument.load(merged.bytes)).getPageCount() === 4, 'merge: two 2-page PDFs became 4 pages');
+
+    await v.goto(`${ORIGIN}/tools/split-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.locator('.picker-page canvas').nth(1).waitFor();
+    check((await v.locator('.picker-page').count()) === 2, 'split: page thumbnails shown');
+    await v.getByRole('radio', { name: 'Every page' }).click();
+    await v.getByRole('button', { name: 'Split PDF', exact: true }).click();
+    await v.getByText('2 files are ready').waitFor();
+    await shot(v, 'split');
+    const zip = await fetchDownload(v.getByRole('button', { name: /Download all/ }));
+    check(zip.bytes.subarray(0, 2).toString() === 'PK' && zip.name === 'contract.zip', 'split: one file per page, downloadable as a ZIP');
+
+    await v.goto(`${ORIGIN}/tools/delete-pages`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.getByRole('button', { name: 'Page 2', exact: true }).click();
+    check((await v.getByLabel('Pages to delete').inputValue()) === '2', 'delete: clicking a thumbnail fills in the page range');
+    await v.getByRole('button', { name: 'Delete PDF pages', exact: true }).click();
+    const trimmed = await fetchDownload(v.getByRole('link', { name: /^Download / }));
+    check((await textOf(trimmed.bytes)).join('|') === 'Original page 1', 'delete: page 2 removed');
+
+    await runTool('watermark-pdf', { name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf }, 'Add watermark');
+    const marked = await fetchDownload(v.getByRole('link', { name: /^Download / }));
+    check(
+      (await textOf(marked.bytes)).every((t) => t.includes('CONFIDENTIAL')),
+      'watermark on every page',
+    );
+
+    await runTool('pdf-to-png', { name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf }, 'PDF to PNG');
+    const png = await fetchDownload(v.getByRole('link', { name: 'contract-page-1.png' }));
+    check(png.bytes.subarray(1, 4).toString() === 'PNG' && png.bytes.length > 2000, `pdf to png: page rendered (${png.bytes.length} bytes)`);
+
+    await runTool('jpg-to-pdf', { name: 'page.png', mimeType: 'image/png', buffer: png.bytes }, 'JPG to PDF');
+    const fromImage = await fetchDownload(v.getByRole('link', { name: /^Download page\.pdf/ }));
+    check((await PDFDocument.load(fromImage.bytes)).getPageCount() === 1, 'image to pdf: one page per image');
+
+    await v.goto(`${ORIGIN}/tools/sign-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.waitForURL(/\/edit\?handoff=1&tool=signature/);
+    const pad = v.getByLabel('Draw your signature here');
+    await pad.waitFor();
+    const pb = await pad.boundingBox();
+    await v.mouse.move(pb.x + pb.width * 0.15, pb.y + pb.height * 0.6);
+    await v.mouse.down();
+    await v.mouse.move(pb.x + pb.width * 0.5, pb.y + pb.height * 0.3, { steps: 6 });
+    await v.mouse.move(pb.x + pb.width * 0.8, pb.y + pb.height * 0.65, { steps: 6 });
+    await v.mouse.up();
+    await v.getByRole('button', { name: 'Use signature' }).click();
+    const sp = await v.locator('.page').first().boundingBox();
+    await v
+      .locator('.page')
+      .first()
+      .click({ position: { x: sp.width * 0.6, y: sp.height * 0.3 } });
+    await v.locator('.page').first().locator('svg image').waitFor();
+    const signed = await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    const sdoc = await getDocument({ data: new Uint8Array(signed.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const sops = await (await sdoc.getPage(1)).getOperatorList();
+    check(sops.fnArray.includes(OPS.paintImageXObject), 'sign: the handed-over PDF opened with the signature tool, and the signature is in the download');
+
+    await v.goto(`${ORIGIN}/tools/create-fillable-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.waitForURL(/tool=field/);
+    const fp = v.locator('.page').first();
+    await fp.waitFor();
+    const fb = await fp.boundingBox();
+    await v.mouse.move(fb.x + fb.width * 0.1, fb.y + fb.height * 0.2);
+    await v.mouse.down();
+    await v.mouse.move(fb.x + fb.width * 0.5, fb.y + fb.height * 0.24, { steps: 5 });
+    await v.mouse.up();
+    await v.getByRole('radio', { name: 'Checkbox' }).click();
+    await fp.click({ position: { x: fb.width * 0.1, y: fb.height * 0.32 } });
+    const fillable = await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    const fields = (await PDFDocument.load(fillable.bytes)).getForm().getFields();
+    check(fields.map((f) => f.constructor.name).join(',') === 'PDFTextField,PDFCheckBox', 'create fillable: text field and checkbox added');
+
+    await v.goto(ORIGIN);
+    await v.locator('.hero-drop input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.waitForURL(/\/edit\?handoff=1/);
+    await v.locator('.thumb').nth(1).waitFor();
+    ok('home page drop opens the PDF in the editor');
+    await shot(v, 'tools');
+    check(uploads.length === 0, `browser tools sent no files to the server${uploads.length ? `: ${uploads.join(', ')}` : ''}`);
 
     step('Sign up');
     await p.goto(`${ORIGIN}/signin?mode=signup`);

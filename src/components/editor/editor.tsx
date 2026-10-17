@@ -7,12 +7,14 @@ import {
   Eraser,
   FilePlus,
   FileText,
+  FormInput,
   FolderOpen,
   Highlighter,
   MousePointer2,
   PenLine,
   Redo2,
   Save,
+  Signature as SignatureIcon,
   Square,
   Type,
   Undo2,
@@ -35,9 +37,24 @@ import { api, enc, fetchSigned, sharingPath } from '@/lib/client/api';
 import { useAuth } from '@/lib/client/auth';
 import type { UploadProgress } from '@/lib/client/uploader';
 import { EditorError, blankPdf, buildPdf, loadSource } from '@/lib/editor/export';
-import { appendPages, deletePage, movePage, norm, removeAnnot, rotatePage, upsertAnnot, type Annot, type EditorState, type Rotation } from '@/lib/editor/model';
+import { takeHandoff } from '@/lib/client/handoff';
+import {
+  appendPages,
+  deletePage,
+  movePage,
+  norm,
+  removeAnnot,
+  rotatePage,
+  uniqueFieldName,
+  upsertAnnot,
+  type Annot,
+  type EditorState,
+  type FieldAnnot,
+  type Rotation,
+} from '@/lib/editor/model';
 import { openPdf } from './pdfjs';
-import { PageView, Thumb, type PageInfo, type Tool } from './page-view';
+import { PageView, Thumb, type PageInfo, type Signature, type Tool } from './page-view';
+import { SignaturePad } from './signature-pad';
 
 // The browser PDF editor. Files are opened and edited on this device; nothing is uploaded unless the user saves to
 // a workspace, which stores the result as a private draft of a document (never visible through links until it is
@@ -51,8 +68,20 @@ const TOOLS: Array<[Tool, string, string]> = [
   ['rect', 'Box', 'Drag to draw a box'],
   ['ink', 'Draw', 'Draw freehand'],
   ['whiteout', 'Whiteout', 'Covers content visually. The covered text is still in the file — this is not redaction.'],
+  ['signature', 'Sign', 'Click on the page to place your signature'],
+  ['field', 'Form field', 'Drag to add a fillable text field, or click to place a checkbox'],
 ];
-const TOOL_ICONS: Record<Tool, LucideIcon> = { select: MousePointer2, text: Type, highlight: Highlighter, rect: Square, ink: PenLine, whiteout: Eraser };
+const TOOL_ICONS: Record<Tool, LucideIcon> = {
+  select: MousePointer2,
+  text: Type,
+  highlight: Highlighter,
+  rect: Square,
+  ink: PenLine,
+  whiteout: Eraser,
+  signature: SignatureIcon,
+  field: FormInput,
+};
+const isTool = (t: string | undefined): t is Tool => !!t && TOOLS.some(([x]) => x === t);
 const COLORS = ['#111827', '#d32f2f', '#1565c0', '#2e7d32', '#ffeb3b', '#ff9800'];
 
 interface Source {
@@ -83,7 +112,18 @@ async function readSource(bytes: Uint8Array): Promise<Source> {
 const fileBytes = async (f: File) => new Uint8Array(await f.arrayBuffer());
 const baseName = (n: string) => n.replace(/\.pdf$/i, '').slice(0, 200) || 'Document';
 
-export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string | undefined }) {
+export function Editor({
+  ws,
+  docId,
+  handoff,
+  initialTool,
+}: {
+  ws?: string | undefined;
+  docId?: string | undefined;
+  /** Open the file another page left for the editor (see lib/client/handoff). */
+  handoff?: boolean;
+  initialTool?: string | undefined;
+}) {
   const notice = useNotice();
   const router = useRouter();
   const { session, ready } = useAuth();
@@ -92,7 +132,10 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
   const [title, setTitle] = useState('Untitled');
   const [tool, setTool] = useState<Tool>('select');
   // Each tool remembers its own colour (a highlight should not inherit the dark text colour).
-  const [colors, setColors] = useState<Record<string, string>>({ text: '#111827', highlight: '#ffeb3b', rect: '#d32f2f', ink: '#1565c0' });
+  const [colors, setColors] = useState<Record<string, string>>({ text: '#111827', highlight: '#ffeb3b', rect: '#d32f2f', ink: '#1565c0', field: '#1565c0' });
+  const [signature, setSignature] = useState<Signature>();
+  const [sigOpen, setSigOpen] = useState(false);
+  const [fieldType, setFieldType] = useState<FieldAnnot['field']>('text');
   const [fontSize, setFontSize] = useState(14);
   const [inkWidth, setInkWidth] = useState(2);
   const [zoom, setZoom] = useState(1);
@@ -192,6 +235,32 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, session?.user.id, ws, docId]);
+
+  // A file handed over by a tool page or the home page, optionally with a tool already chosen.
+  useEffect(() => {
+    if (!handoff) {
+      if (isTool(initialTool)) setTool(initialTool);
+      return;
+    }
+    // The file can be taken only once, so a re-run of this effect (React StrictMode) must not discard it.
+    void (async () => {
+      setBusy('Opening document…');
+      try {
+        const f = await takeHandoff();
+        if (!f) return;
+        await openBytes(f.bytes, baseName(f.name));
+        if (isTool(initialTool)) {
+          setTool(initialTool);
+          if (initialTool === 'signature') setSigOpen(true);
+        }
+      } catch (e) {
+        notice((e as Error).message, true);
+      } finally {
+        setBusy(undefined);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoff]);
 
   // Warn before leaving with unsaved edits.
   useEffect(() => {
@@ -340,7 +409,10 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
                 title={hint}
                 className={tool === t ? 'active' : ''}
                 disabled={!s.pages.length}
-                onClick={() => setTool(t)}
+                onClick={() => {
+                  setTool(t);
+                  if (t === 'signature' && !signature) setSigOpen(true);
+                }}
               >
                 <Icon size={18} aria-hidden="true" />
                 <span>{label}</span>
@@ -383,7 +455,57 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
               </select>
             </label>
           )}
-          {selectedAnnot && selectedAnnot.kind !== 'whiteout' && (
+          {tool === 'signature' && (
+            <Button kind="ghost" onClick={() => setSigOpen(true)}>
+              {signature ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a local data: URL, nothing to optimize */}
+                  <img src={signature.src} alt="Your signature" className="sig-thumb" /> Change
+                </>
+              ) : (
+                'Create signature'
+              )}
+            </Button>
+          )}
+          {tool === 'field' && (
+            <span className="seg" role="radiogroup" aria-label="Field type">
+              {(
+                [
+                  ['text', 'Text field'],
+                  ['checkbox', 'Checkbox'],
+                ] as Array<[FieldAnnot['field'], string]>
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={fieldType === v}
+                  className={fieldType === v ? 'on' : ''}
+                  onClick={() => setFieldType(v)}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
+          )}
+          {selectedAnnot?.kind === 'field' && (
+            <label className="inline">
+              Name
+              <input
+                key={selectedAnnot.id}
+                defaultValue={selectedAnnot.name}
+                maxLength={60}
+                className="field-name"
+                onBlur={(e) => {
+                  const name = uniqueFieldName(s, e.target.value, selectedAnnot.id);
+                  e.target.value = name;
+                  if (name !== selectedAnnot.name) commit((cur) => upsertAnnot(cur, selected!.page, { ...selectedAnnot, name }));
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              />
+            </label>
+          )}
+          {selectedAnnot && selectedAnnot.kind !== 'whiteout' && selectedAnnot.kind !== 'image' && (
             <Button
               kind="ghost"
               onClick={() =>
@@ -548,8 +670,11 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
                   editing={editing?.page === pg.id ? editing.id : undefined}
                   label={`Page ${i + 1} of ${s.pages.length}`}
                   onSelect={(id) => setSelected(id ? { page: pg.id, id } : undefined)}
+                  signature={signature}
+                  fieldType={fieldType}
+                  onNeedSignature={() => setSigOpen(true)}
                   onCreate={(a) => {
-                    commit((c) => upsertAnnot(c, pg.id, a));
+                    commit((c) => upsertAnnot(c, pg.id, a.kind === 'field' ? { ...a, name: uniqueFieldName(c, a.name) } : a));
                     if (a.kind !== 'text') setSelected({ page: pg.id, id: a.id });
                   }}
                   onEditText={(id) => {
@@ -583,6 +708,17 @@ export function Editor({ ws, docId }: { ws?: string | undefined; docId?: string 
           })}
         </div>
       </div>
+
+      <SignaturePad
+        open={sigOpen}
+        onClose={() => setSigOpen(false)}
+        onDone={(sig) => {
+          setSignature(sig);
+          setSigOpen(false);
+          setTool('signature');
+          notice('Click on the page where you want to sign.');
+        }}
+      />
 
       <Modal open={saveOpen} onClose={() => setSaveOpen(false)} title="Save to workspace">
         <p className="muted">The edited PDF is saved as a private draft of a new document. Export and publish it to share it.</p>

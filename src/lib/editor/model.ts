@@ -45,7 +45,28 @@ export interface InkAnnot extends Base {
   /** Stroke width in PDF points. */
   width: number;
 }
-export type Annot = TextAnnot | BoxAnnot | InkAnnot;
+/** A picture placed on the page (a signature). The box is in page space; the picture is upright in the view it was placed in. */
+export interface ImageAnnot extends Base {
+  kind: 'image';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** PNG data URL, created on this device. */
+  src: string;
+  rot: Rotation;
+}
+/** A fillable form field (AcroForm widget) added to the page. */
+export interface FieldAnnot extends Base {
+  kind: 'field';
+  field: 'text' | 'checkbox';
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export type Annot = TextAnnot | BoxAnnot | InkAnnot | ImageAnnot | FieldAnnot;
 
 export interface EditorState {
   pages: PageRef[];
@@ -144,5 +165,23 @@ export function moveAnnot(a: Annot, dx: number, dy: number): Annot {
   const c = (n: number) => Math.min(1, Math.max(0, n));
   if (a.kind === 'ink') return { ...a, points: a.points.map(([x, y]) => [c(x + dx), c(y + dy)] as [number, number]) };
   if (a.kind === 'text') return { ...a, x: c(a.x + dx), y: c(a.y + dy) };
-  return { ...a, x: c(a.x + dx), y: c(a.y + dy) };
+  // Boxes keep their size and stay entirely on the page.
+  return { ...a, x: Math.min(1 - a.w, Math.max(0, a.x + dx)), y: Math.min(1 - a.h, Math.max(0, a.y + dy)) };
+}
+
+/** Field names must be unique in a PDF form; returns `name`, or `name 2`, `name 3`… if it is taken. */
+export function uniqueFieldName(s: EditorState, name: string, except?: string): string {
+  const taken = new Set(
+    Object.values(s.annots)
+      .flat()
+      .filter((a): a is FieldAnnot => a.kind === 'field' && a.id !== except)
+      .map((a) => a.name),
+  );
+  const base =
+    name
+      .trim()
+      .replace(/[.\s]+/g, ' ')
+      .slice(0, 60) || 'Field';
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) if (!taken.has(`${base} ${i}`)) return `${base} ${i}`;
 }

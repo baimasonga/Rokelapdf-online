@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, degrees } from 'pdf-lib';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { buildPdf, blankPdf, loadSource } from '@/lib/editor/export';
+import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { buildPdf, blankPdf, dataUrlBytes, loadSource } from '@/lib/editor/export';
+import { png } from './png';
 import {
   appendPages,
   boxFrom,
   deletePage,
   drawableText,
   movePage,
+  norm,
   rotatePage,
   toDisplay,
   toPage,
+  uniqueFieldName,
   upsertAnnot,
   type EditorState,
   type Rotation,
@@ -173,5 +176,134 @@ describe('editor export with a cropped page', () => {
     const [t] = await textOnScreen(await buildPdf([src], s));
     expect(t!.u).toBeCloseTo(0.5, 2);
     expect(t!.v).toBeCloseTo(0.5 + 8 / 600, 2);
+  });
+});
+
+describe('editor signatures and form fields', () => {
+  const sig = () => `data:image/png;base64,${Buffer.from(png(40, 20)).toString('base64')}`;
+
+  /** Screen positions (normalized to the shown page) of the image's top-left and bottom-right corners. */
+  async function imageOnScreen(bytes: Uint8Array) {
+    const doc = await getDocument({ data: bytes.slice() }).promise;
+    const page = await doc.getPage(1);
+    const vp = page.getViewport({ scale: 1 });
+    const ops = await page.getOperatorList();
+    const mul = (m: number[], n: number[]) => [
+      m[0]! * n[0]! + m[2]! * n[1]!,
+      m[1]! * n[0]! + m[3]! * n[1]!,
+      m[0]! * n[2]! + m[2]! * n[3]!,
+      m[1]! * n[2]! + m[3]! * n[3]!,
+      m[0]! * n[4]! + m[2]! * n[5]! + m[4]!,
+      m[1]! * n[4]! + m[3]! * n[5]! + m[5]!,
+    ];
+    const stack: number[][] = [];
+    let ctm = [1, 0, 0, 1, 0, 0];
+    for (let i = 0; i < ops.fnArray.length; i++) {
+      const fn = ops.fnArray[i];
+      if (fn === OPS.save) stack.push(ctm);
+      else if (fn === OPS.restore) ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
+      else if (fn === OPS.transform) ctm = mul(ctm, ops.argsArray[i] as number[]);
+      else if (fn === OPS.paintImageXObject) {
+        const at = (x: number, y: number) => {
+          const [ux, uy] = [ctm[0]! * x + ctm[2]! * y + ctm[4]!, ctm[1]! * x + ctm[3]! * y + ctm[5]!];
+          const [sx, sy] = vp.convertToViewportPoint(ux, uy);
+          return { u: sx / vp.width, v: sy / vp.height };
+        };
+        // Image space: (0,1) is the picture's top-left, (1,0) its bottom-right.
+        return { topLeft: at(0, 1), bottomRight: at(1, 0) };
+      }
+    }
+    return undefined;
+  }
+
+  it('places a signature upright over the box it was dropped in, on every rotation', async () => {
+    for (const base of [0, 90] as Rotation[]) {
+      const src = await source([[400, 600]], base);
+      for (const added of [0, 90, 180, 270] as Rotation[]) {
+        let s = initial(1);
+        const id = s.pages[0]!.id;
+        for (let i = 0; i < added / 90; i++) s = rotatePage(s, id, 90);
+        const r = norm(base + added);
+        // Dropped at 20%–50% across and 10%–20% down the page as shown.
+        const box = boxFrom(toPage(0.2, 0.1, r), toPage(0.5, 0.2, r));
+        s = upsertAnnot(s, id, { id: 'g', kind: 'image', ...box, src: sig(), rot: r, color: '#000000' });
+        const img = await imageOnScreen(await buildPdf([src], s));
+        expect(img, `rotation ${r}`).toBeDefined();
+        expect(img!.topLeft.u).toBeCloseTo(0.2, 3);
+        expect(img!.topLeft.v).toBeCloseTo(0.1, 3);
+        expect(img!.bottomRight.u).toBeCloseTo(0.5, 3);
+        expect(img!.bottomRight.v).toBeCloseTo(0.2, 3);
+      }
+    }
+  });
+
+  it('embeds a signature placed several times only once', async () => {
+    const src = await source([
+      [400, 600],
+      [400, 600],
+    ]);
+    let s = initial(2);
+    const one = await buildPdf(
+      [src],
+      upsertAnnot(s, s.pages[0]!.id, { id: 'a', kind: 'image', x: 0.1, y: 0.1, w: 0.2, h: 0.1, src: sig(), rot: 0, color: '#000' }),
+    );
+    s = upsertAnnot(s, s.pages[0]!.id, { id: 'a', kind: 'image', x: 0.1, y: 0.1, w: 0.2, h: 0.1, src: sig(), rot: 0, color: '#000' });
+    s = upsertAnnot(s, s.pages[1]!.id, { id: 'b', kind: 'image', x: 0.5, y: 0.5, w: 0.2, h: 0.1, src: sig(), rot: 0, color: '#000' });
+    const two = await buildPdf([src], s);
+    expect(two.length - one.length).toBeLessThan(200);
+  });
+
+  it('refuses a damaged signature image instead of exporting a broken file', async () => {
+    expect(() => dataUrlBytes('javascript:alert(1)')).toThrow(/damaged/);
+    expect(dataUrlBytes(sig()).type).toBe('png');
+    const src = await source([[400, 600]]);
+    const s = initial(1);
+    const bad = upsertAnnot(s, s.pages[0]!.id, {
+      id: 'x',
+      kind: 'image',
+      x: 0,
+      y: 0,
+      w: 0.1,
+      h: 0.1,
+      src: 'data:image/png;base64,AAAA',
+      rot: 0,
+      color: '#000',
+    });
+    await expect(buildPdf([src], bad)).rejects.toThrow(/damaged/);
+  });
+
+  it('adds fillable text fields and checkboxes where they were drawn, with unique names', async () => {
+    for (const r of [0, 90] as Rotation[]) {
+      const src = await source([[400, 600]], r);
+      let s = initial(1);
+      const id = s.pages[0]!.id;
+      s = upsertAnnot(s, id, { id: 'f1', kind: 'field', field: 'text', name: 'Full name', x: 0.1, y: 0.1, w: 0.5, h: 0.05, color: '#1d4ed8' });
+      s = upsertAnnot(s, id, {
+        id: 'f2',
+        kind: 'field',
+        field: 'checkbox',
+        name: uniqueFieldName(s, 'Full name'),
+        x: 0.1,
+        y: 0.3,
+        w: 0.05,
+        h: 0.04,
+        color: '#1d4ed8',
+      });
+      expect(uniqueFieldName(s, 'Full name')).toBe('Full name 3');
+      expect(uniqueFieldName(s, 'Full name', 'f1')).toBe('Full name');
+      const out = await PDFDocument.load(await buildPdf([src], s));
+      const fields = out.getForm().getFields();
+      expect(fields.map((f) => [f.getName(), f.constructor.name])).toEqual([
+        ['Full name', 'PDFTextField'],
+        ['Full name 2', 'PDFCheckBox'],
+      ]);
+      // The widget covers the drawn box (page space → points, bottom-left origin), within the border width.
+      const rect = fields[0]!.acroField.getWidgets()[0]!.getRectangle();
+      const near = (a: number, b: number) => expect(Math.abs(a - b), `${a} vs ${b} at rotation ${r}`).toBeLessThanOrEqual(1);
+      near(rect.x, 40);
+      near(rect.y, 600 * (1 - 0.15));
+      near(rect.width, 200);
+      near(rect.height, 30);
+    }
   });
 });

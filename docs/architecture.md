@@ -85,8 +85,23 @@ page space, so undo/redo, rotation and saving are deterministic. Export with pdf
 applies rotation and draws annotations into the page content. Tests check the exported text position against pdf.js
 on every rotation and on cropped pages.
 
+Signatures (drawn, typed or uploaded; trimmed to a transparent PNG on the device) are image annotations, embedded
+once per distinct image and drawn upright for the view they were placed in. Form fields added in the editor become real
+AcroForm text fields and checkboxes with unique names. Tests check signature placement against pdf.js on every rotation
+and the field rectangles with pdf-lib.
+
 Known limits: the built-in font covers Latin text (other characters become “?”); _Whiteout_ hides content visually but
 does not remove it (not redaction); encrypted PDFs must be unlocked first.
+
+## Browser tools
+
+`/tools` lists 20 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
+`/tools/<slug>` page is server-rendered for search engines; one-step tools (merge, split, delete/extract pages, rotate,
+add pages, crop, watermark, page numbers, flatten, fill form, PDF ↔ images) run in the browser on `src/lib/tools/ops.ts`
+(pdf-lib) and `src/lib/client/raster.ts` (pdf.js + canvas); several results download as a ZIP. Interactive tools
+(edit, highlight, annotate, organize, sign, create form) hand the file to the editor. A file moves between pages
+through IndexedDB on the same device (`src/lib/client/handoff.ts`: read once, expires after 10 minutes) — no tool
+uploads anything, and the end-to-end test asserts that no non-GET request is sent while using them.
 
 ## Background work
 
