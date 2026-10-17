@@ -1,5 +1,5 @@
 'use client';
-import { openPdf } from '@/components/editor/pdfjs';
+import { closePdf, openPdf } from '@/components/editor/pdfjs';
 import type { ImageInput, ImageRecoder } from '@/lib/tools/ops';
 
 // Browser-only conversions between PDF pages and images. Everything runs locally with pdf.js and <canvas>.
@@ -52,7 +52,7 @@ export async function pdfToImages(
     }
     return out;
   } finally {
-    void doc.destroy();
+    void closePdf(doc);
   }
 }
 

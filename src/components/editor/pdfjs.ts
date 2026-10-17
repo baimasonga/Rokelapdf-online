@@ -30,3 +30,8 @@ export async function openPdf(bytes: Uint8Array): Promise<PDFDocumentProxy> {
     enableXfa: false,
   }).promise;
 }
+
+/** Releases a document and its worker resources (pdf.js 6: owned by the loading task). */
+export function closePdf(doc: PDFDocumentProxy | undefined): Promise<void> {
+  return doc ? doc.loadingTask.destroy() : Promise.resolve();
+}

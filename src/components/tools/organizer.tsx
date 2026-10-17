@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { ArrowLeft, ArrowRight, CheckCircle2, Download, FilePen, FilePlus, Loader2, Lock, Plus, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { openPdf } from '@/components/editor/pdfjs';
+import { closePdf, openPdf } from '@/components/editor/pdfjs';
 import { putHandoff } from '@/lib/client/handoff';
 import { fmtBytes } from '@/lib/client/format';
 import { organizePdf, type PagePlan } from '@/lib/tools/ops';
@@ -53,7 +53,7 @@ export function Organizer({ file, onReset }: { file: { name: string; bytes: Uint
     openPdf(file.bytes).then(
       (doc) => {
         opened = doc;
-        if (!live) return void doc.destroy();
+        if (!live) return void closePdf(doc);
         setDocs([doc]);
         setCards(Array.from({ length: doc.numPages }, (_, i) => ({ key: key(), src: 0, index: i, rotate: 0 as Rot })));
       },
@@ -61,7 +61,7 @@ export function Organizer({ file, onReset }: { file: { name: string; bytes: Uint
     );
     return () => {
       live = false;
-      void opened?.destroy();
+      void closePdf(opened);
     };
   }, [file.bytes]);
   useEffect(() => () => result && URL.revokeObjectURL(result.url), [result]);

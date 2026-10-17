@@ -52,7 +52,7 @@ import {
   type FieldAnnot,
   type Rotation,
 } from '@/lib/editor/model';
-import { openPdf } from './pdfjs';
+import { closePdf, openPdf } from './pdfjs';
 import { PageView, Thumb, type PageInfo, type Signature, type Tool } from './page-view';
 import { SignaturePad } from './signature-pad';
 
@@ -172,7 +172,7 @@ export function Editor({
   const openBytes = useCallback(
     async (bytes: Uint8Array, name: string) => {
       const src = await readSource(bytes);
-      for (const old of sources) void old.doc.destroy();
+      for (const old of sources) void closePdf(old.doc);
       setSources([src]);
       setH({ past: [], present: appendPages(EMPTY, 0, src.info.length), future: [] });
       setTitle(name);

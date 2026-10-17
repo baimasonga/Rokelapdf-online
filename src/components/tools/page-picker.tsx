@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { Check } from 'lucide-react';
-import { openPdf } from '@/components/editor/pdfjs';
+import { closePdf, openPdf } from '@/components/editor/pdfjs';
 
 /** One lazily rendered page thumbnail. */
 export function Thumb({ doc, index }: { doc: PDFDocumentProxy; index: number }) {
@@ -56,7 +56,7 @@ export function PagePicker({
     openPdf(bytes).then(
       (x) => {
         d = x;
-        if (!live) return void x.destroy();
+        if (!live) return void closePdf(x);
         setDoc(x);
         onCount?.(x.numPages);
       },
@@ -64,7 +64,7 @@ export function PagePicker({
     );
     return () => {
       live = false;
-      void d?.destroy();
+      void closePdf(d);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bytes]);
@@ -131,7 +131,7 @@ export function FirstPageThumb({ bytes }: { bytes: Uint8Array }) {
     })().catch(() => live && setFailed(true));
     return () => {
       live = false;
-      void doc?.destroy();
+      void closePdf(doc);
     };
   }, [bytes]);
   return failed ? <span className="thumb-fallback">PDF</span> : <canvas ref={ref} className="file-thumb" aria-hidden="true" />;
