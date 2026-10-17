@@ -14,7 +14,7 @@ export async function loadSource(bytes: Uint8Array): Promise<PDFDocument> {
   } catch {
     throw new EditorError('This file is not a readable PDF.');
   }
-  if (doc.isEncrypted) throw new EditorError('This PDF is password-protected or encrypted. Remove the protection first, then open it again.');
+  if (doc.isEncrypted) throw new EditorError('This PDF is password-protected. Remove the password with the Unlock PDF tool, then open it again.');
   return doc;
 }
 

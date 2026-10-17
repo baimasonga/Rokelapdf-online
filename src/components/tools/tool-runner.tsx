@@ -72,11 +72,13 @@ function save(name: string, blob: Blob) {
 
 function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
-    <label className="opt">
-      <span>{label}</span>
-      {children}
+    <div className="opt">
+      <label className="opt">
+        <span>{label}</span>
+        {children}
+      </label>
       {hint && <small>{hint}</small>}
-    </label>
+    </div>
   );
 }
 
@@ -141,6 +143,9 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   const [orient, setOrient] = useState<'auto' | 'portrait' | 'landscape'>('auto');
   const [imgMargin, setImgMargin] = useState(18);
   const [level, setLevel] = useState<CompressLevel>('recommended');
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [allow, setAllow] = useState({ printing: true, copying: true, editing: false });
 
   const first = files[0];
   const many = tool.multiple || !!tool.batch;
@@ -303,6 +308,16 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
         return pdf(`${name}-watermarked.pdf`, await addWatermark(b, wm, spec));
       case 'page-numbers':
         return pdf(`${name}-numbered.pdf`, await addPageNumbers(b, pn));
+      case 'protect-pdf': {
+        if (pw !== pw2) throw new Error('The two passwords do not match.');
+        const { protectPdf } = await import('@/lib/tools/security');
+        const bytes = await protectPdf(b, { password: pw, allowPrinting: allow.printing, allowCopying: allow.copying, allowEditing: allow.editing });
+        return [{ ...pdf(`${name}-protected.pdf`, bytes)[0]!, note: 'Protected with AES-256 — keep the password safe; it cannot be recovered.' }];
+      }
+      case 'unlock-pdf': {
+        const { unlockPdf } = await import('@/lib/tools/security');
+        return pdf(`${name}-unlocked.pdf`, await unlockPdf(b, pw));
+      }
       case 'compress-pdf': {
         const r = await compressPdf(b, level, browserRecoder);
         const saved = r.before - r.after;
@@ -596,6 +611,43 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
           </label>
         </>
       );
+      break;
+    case 'protect-pdf':
+      preview = isBatch ? null : picker('check', false);
+      options = (
+        <>
+          <Field label="Password" hint="At least 6 characters. It cannot be recovered if you forget it.">
+            <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
+          </Field>
+          <Field label="Repeat password">
+            <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
+          </Field>
+          <div className="opt">
+            <span>Readers may</span>
+            {(
+              [
+                ['printing', 'Print'],
+                ['copying', 'Copy text and images'],
+                ['editing', 'Edit, annotate and rearrange pages'],
+              ] as Array<[keyof typeof allow, string]>
+            ).map(([k, label]) => (
+              <label key={k} className="check">
+                <input type="checkbox" checked={allow[k]} onChange={(e) => setAllow({ ...allow, [k]: e.target.checked })} /> {label}
+              </label>
+            ))}
+            <small>PDF readers enforce these choices; they do not stop someone from photographing the screen.</small>
+          </div>
+        </>
+      );
+      ready = !!first && pw.length >= 6 && pw2.length > 0;
+      break;
+    case 'unlock-pdf':
+      options = (
+        <Field label="Current password" hint="Needed to remove the protection. We cannot remove a password you do not know.">
+          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" />
+        </Field>
+      );
+      ready = !!first && pw.length > 0;
       break;
     case 'compress-pdf':
       preview = picker('check', false);

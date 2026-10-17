@@ -153,7 +153,7 @@ describe('editor page operations and export', () => {
     const plain = new TextDecoder('latin1').decode(await source([[100, 100]], 0, true));
     const tampered = plain.replace('trailer\n<<', 'trailer\n<<\n/Encrypt << /Filter /Standard /V 1 /R 2 /O <00> /U <00> /P -4 >>');
     expect(tampered).not.toBe(plain);
-    await expect(loadSource(Uint8Array.from(tampered, (c) => c.charCodeAt(0)))).rejects.toThrow(/password-protected or encrypted/);
+    await expect(loadSource(Uint8Array.from(tampered, (c) => c.charCodeAt(0)))).rejects.toThrow(/password-protected.*Unlock PDF/);
     await expect(loadSource(new TextEncoder().encode('not a pdf'))).rejects.toThrow(/not a readable PDF/);
   });
 

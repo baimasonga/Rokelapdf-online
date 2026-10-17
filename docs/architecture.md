@@ -107,7 +107,7 @@ does not remove it (not redaction); encrypted PDFs must be unlocked first.
 
 ## Browser tools
 
-`/tools` lists 21 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
+`/tools` lists 23 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
 `/tools/<slug>` page is server-rendered for search engines; one-step tools (merge, split, delete/extract pages, rotate,
 add pages, crop, compress, watermark, page numbers, flatten, fill form, PDF ↔ images) run in the browser on `src/lib/tools/ops.ts`
 (pdf-lib) and `src/lib/client/raster.ts` (pdf.js + canvas); several results download as a ZIP. Interactive tools
@@ -120,6 +120,15 @@ image streams; `browserRecoder` decodes and re-encodes with canvas), scaled to t
 longest side). Text, fonts and vector content are not touched. Only JPEG and 8-bit gray/RGB Flate images without
 predictors, decode arrays or colour-key masks are re-encoded; CMYK, indexed, JPEG 2000 and masks are left as they
 are, an image is replaced only if the new one is smaller, and the original file is returned if nothing got smaller.
+
+**Organize pages** builds a new PDF from page cards (drag-and-drop order, quarter turns, deletions, blank pages,
+pages of further PDFs) with `organizePdf`. **Batch mode** runs compress, rotate, crop, watermark, page numbers,
+flatten and protect on several PDFs with the same settings and returns one ZIP (same-named results are numbered).
+
+**Protect / Unlock PDF** use `@cantoo/pdf-lib` (a maintained pdf-lib fork with encryption), imported only when
+one of those tools runs (`src/lib/tools/security.ts`). Protect encrypts with AES-256; the open password is the
+user's, the owner password is random and discarded, so permission restrictions cannot be lifted with the open
+password. Unlock needs the current password and writes an unencrypted copy.
 
 ## Background work
 

@@ -31,6 +31,9 @@ User documents and transferred files (R2), link and request tokens, account sess
 - Transfers accept common media and archive formats (MP4/MOV, MP3/WAV, PSD, 7z/RAR/GZ, Apple iWork…) checked by
   their content signature; these are download-only (never shown inline). Archives are not unpacked, so their
   contents are only as safe as the antivirus scan of the archive itself.
+- Protect PDF uses AES-256. Print/copy/edit restrictions are enforced by PDF readers, not by cryptography; they
+  do not stop screenshots or a determined user. A forgotten password cannot be recovered, and Unlock PDF only
+  works with the current password.
 - Signatures made in the editor are images placed on the page, not cryptographic (certificate) signatures.
 - Browser tools never upload files; a file handed from a tool page to the editor waits in this browser's IndexedDB for at
   most 10 minutes and is deleted when read.

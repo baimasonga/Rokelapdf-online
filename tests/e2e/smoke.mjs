@@ -214,6 +214,26 @@ async function main() {
       `compress: ${photoPdf.length} → ${small.bytes.length} bytes (${note}), text kept`,
     );
 
+    await v.goto(`${ORIGIN}/tools/protect-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.getByLabel('Password', { exact: true }).fill('river-stone-42');
+    await v.getByLabel('Repeat password').fill('river-stone-42');
+    await v.getByRole('button', { name: /^Protect PDF/ }).click();
+    const locked = await fetchDownload(v.getByRole('link', { name: /^Download/ }));
+    const needsPassword = await textOf(locked.bytes).then(
+      () => false,
+      (e) => e?.name === 'PasswordException',
+    );
+    await v.goto(`${ORIGIN}/tools/unlock-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract-protected.pdf', mimeType: 'application/pdf', buffer: locked.bytes });
+    await v.getByLabel('Current password').fill('river-stone-42');
+    await v.getByRole('button', { name: /^Unlock PDF/ }).click();
+    const unlocked = await fetchDownload(v.getByRole('link', { name: /^Download/ }));
+    check(
+      needsPassword && (await textOf(unlocked.bytes))[0].includes('Original page 1'),
+      'protect: the download needs the password; unlock: it opens without one again',
+    );
+
     await runTool('pdf-to-png', { name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf }, 'PDF to PNG');
     const png = await fetchDownload(v.getByRole('link', { name: 'contract-page-1.png' }));
     check(png.bytes.subarray(1, 4).toString() === 'PNG' && png.bytes.length > 2000, `pdf to png: page rendered (${png.bytes.length} bytes)`);

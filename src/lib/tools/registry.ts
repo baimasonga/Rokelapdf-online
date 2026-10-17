@@ -21,6 +21,8 @@ export type ToolSlug =
   | 'sign-pdf'
   | 'fill-pdf-form'
   | 'create-fillable-pdf'
+  | 'protect-pdf'
+  | 'unlock-pdf'
   | 'pdf-to-jpg'
   | 'pdf-to-png'
   | 'jpg-to-pdf';
@@ -48,7 +50,7 @@ export interface ToolDef {
 export const GROUPS: Array<{ id: ToolGroup; title: string; blurb: string }> = [
   { id: 'organize', title: 'Organize & optimize', blurb: 'Merge, split, compress, reorder and tidy up pages.' },
   { id: 'edit', title: 'Edit & annotate', blurb: 'Add text, highlights, watermarks and page numbers.' },
-  { id: 'sign', title: 'Sign & forms', blurb: 'Sign documents and fill or create forms.' },
+  { id: 'sign', title: 'Sign, forms & security', blurb: 'Sign documents, fill or create forms, add or remove passwords.' },
   { id: 'convert', title: 'Convert images', blurb: 'Turn PDFs into images and images into PDFs.' },
 ];
 
@@ -266,6 +268,29 @@ export const TOOLS: ToolDef[] = [
     accept: 'pdf',
     multiple: false,
     editorTool: 'field',
+  },
+  {
+    slug: 'protect-pdf',
+    batch: true,
+    color: '#0f172a',
+    title: 'Protect PDF',
+    short: 'Add a password and choose what readers may do.',
+    description: 'Password-protect a PDF with AES-256 encryption and optionally block printing, copying or editing. Done in your browser.',
+    group: 'sign',
+    icon: 'Lock',
+    accept: 'pdf',
+    multiple: false,
+  },
+  {
+    slug: 'unlock-pdf',
+    color: '#475569',
+    title: 'Unlock PDF',
+    short: 'Remove the password from a PDF you can open.',
+    description: 'Remove password protection from a PDF when you know its password, so it opens without one. Done in your browser.',
+    group: 'sign',
+    icon: 'LockOpen',
+    accept: 'pdf',
+    multiple: false,
   },
   {
     slug: 'pdf-to-jpg',
