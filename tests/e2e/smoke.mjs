@@ -442,6 +442,7 @@ async function main() {
     await p.getByRole('button', { name: 'Publish', exact: true }).click();
     await p.getByText('Version 1 is now the published version').waitFor();
     ok('published');
+    await shot(p, 'document');
 
     step('Share the latest published version');
     await p.getByRole('button', { name: 'Share latest published version' }).click();
@@ -528,10 +529,12 @@ async function main() {
     await r.getByRole('button', { name: 'Start', exact: true }).click();
     await r.getByLabel('Upload ID scan').setInputFiles({ name: 'id.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
     await r.getByText(/id\.pdf · .* · (received, being checked|available)/).waitFor();
+    await shot(r, 'upload-request');
     await r.getByRole('button', { name: 'Send files', exact: true }).click();
     await r.getByRole('heading', { name: 'Files sent' }).waitFor();
     await p.reload();
     await p.getByText('Aminata').waitFor();
+    await shot(p, 'request-detail');
     ok('submission received by the requester');
 
     if (problems.length) throw new Error(`browser problems:\n${problems.join('\n')}`);

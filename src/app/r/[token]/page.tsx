@@ -1,11 +1,11 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { FileInput } from 'lucide-react';
+import { Check, CheckCircle2, Clock, FileInput, Upload } from 'lucide-react';
 import { PasswordPrompt, PublicFrame, SenderBrand } from '@/components/public';
 import { Button, Form, Muted, Panel, Progress, useNotice } from '@/components/ui';
 import { ApiError, api, enc } from '@/lib/client/api';
-import { fmtBytes, when } from '@/lib/client/format';
+import { fmtBytes } from '@/lib/client/format';
 import { fileKey, uploadFile, type UploadProgress } from '@/lib/client/uploader';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -74,22 +74,29 @@ export default function UploadRequestPage() {
   };
 
   const intro = info && (
-    <Panel className="share-hero">
+    <section className="share-card">
       <SenderBrand branding={info.branding} />
-      <span className="file-icon">
-        <FileInput size={30} aria-hidden="true" />
+      <span className="tile-icon share-icon" aria-hidden="true">
+        <FileInput size={28} />
       </span>
       <h1>{info.title}</h1>
-      {info.instructions && <p className="quote">{info.instructions}</p>}
-      <Muted>
-        Deadline: {when(info.deadline)} · Largest file {fmtBytes(info.max_file_bytes)}
-      </Muted>
-      {info.notices?.map((n: string) => (
-        <p key={n} className="fine-print">
-          {n}
-        </p>
+      {info.instructions && <p className="share-message">{info.instructions}</p>}
+      <p className="share-facts">
+        {info.deadline && (
+          <span>
+            <Clock size={14} aria-hidden="true" /> Due {new Date(info.deadline).toLocaleString()}
+          </span>
+        )}
+        <span>Up to {fmtBytes(info.max_file_bytes)} per file</span>
+      </p>
+    </section>
+  );
+  const notices = info?.notices?.length > 0 && (
+    <div className="share-notices">
+      {info.notices.map((n: string) => (
+        <p key={n}>{n}</p>
       ))}
-    </Panel>
+    </div>
   );
 
   return (
@@ -102,7 +109,8 @@ export default function UploadRequestPage() {
       {view.k === 'start' && (
         <>
           {intro}
-          <Panel title="Who is sending these files?">
+          <section className="share-ack req-start">
+            <h2>Who is sending these files?</h2>
             <Form
               fields={[
                 { name: 'name', label: 'Your name', autoComplete: 'name' },
@@ -115,32 +123,53 @@ export default function UploadRequestPage() {
                 await refresh(r.submission_secret);
               }}
             />
-          </Panel>
+          </section>
+          {notices}
         </>
       )}
       {view.k === 'files' && (
         <>
           {intro}
-          <Panel title="Files">
-            {info.requirements.map((r: any) => {
+          <ol className="reqs" aria-label="Files to send">
+            {info.requirements.map((r: any, i: number) => {
               const mine = view.sub.files.filter((f: any) => f.requirement_key === r.key);
+              const done = mine.length > 0;
               return (
-                <div key={r.key} className="requirement">
-                  <h3>
-                    {r.label}
-                    {r.required ? ' (required)' : ''}
-                  </h3>
-                  <p className="fine-print">
-                    Accepted: {r.accept.join(', ')} · up to {r.max_files} file(s)
-                  </p>
-                  {mine.map((f: any) => (
-                    <p key={f.id}>
-                      {f.name} · {fmtBytes(f.size)} · {f.status === 'processing' ? 'received, being checked' : f.status}
-                    </p>
-                  ))}
+                <li
+                  key={r.key}
+                  className={`req${done ? ' done' : ''}`}
+                  onDragOver={(e) => mine.length < r.max_files && e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (mine.length < r.max_files) void upload(r, e.dataTransfer.files[0]);
+                  }}
+                >
+                  <span className="req-mark" aria-hidden="true">
+                    {done ? <Check size={16} /> : i + 1}
+                  </span>
+                  <div className="req-body">
+                    <strong>
+                      {r.label}
+                      {r.required ? '' : ' (optional)'}
+                    </strong>
+                    <span className="muted small">
+                      {r.accept.map((x: string) => x.toUpperCase()).join(', ')} · up to {r.max_files} file{r.max_files === 1 ? '' : 's'}
+                    </span>
+                    {mine.length > 0 && (
+                      <ul className="req-files">
+                        {mine.map((f: any) => (
+                          <li key={f.id}>
+                            <span className="file-ext sm">{(/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] ?? 'file').toUpperCase()}</span>
+                            <span>{`${f.name} · ${fmtBytes(f.size)} · ${f.status === 'processing' ? 'received, being checked' : f.status}`}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <Progress p={progress[r.key]} />
+                  </div>
                   {mine.length < r.max_files && (
-                    <label className="button file-button">
-                      Choose file
+                    <label className="button file-button req-pick">
+                      <Upload size={16} aria-hidden="true" /> {done ? 'Add another' : 'Choose file'}
                       <input
                         type="file"
                         accept={r.accept.map((x: string) => `.${x}`).join(',')}
@@ -149,12 +178,11 @@ export default function UploadRequestPage() {
                       />
                     </label>
                   )}
-                  <Progress p={progress[r.key]} />
-                </div>
+                </li>
               );
             })}
-          </Panel>
-          <Panel>
+          </ol>
+          <div className="req-send">
             <Button
               kind="primary"
               onClick={async () => {
@@ -170,14 +198,19 @@ export default function UploadRequestPage() {
             >
               Send files
             </Button>
-          </Panel>
+            <span className="muted small">You can drop a file onto an item to upload it.</span>
+          </div>
+          {notices}
         </>
       )}
       {view.k === 'sent' && (
-        <>
-          {intro}
-          <Panel title="Files sent">Thank you. The requester has been notified.</Panel>
-        </>
+        <section className="share-card">
+          <span className="done-check" aria-hidden="true">
+            <CheckCircle2 size={44} />
+          </span>
+          <h1>Files sent</h1>
+          <p className="muted">Thank you. {info?.title ? `“${info.title}” has been sent and the requester was notified.` : 'The requester was notified.'}</p>
+        </section>
       )}
     </PublicFrame>
   );

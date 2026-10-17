@@ -82,8 +82,28 @@ function DocumentDetail({ id }: { id: string }) {
   const { d, links } = data;
   const editHref = `/edit?ws=${enc(workspace.id)}&doc=${enc(id)}`;
 
+  const published = d.versions.some((v: any) => v.published);
+  const steps: Array<[string, string, boolean]> = [
+    ['Draft', d.has_draft ? 'Saved privately' : 'Edit or upload a PDF', !!d.has_draft],
+    ['Version', d.versions.length ? `${d.versions.length} frozen cop${d.versions.length === 1 ? 'y' : 'ies'}` : 'Export the draft', d.versions.length > 0],
+    ['Published', published ? 'Links show it' : 'Publish a version', published],
+    ['Shared', links.length ? `${links.length} link${links.length === 1 ? '' : 's'}` : 'Create a share link', links.length > 0],
+  ];
   return (
     <>
+      <ol className="doc-steps" aria-label="Progress">
+        {steps.map(([title, text, done], i) => (
+          <li key={title} className={done ? 'done' : ''}>
+            <span className="req-mark" aria-hidden="true">
+              {done ? '✓' : i + 1}
+            </span>
+            <span>
+              <strong>{title}</strong>
+              <span className="muted small">{text}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
       <Panel
         title={d.title}
         actions={
@@ -134,7 +154,7 @@ function DocumentDetail({ id }: { id: string }) {
           ))}
       </Panel>
 
-      <Panel title="Versions">
+      <Panel title="Versions (frozen copies)">
         <p className="muted">Exporting freezes the current draft as an immutable version. Only publishing changes what “latest” links serve.</p>
         {d.has_draft ? (
           <Form
