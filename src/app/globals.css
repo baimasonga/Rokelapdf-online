@@ -3568,6 +3568,38 @@ button.row-menu-button[aria-expanded='true'] {
   }
 }
 
+.levels {
+  display: grid;
+  gap: 0.6rem;
+}
+button.level {
+  display: grid;
+  justify-items: start;
+  gap: 0.1rem;
+  text-align: left;
+  white-space: normal;
+  padding: 0.8rem 1rem;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+button.level span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+button.level.on,
+button.level.on:hover:not(:disabled) {
+  border-color: var(--brand-2);
+  background: var(--blue-50);
+}
+.done-note {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ok);
+}
+
 /* ---- responsive --------------------------------------------------------------------------------------- */
 @media (max-width: 900px) {
   .hero-inner,

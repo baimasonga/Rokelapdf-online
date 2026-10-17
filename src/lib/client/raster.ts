@@ -1,6 +1,6 @@
 'use client';
 import { openPdf } from '@/components/editor/pdfjs';
-import type { ImageInput } from '@/lib/tools/ops';
+import type { ImageInput, ImageRecoder } from '@/lib/tools/ops';
 
 // Browser-only conversions between PDF pages and images. Everything runs locally with pdf.js and <canvas>.
 
@@ -77,3 +77,53 @@ export async function imageForPdf(file: File): Promise<ImageInput> {
   const blob = await toBlob(canvas, 'image/png');
   return { bytes: new Uint8Array(await blob.arrayBuffer()), type: 'image/png' };
 }
+
+/**
+ * Re-encodes one image from a PDF for "Compress PDF": decode (the browser's JPEG decoder, or raw pixels), scale to
+ * fit `maxSide`, and encode as JPEG. Returns undefined when this browser cannot decode the image.
+ */
+export const browserRecoder: ImageRecoder = async (img, { maxSide, quality }) => {
+  const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const width = Math.max(1, Math.round(img.width * k));
+  const height = Math.max(1, Math.round(img.height * k));
+  let source: CanvasImageSource;
+  let release = () => undefined as void;
+  if (img.kind === 'jpeg') {
+    try {
+      const bmp = await createImageBitmap(new Blob([img.bytes as BlobPart], { type: 'image/jpeg' }));
+      source = bmp;
+      release = () => bmp.close();
+    } catch {
+      return undefined;
+    }
+  } else {
+    const full = document.createElement('canvas');
+    full.width = img.width;
+    full.height = img.height;
+    const data = new ImageData(img.width, img.height);
+    const px = img.pixels;
+    for (let i = 0, j = 0; i < img.width * img.height; i++, j += 4) {
+      const o = i * img.channels;
+      data.data[j] = px[o]!;
+      data.data[j + 1] = px[img.channels === 3 ? o + 1 : o]!;
+      data.data[j + 2] = px[img.channels === 3 ? o + 2 : o]!;
+      data.data[j + 3] = 255;
+    }
+    full.getContext('2d')!.putImageData(data, 0, 0);
+    source = full;
+    release = () => void (full.width = full.height = 0);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return undefined;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, width, height);
+  release();
+  const blob = await toBlob(canvas, 'image/jpeg', quality);
+  canvas.width = canvas.height = 0;
+  return { bytes: new Uint8Array(await blob.arrayBuffer()), width, height };
+};

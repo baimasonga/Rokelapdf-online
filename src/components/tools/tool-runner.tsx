@@ -20,12 +20,14 @@ import {
   mergePdfs,
   parseRanges,
   rotatePages,
+  compressPdf,
+  type CompressLevel,
   splitPdf,
   type FormFieldInfo,
   type PageNumberOptions,
   type WatermarkOptions,
 } from '@/lib/tools/ops';
-import { imageForPdf, pdfToImages } from '@/lib/client/raster';
+import { browserRecoder, imageForPdf, pdfToImages } from '@/lib/client/raster';
 import { putHandoff } from '@/lib/client/handoff';
 import { fmtBytes } from '@/lib/client/format';
 import { FirstPageThumb, PagePicker, toRanges } from './page-picker';
@@ -46,6 +48,8 @@ interface Output {
   blob: Blob;
   url: string;
   pdf?: Uint8Array;
+  /** One line shown under the result (e.g. how much smaller it got). */
+  note?: string;
 }
 
 const baseName = (n: string) => n.replace(/\.[a-z0-9]+$/i, '').slice(0, 120) || 'document';
@@ -135,6 +139,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   const [imgPage, setImgPage] = useState<'fit' | 'A4' | 'Letter'>('A4');
   const [orient, setOrient] = useState<'auto' | 'portrait' | 'landscape'>('auto');
   const [imgMargin, setImgMargin] = useState(18);
+  const [level, setLevel] = useState<CompressLevel>('recommended');
 
   const first = files[0];
   const name = first ? baseName(first.file.name) : 'document';
@@ -239,7 +244,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   };
 
   // ---- running --------------------------------------------------------------------------------------------------
-  async function compute(): Promise<Array<{ name: string; blob: Blob; pdf?: Uint8Array }>> {
+  async function compute(): Promise<Array<{ name: string; blob: Blob; pdf?: Uint8Array; note?: string }>> {
     const pdf = (n: string, b: Uint8Array) => [{ name: n, blob: pdfBlob(b), pdf: b }];
     const b = first!.bytes;
     switch (slug) {
@@ -277,6 +282,16 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
         return pdf(`${name}-watermarked.pdf`, await addWatermark(b, wm, spec));
       case 'page-numbers':
         return pdf(`${name}-numbered.pdf`, await addPageNumbers(b, pn));
+      case 'compress-pdf': {
+        const r = await compressPdf(b, level, browserRecoder);
+        const saved = r.before - r.after;
+        const pct = Math.round((saved / r.before) * 100);
+        const note =
+          pct >= 1
+            ? `${pct}% smaller · ${fmtBytes(r.before)} → ${fmtBytes(r.after)}`
+            : 'This PDF is already well optimized — there was nothing worth shrinking.';
+        return [{ name: `${name}-compressed.pdf`, blob: pdfBlob(r.bytes), pdf: r.bytes, note }];
+      }
       case 'flatten-pdf': {
         const r = await flattenPdf(b);
         if (!r.fields) throw new Error('This PDF has no form fields to flatten.');
@@ -560,6 +575,25 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
         </>
       );
       break;
+    case 'compress-pdf':
+      preview = picker('check', false);
+      options = (
+        <div className="levels" role="radiogroup" aria-label="Compression">
+          {(
+            [
+              ['strong', 'Strong', 'Smallest file, lower image quality'],
+              ['recommended', 'Recommended', 'Good quality, much smaller'],
+              ['light', 'Light', 'High image quality, less compression'],
+            ] as Array<[CompressLevel, string, string]>
+          ).map(([v, title, text]) => (
+            <button key={v} type="button" role="radio" aria-checked={level === v} className={`level${level === v ? ' on' : ''}`} onClick={() => setLevel(v)}>
+              <strong>{title}</strong>
+              <span>{text}</span>
+            </button>
+          ))}
+        </div>
+      );
+      break;
     case 'flatten-pdf':
       preview = picker('check', false);
       options = <p className="muted">Form fields become part of the page. The result looks the same in every viewer and can no longer be edited.</p>;
@@ -750,9 +784,12 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
             </button>
           )}
           {one ? (
-            <p className="done-file">
-              {one.name} · {fmtBytes(one.blob.size)}
-            </p>
+            <>
+              {one.note && <p className="done-note">{one.note}</p>}
+              <p className="done-file">
+                {one.name} · {fmtBytes(one.blob.size)}
+              </p>
+            </>
           ) : (
             <ul className="done-list">
               {outputs.map((o) => (

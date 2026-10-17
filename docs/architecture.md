@@ -107,13 +107,19 @@ does not remove it (not redaction); encrypted PDFs must be unlocked first.
 
 ## Browser tools
 
-`/tools` lists 20 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
+`/tools` lists 21 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
 `/tools/<slug>` page is server-rendered for search engines; one-step tools (merge, split, delete/extract pages, rotate,
-add pages, crop, watermark, page numbers, flatten, fill form, PDF ↔ images) run in the browser on `src/lib/tools/ops.ts`
+add pages, crop, compress, watermark, page numbers, flatten, fill form, PDF ↔ images) run in the browser on `src/lib/tools/ops.ts`
 (pdf-lib) and `src/lib/client/raster.ts` (pdf.js + canvas); several results download as a ZIP. Interactive tools
 (edit, highlight, annotate, organize, sign, create form) hand the file to the editor. A file moves between pages
 through IndexedDB on the same device (`src/lib/client/handoff.ts`: read once, expires after 10 minutes) — no tool
 uploads anything, and the end-to-end test asserts that no non-GET request is sent while using them.
+
+**Compress PDF** re-encodes photos and scans inside the PDF as lighter JPEGs in the browser (`compressPdf` walks the
+image streams; `browserRecoder` decodes and re-encodes with canvas), scaled to the chosen level (2400 / 1600 / 1000 px
+longest side). Text, fonts and vector content are not touched. Only JPEG and 8-bit gray/RGB Flate images without
+predictors, decode arrays or colour-key masks are re-encoded; CMYK, indexed, JPEG 2000 and masks are left as they
+are, an image is replaced only if the new one is smaller, and the original file is returned if nothing got smaller.
 
 ## Background work
 

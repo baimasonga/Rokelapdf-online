@@ -11,6 +11,7 @@ export type ToolSlug =
   | 'organize-pdf'
   | 'add-pages'
   | 'crop-pdf'
+  | 'compress-pdf'
   | 'edit-pdf'
   | 'highlight-pdf'
   | 'annotate-pdf'
@@ -43,7 +44,7 @@ export interface ToolDef {
 }
 
 export const GROUPS: Array<{ id: ToolGroup; title: string; blurb: string }> = [
-  { id: 'organize', title: 'Organize', blurb: 'Merge, split, reorder and tidy up pages.' },
+  { id: 'organize', title: 'Organize & optimize', blurb: 'Merge, split, compress, reorder and tidy up pages.' },
   { id: 'edit', title: 'Edit & annotate', blurb: 'Add text, highlights, watermarks and page numbers.' },
   { id: 'sign', title: 'Sign & forms', blurb: 'Sign documents and fill or create forms.' },
   { id: 'convert', title: 'Convert images', blurb: 'Turn PDFs into images and images into PDFs.' },
@@ -140,6 +141,18 @@ export const TOOLS: ToolDef[] = [
     icon: 'Crop',
     accept: 'pdf',
     multiple: false,
+  },
+  {
+    slug: 'compress-pdf',
+    color: '#65a30d',
+    title: 'Compress PDF',
+    short: 'Make a PDF smaller while keeping text sharp.',
+    description: 'Reduce PDF file size in your browser: photos and scans are made lighter, text stays sharp and selectable. Nothing is uploaded.',
+    group: 'organize',
+    icon: 'Shrink',
+    accept: 'pdf',
+    multiple: false,
+    popular: true,
   },
   {
     slug: 'edit-pdf',

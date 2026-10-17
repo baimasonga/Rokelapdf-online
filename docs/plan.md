@@ -27,7 +27,7 @@ bandwidth estimate and API changes, so a free account cannot create unbounded co
 - Short links: public (alias, editable destination with history, folders/tags/search/bulk, aggregate stats) and
   confidential; QR codes.
 - Upload requests with checklists and deadlines; in-app notifications.
-- 20 browser PDF tools with their own pages (merge, split, delete/extract/add pages, rotate, crop, organize,
+- 21 browser PDF tools with their own pages (merge, split, compress, delete/extract/add pages, rotate, crop, organize,
   watermark, page numbers, flatten, fill and create forms, sign, PDF ↔ JPG/PNG); nothing is uploaded.
 - Editor signatures (draw/type/upload) and fillable form fields.
 - WeTransfer-style sending: drag-and-drop files and folders, email or link mode, personal link per recipient with

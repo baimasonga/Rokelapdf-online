@@ -1,9 +1,14 @@
 import {
+  PDFArray,
   PDFCheckBox,
+  PDFDict,
   PDFDocument,
   PDFDropdown,
+  PDFName,
+  PDFNumber,
   PDFOptionList,
   PDFRadioGroup,
+  PDFRawStream,
   PDFTextField,
   StandardFonts,
   degrees,
@@ -11,6 +16,7 @@ import {
   type PDFFont,
   type PDFPage,
 } from 'pdf-lib';
+import { unzlibSync } from 'fflate';
 import { loadSource, EditorError } from '../editor/export';
 import { drawableText, norm, toPage, displaySize, type Rotation } from '../editor/model';
 
@@ -430,4 +436,103 @@ export async function imagesToPdf(images: ImageInput[], o: ImagesToPdfOptions): 
     page.drawImage(e!, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
   }
   return save(d);
+}
+
+// ---- compress ------------------------------------------------------------------------------------------------
+/**
+ * An image to re-encode: either a JPEG file (`jpeg`) or raw 8-bit pixels (`raw`, gray or RGB, row-major). The
+ * recoder scales it so neither side exceeds `maxSide` and returns JPEG bytes, or undefined to keep the original.
+ */
+export type RecodeInput =
+  { kind: 'jpeg'; bytes: Uint8Array; width: number; height: number } | { kind: 'raw'; pixels: Uint8Array; channels: 1 | 3; width: number; height: number };
+export type ImageRecoder = (
+  img: RecodeInput,
+  opts: { maxSide: number; quality: number },
+) => Promise<{ bytes: Uint8Array; width: number; height: number } | undefined>;
+
+export type CompressLevel = 'light' | 'recommended' | 'strong';
+export const COMPRESS_LEVELS: Record<CompressLevel, { maxSide: number; quality: number }> = {
+  light: { maxSide: 2400, quality: 0.85 },
+  recommended: { maxSide: 1600, quality: 0.72 },
+  strong: { maxSide: 1000, quality: 0.5 },
+};
+
+export interface CompressResult {
+  bytes: Uint8Array;
+  before: number;
+  after: number;
+  /** Images re-encoded smaller. */
+  images: number;
+}
+
+const num = (d: PDFDict, key: string) => {
+  const v = d.lookup(PDFName.of(key));
+  return v instanceof PDFNumber ? v.asNumber() : undefined;
+};
+const nameOf = (d: PDFDict, key: string) => {
+  const v = d.lookup(PDFName.of(key));
+  if (v instanceof PDFName) return v.decodeText();
+  if (v instanceof PDFArray && v.size() === 1) {
+    const one = v.lookup(0);
+    return one instanceof PDFName ? one.decodeText() : undefined;
+  }
+  return undefined;
+};
+
+/**
+ * Makes a PDF smaller by re-encoding its photos and scans as lighter JPEGs (downscaled to the level's size), and by
+ * saving with compressed object streams. Text, fonts and vector drawings are untouched, so they stay sharp and
+ * selectable. Only formats that can be re-encoded faithfully are touched (JPEG, and 8-bit gray/RGB Flate images
+ * without predictors or decode arrays); masks, CMYK, indexed and JPEG 2000 images are kept as they are. An image
+ * is replaced only when the new version is smaller.
+ */
+export async function compressPdf(bytes: Uint8Array, level: CompressLevel, recode: ImageRecoder): Promise<CompressResult> {
+  const opts = COMPRESS_LEVELS[level];
+  if (!opts) fail('Choose a compression level.');
+  const d = await load(bytes);
+  let images = 0;
+  for (const [ref, obj] of d.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream)) continue;
+    const dict = obj.dict;
+    if (nameOf(dict, 'Subtype') !== 'Image' || dict.lookup(PDFName.of('ImageMask'))?.toString() === 'true') continue;
+    if (dict.has(PDFName.of('Decode')) || dict.has(PDFName.of('Mask'))) continue;
+    const width = num(dict, 'Width');
+    const height = num(dict, 'Height');
+    const bpc = num(dict, 'BitsPerComponent');
+    const cs = nameOf(dict, 'ColorSpace');
+    const filter = nameOf(dict, 'Filter');
+    if (!width || !height || bpc !== 8 || (cs !== 'DeviceRGB' && cs !== 'DeviceGray')) continue;
+    if (obj.contents.length < 8 * 1024) continue; // not worth it
+    let input: RecodeInput | undefined;
+    if (filter === 'DCTDecode') input = { kind: 'jpeg', bytes: obj.contents, width, height };
+    else if (filter === 'FlateDecode' && !dict.has(PDFName.of('DecodeParms'))) {
+      const channels = cs === 'DeviceRGB' ? 3 : 1;
+      let pixels: Uint8Array;
+      try {
+        pixels = unzlibSync(obj.contents);
+      } catch {
+        continue;
+      }
+      if (pixels.length !== width * height * channels) continue;
+      input = { kind: 'raw', pixels, channels, width, height };
+    }
+    if (!input) continue;
+    const out = await recode(input, opts);
+    if (!out || out.bytes.length >= obj.contents.length) continue;
+    const next = dict.clone(d.context);
+    next.set(PDFName.of('Filter'), PDFName.of('DCTDecode'));
+    // Encoders write colour (YCbCr) JPEGs, even for grey input.
+    next.set(PDFName.of('ColorSpace'), PDFName.of('DeviceRGB'));
+    next.set(PDFName.of('Width'), PDFNumber.of(out.width));
+    next.set(PDFName.of('Height'), PDFNumber.of(out.height));
+    next.set(PDFName.of('BitsPerComponent'), PDFNumber.of(8));
+    next.delete(PDFName.of('DecodeParms'));
+    next.delete(PDFName.of('Length'));
+    d.context.assign(ref, PDFRawStream.of(next, out.bytes));
+    images++;
+  }
+  const result = await save(d);
+  // Never hand back something bigger than what came in.
+  const smaller = result.length < bytes.length;
+  return { bytes: smaller ? result : bytes, before: bytes.length, after: smaller ? result.length : bytes.length, images: smaller ? images : 0 };
 }

@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, StandardFonts, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from 'pdf-lib';
 import { strFromU8, unzipSync } from 'fflate';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { startFakeSupabase } from './fake-supabase.mjs';
@@ -159,6 +159,40 @@ async function main() {
     check(
       (await textOf(marked.bytes)).every((t) => t.includes('CONFIDENTIAL')),
       'watermark on every page',
+    );
+
+    // A PDF with a large photo-like image (stored losslessly) and some text.
+    const photoPdf = await (async () => {
+      const d = await PDFDocument.create();
+      const page = d.addPage([595, 842]);
+      page.drawText('Site survey', { x: 60, y: 780, size: 22, font: await d.embedFont(StandardFonts.Helvetica) });
+      const [w, h] = [1400, 1000];
+      const px = new Uint8Array(w * h * 3);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const o = (y * w + x) * 3;
+          const n = (x * 7 + y * 13) % 17;
+          px[o] = (x / 6 + n) & 255;
+          px[o + 1] = (y / 4 + n) & 255;
+          px[o + 2] = ((x + y) / 10) & 255;
+        }
+      const img = d.context.register(
+        d.context.flateStream(px, { Type: 'XObject', Subtype: 'Image', Width: w, Height: h, ColorSpace: 'DeviceRGB', BitsPerComponent: 8 }),
+      );
+      const name = page.node.newXObject('Photo', img);
+      page.pushOperators(pushGraphicsState(), concatTransformationMatrix(500, 0, 0, 357, 48, 380), drawObject(name), popGraphicsState());
+      return Buffer.from(await d.save());
+    })();
+    await v.goto(`${ORIGIN}/tools/compress-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'survey.pdf', mimeType: 'application/pdf', buffer: photoPdf });
+    await v.getByRole('radio', { name: /Strong/ }).click();
+    await v.getByRole('button', { name: /^Compress PDF/ }).click();
+    await v.locator('.results').waitFor();
+    const note = await v.locator('.done-note').innerText();
+    const small = await fetchDownload(v.getByRole('link', { name: /^Download/ }));
+    check(
+      small.bytes.length < photoPdf.length / 3 && /\d+% smaller/.test(note) && (await textOf(small.bytes))[0].includes('Site survey'),
+      `compress: ${photoPdf.length} → ${small.bytes.length} bytes (${note}), text kept`,
     );
 
     await runTool('pdf-to-png', { name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf }, 'PDF to PNG');
