@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useCallback, useContext, useEffect, useState, type DependencyList } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type DependencyList } from 'react';
 import { ApiError, api, enc, sharingPath } from '@/lib/client/api';
 import { fileKey, uploadFile, type UploadProgress } from '@/lib/client/uploader';
 
@@ -42,19 +42,24 @@ export function useLoad<T>(fn: () => Promise<T>, deps: DependencyList) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<ApiError | Error>();
   const [n, setN] = useState(0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const load = useCallback(fn, deps);
+  // The latest loader, so the effect re-runs only when the caller's dependencies (or reload) change.
+  const fnRef = useRef(fn);
+  // Runs before the loading effect below (effects run in order), so it always calls the current loader.
+  useEffect(() => {
+    fnRef.current = fn;
+  });
+  const key = JSON.stringify(deps);
   useEffect(() => {
     let live = true;
     setError(undefined);
-    load().then(
+    fnRef.current().then(
       (d) => live && setData(d),
       (e) => live && setError(e),
     );
     return () => {
       live = false;
     };
-  }, [load, n]);
+  }, [key, n]);
   return { data, error, reload: () => setN((x) => x + 1), setData };
 }
 

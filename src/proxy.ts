@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { buildCsp, cspInputsFromEnv, pageSecurityHeaders } from './lib/csp';
 
-// Adds a per-request CSP nonce and security headers to HTML pages. API routes and redirects set their own headers.
-export function middleware(req: NextRequest) {
+// Next.js proxy: adds a per-request CSP nonce and security headers to HTML pages. API routes and redirects set their own headers.
+export function proxy(req: NextRequest) {
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64');
   const inputs = cspInputsFromEnv(process.env, nonce);
   const csp = buildCsp(inputs);
@@ -15,7 +15,7 @@ export function middleware(req: NextRequest) {
   return res;
 }
 
+// Proxy (formerly middleware) always runs on the Node.js runtime in Next 16.
 export const config = {
-  runtime: 'nodejs',
   matcher: [{ source: '/((?!api/|l/|d/|_next/static|_next/image|pdfjs/|favicon.ico).*)' }],
 };
