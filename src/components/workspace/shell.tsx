@@ -18,7 +18,7 @@ import { Notifications } from './notifications';
 import { Members } from './members';
 
 const TABS: Array<[Tab, string, LucideIcon, string]> = [
-  ['overview', 'Home', House, 'Your workspace at a glance.'],
+  ['overview', 'Home', House, 'Send, edit and share your files.'],
   ['documents', 'Documents', FileText, 'Drafts, versions and what is published.'],
   ['transfers', 'Send files', Send, 'Send files by email or link, and see who downloaded them.'],
   ['links', 'Share links', Share2, 'Every link to your documents and transfers.'],
@@ -189,7 +189,7 @@ export function WorkspaceApp() {
         <main className="app-main">
           <div className="page-head">
             <div>
-              <h1>{nav.tab === 'overview' ? (workspace.kind === 'personal' ? 'Personal workspace' : workspace.name) : current[1]}</h1>
+              <h1>{nav.tab === 'overview' ? (workspace.kind === 'personal' ? 'Welcome back' : workspace.name) : current[1]}</h1>
               <p>{current[3]}</p>
             </div>
           </div>

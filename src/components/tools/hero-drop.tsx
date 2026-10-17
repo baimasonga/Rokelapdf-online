@@ -1,7 +1,7 @@
 'use client';
 import { useRef, useState, type DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Upload } from 'lucide-react';
+import { Loader2, Lock, Upload } from 'lucide-react';
 import { putHandoff } from '@/lib/client/handoff';
 
 /** The home page's drop target: the chosen PDF opens straight in the editor, without being uploaded. */
@@ -37,7 +37,7 @@ export function HeroDrop() {
 
   return (
     <div
-      className={`hero-drop${over ? ' over' : ''}`}
+      className={`bigdrop${over ? ' over' : ''}`}
       onDragOver={(e) => {
         e.preventDefault();
         setOver(true);
@@ -45,12 +45,14 @@ export function HeroDrop() {
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
     >
-      <span className="file-icon">{busy ? <Loader2 size={30} className="spin" aria-hidden="true" /> : <Upload size={30} aria-hidden="true" />}</span>
-      <strong>Drop a PDF here</strong>
-      <span className="muted">It opens in the editor — nothing is uploaded</span>
-      <button type="button" className="button primary" disabled={busy} onClick={() => ref.current?.click()}>
+      <button type="button" className="button primary xl" disabled={busy} onClick={() => ref.current?.click()}>
+        {busy ? <Loader2 size={22} className="spin" aria-hidden="true" /> : <Upload size={22} aria-hidden="true" />}
         {busy ? 'Opening…' : 'Choose PDF'}
       </button>
+      <span className="bigdrop-hint">or drop a PDF here to edit it</span>
+      <span className="bigdrop-note">
+        <Lock size={13} aria-hidden="true" /> Files stay on your device
+      </span>
       {error && (
         <span className="tool-error" role="alert">
           {error}

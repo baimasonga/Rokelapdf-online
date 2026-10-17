@@ -1,6 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { Badge, Button, Details, Empty, Muted, Panel, Progress, Table, ask, confirmAction, useNotice } from '@/components/ui';
+import { useEffect, useRef, useState } from 'react';
+import { Link2 } from 'lucide-react';
+import { Badge, Button, Empty, Muted, Panel, Progress, RowMenu, ask, confirmAction, useNotice } from '@/components/ui';
 import { api, enc } from '@/lib/client/api';
 import { fmtBytes, inDays, when } from '@/lib/client/format';
 import type { UploadProgress } from '@/lib/client/uploader';
@@ -73,82 +74,103 @@ function Recipients({ transfer }: { transfer: any }) {
     );
   }, []);
   const canEmail = !!cfg?.email && me.email_verified;
-  const urlOf = async (id: string) => (await api(`${P}/links/${enc(id)}`)).url as string;
-  const copy = async (id: string) => {
-    const url = await urlOf(id);
+  const copyText = async (url: string, done: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      notice('Link copied.');
+      notice(done);
     } catch {
       window.prompt('Copy the link:', url);
     }
   };
+  const copy = async (id: string) => copyText((await api(`${P}/links/${enc(id)}`)).url, 'Link copied.');
   const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  const newLink = (label: string) =>
+    api(`${P}/links`, { body: { target_type: 'transfer', target_id: transfer.id, permission: 'download', notify_on_access: true, label } });
   const forward = async () => {
     const addr = to.trim().toLowerCase();
     if (!isEmail(addr)) return notice('Enter an email address.', true);
-    const l = await api(`${P}/links`, {
-      body: { target_type: 'transfer', target_id: transfer.id, permission: 'download', notify_on_access: true, label: addr },
-    });
+    const l = await newLink(addr);
     if (canEmail) {
       await api(`${P}/links/${enc(l.id)}/email`, { body: { to: [addr], ...(transfer.message ? { message: transfer.message } : {}) } });
       notice(`Sent to ${addr}.`);
-    } else {
-      try {
-        await navigator.clipboard.writeText(l.url);
-        notice(`Personal link for ${addr} copied. Email delivery is not switched on yet, so send it yourself.`);
-      } catch {
-        window.prompt(`Personal link for ${addr}:`, l.url);
-      }
-    }
+    } else await copyText(l.url, `Personal link for ${addr} copied — send it yourself (email is not switched on yet).`);
     setTo('');
     reload();
   };
   const links: any[] = data?.items ?? [];
   return (
-    <Panel title="Recipients and downloads">
+    <section className="ws-card" aria-labelledby="people">
+      <div className="ws-card-head">
+        <h2 id="people">Recipients</h2>
+        {transfer.status === 'active' && (
+          <button
+            type="button"
+            className="link-button"
+            onClick={async () => {
+              const l = await newLink('Link');
+              reload();
+              await copyText(l.url, 'New link copied.');
+            }}
+          >
+            + New link
+          </button>
+        )}
+      </div>
       {links.length ? (
-        <Table
-          head={['Recipient / link', 'Downloads', 'State', '']}
-          rows={links.map((l) => [
-            <span key="l">
-              {l.label ?? 'Link'}
-              {l.has_password ? ' · password' : ''}
-            </span>,
-            `${l.download_count}${l.max_downloads ? ` of ${l.max_downloads}` : ''}`,
-            <Badge key="s" state={l.state} />,
-            <div key="a" className="actions">
-              <Button onClick={() => copy(l.id)}>Copy link</Button>
-              {canEmail && l.state === 'active' && isEmail(l.label ?? '') && (
-                <Button
-                  onClick={async () => {
-                    await api(`${P}/links/${enc(l.id)}/email`, { body: { to: [l.label], ...(transfer.message ? { message: transfer.message } : {}) } });
-                    notice(`Email sent again to ${l.label}.`);
-                  }}
-                >
-                  Resend
-                </Button>
-              )}
-              <Button kind="ghost" onClick={() => go('links', l.id)}>
-                Activity
-              </Button>
-              {l.status === 'active' && (
-                <Button
-                  kind="ghost"
-                  onClick={async () => {
-                    if (!confirmAction(`Stop the link for ${l.label ?? 'this link'}? Other recipients keep access.`)) return;
-                    await api(`${P}/links/${enc(l.id)}/status`, { body: { action: 'revoke' } });
-                    reload();
-                  }}
-                >
-                  Revoke
-                </Button>
-              )}
-            </div>,
-          ])}
-        />
+        <ul className="people">
+          {links.map((l) => {
+            const name = l.label ?? 'Link';
+            const email = isEmail(name);
+            return (
+              <li key={l.id} className={l.state === 'active' ? '' : 'off'}>
+                <span className="avatar" aria-hidden="true">
+                  {email ? name[0]!.toUpperCase() : <Link2 size={16} />}
+                </span>
+                <span className="people-main">
+                  <strong>{email ? name : 'Shareable link'}</strong>
+                  <span className="muted">
+                    {l.state !== 'active'
+                      ? l.state.replace(/_/g, ' ')
+                      : l.download_count
+                        ? `Downloaded ${l.download_count}×${l.max_downloads ? ` of ${l.max_downloads}` : ''}`
+                        : 'Not downloaded yet'}
+                    {l.has_password ? ' · password' : ''}
+                  </span>
+                </span>
+                <span className={`dl-count${l.download_count ? ' yes' : ''}`} title="Downloads">
+                  {l.download_count}
+                </span>
+                <RowMenu
+                  label={`Actions for ${name}`}
+                  items={[
+                    { label: 'Copy link', onSelect: () => copy(l.id) },
+                    {
+                      label: 'Send email again',
+                      hidden: !(canEmail && l.state === 'active' && email),
+                      onSelect: async () => {
+                        await api(`${P}/links/${enc(l.id)}/email`, { body: { to: [name], ...(transfer.message ? { message: transfer.message } : {}) } });
+                        notice(`Email sent again to ${name}.`);
+                      },
+                    },
+                    { label: 'View activity', onSelect: () => go('links', l.id) },
+                    {
+                      label: 'Stop this link',
+                      danger: true,
+                      hidden: l.status !== 'active',
+                      onSelect: async () => {
+                        if (!confirmAction(`Stop the link for ${name}? Other recipients keep access.`)) return;
+                        await api(`${P}/links/${enc(l.id)}/status`, { body: { action: 'revoke' } });
+                        reload();
+                      },
+                    },
+                  ]}
+                />
+              </li>
+            );
+          })}
+        </ul>
       ) : (
-        <Empty>No links yet.</Empty>
+        <p className="muted">No links yet.</p>
       )}
       {transfer.status === 'active' && (
         <div className="forward">
@@ -156,32 +178,16 @@ function Recipients({ transfer }: { transfer: any }) {
             type="email"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            placeholder="name@example.com"
+            placeholder="Add someone: name@example.com"
             aria-label="Forward to"
             onKeyDown={(e) => e.key === 'Enter' && void forward()}
           />
           <Button kind="primary" onClick={forward}>
-            {canEmail ? 'Forward' : 'Add recipient'}
-          </Button>
-          <Button
-            onClick={async () => {
-              const l = await api(`${P}/links`, {
-                body: { target_type: 'transfer', target_id: transfer.id, permission: 'download', notify_on_access: true, label: 'Link' },
-              });
-              reload();
-              try {
-                await navigator.clipboard.writeText(l.url);
-                notice('New link copied.');
-              } catch {
-                window.prompt('Copy the link:', l.url);
-              }
-            }}
-          >
-            New link
+            {canEmail ? 'Send' : 'Add'}
           </Button>
         </div>
       )}
-    </Panel>
+    </section>
   );
 }
 
@@ -195,10 +201,16 @@ function TransferDetail({ id }: { id: string }) {
   const { P, go, workspace } = useWs();
   const notice = useNotice();
   const [pending, setPending] = useState<Pending[]>([]);
+  const filesRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  const replaceRef = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState<any>();
   const { data: t, error, reload } = useLoad<any>(() => api(`${P}/transfers/${enc(id)}`), [P, id]);
   usePollWhile(!!t?.files.some((f: any) => f.status === 'processing'), reload);
   if (error) return <Panel title="Transfer">{error.message}</Panel>;
   if (!t) return <Muted>Loading…</Muted>;
+  const active = t.status === 'active';
+  const total = t.files.reduce((n: number, f: any) => n + (f.size ?? 0), 0);
 
   const run = async (files: FileList | null) => {
     const list = [...(files ?? [])];
@@ -236,142 +248,156 @@ function TransferDetail({ id }: { id: string }) {
     }
   };
 
+  const extend = async (days: number) => {
+    try {
+      await api(`${P}/transfers/${enc(id)}`, { method: 'PATCH', body: { expires_at: inDays(days) } });
+      notice(`Now expires in ${days} day${days === 1 ? '' : 's'}.`);
+      reload();
+    } catch (err) {
+      notice((err as Error).message, true);
+    }
+  };
+
   return (
-    <>
-      <Panel
-        title={t.title}
-        actions={
-          <Button kind="ghost" onClick={() => go('transfers')}>
-            ← All transfers
-          </Button>
-        }
-      >
-        <Details
-          items={[
-            ['Kind', t.kind],
-            ['State', <Badge key="s" state={t.status} />],
-            [
-              'Expires',
-              <span key="e" className="actions inline-actions">
-                {when(t.expires_at)}
-                {t.status === 'active' && t.kind === 'temporary' && (
-                  <select
-                    aria-label="Extend expiry"
-                    value=""
-                    onChange={async (e) => {
-                      const days = Number(e.target.value);
-                      if (!days) return;
-                      try {
-                        await api(`${P}/transfers/${enc(id)}`, { method: 'PATCH', body: { expires_at: inDays(days) } });
-                        notice(`Now expires in ${days} day${days === 1 ? '' : 's'}.`);
-                        reload();
-                      } catch (err) {
-                        notice((err as Error).message, true);
-                      }
-                    }}
-                  >
-                    <option value="">Change expiry…</option>
-                    {[1, 3, 7, 14, 30].map((d) => (
-                      <option key={d} value={d}>
-                        {d} day{d === 1 ? '' : 's'} from now
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </span>,
-            ],
-            ['Files deleted', t.files_deleted_at ? when(t.files_deleted_at) : t.kind === 'temporary' ? 'at expiry' : 'kept until you delete the transfer'],
-          ]}
-        />
-        {t.message && <p className="quote">{t.message}</p>}
-      </Panel>
-      {t.status === 'active' && (
-        <Panel title="Add files">
-          <Muted>Uploads go directly to private storage and resume if interrupted: choose the same file again to continue.</Muted>
-          <div className="actions">
-            <label className="button file-button primary">
-              Choose files
-              <input type="file" multiple onChange={(e) => void run(e.target.files).finally(() => (e.target.value = ''))} />
+    <div className="tr-page">
+      <button type="button" className="link-button back" onClick={() => go('transfers')}>
+        ← Sent
+      </button>
+      <header className="tr-head">
+        <div className="tr-title">
+          <h2>{t.title}</h2>
+          <p className="muted">
+            {t.files.length} file{t.files.length === 1 ? '' : 's'} · {fmtBytes(total)} · sent {when(t.created_at)}
+          </p>
+        </div>
+        <div className="tr-meta">
+          <Badge state={t.status} />
+          {active && t.kind === 'temporary' && (
+            <label className="expiry">
+              <span>{expiresIn(t.expires_at)}</span>
+              <select aria-label="Extend expiry" value="" onChange={(e) => Number(e.target.value) && void extend(Number(e.target.value))}>
+                <option value="">Change</option>
+                {[1, 3, 7, 14, 30].map((d) => (
+                  <option key={d} value={d}>
+                    {d} day{d === 1 ? '' : 's'} from now
+                  </option>
+                ))}
+              </select>
             </label>
-            <label className="button file-button">
-              Choose a folder
-              <input type="file" {...({ webkitdirectory: '' } as object)} onChange={(e) => void run(e.target.files).finally(() => (e.target.value = ''))} />
-            </label>
+          )}
+          <RowMenu
+            label="Transfer actions"
+            items={[
+              {
+                label: 'Advanced link settings…',
+                hidden: !active,
+                onSelect: () => go('links', undefined, { target_type: 'transfer', target_id: id, label: t.title }),
+              },
+              {
+                label: 'Stop all links',
+                danger: true,
+                hidden: !active,
+                onSelect: async () => {
+                  if (!confirmAction('Stop every link to this transfer? Copies already downloaded cannot be recalled.')) return;
+                  await api(`${P}/transfers/${enc(id)}/revoke`, { body: {} });
+                  reload();
+                },
+              },
+              {
+                label: 'Delete transfer',
+                danger: true,
+                onSelect: async () => {
+                  if (!confirmAction('Delete this transfer and its files?')) return;
+                  await api(`${P}/transfers/${enc(id)}/delete`, { body: {} });
+                  go('transfers');
+                },
+              },
+            ]}
+          />
+        </div>
+      </header>
+      {t.message && <p className="quote">{t.message}</p>}
+
+      <div className="tr-grid">
+        <section className="ws-card" aria-labelledby="files">
+          <div className="ws-card-head">
+            <h2 id="files">Files</h2>
+            {active && (
+              <span className="actions inline-actions">
+                <button type="button" className="link-button" onClick={() => filesRef.current?.click()}>
+                  + Add files
+                </button>
+                <button type="button" className="link-button" onClick={() => folderRef.current?.click()}>
+                  + Folder
+                </button>
+              </span>
+            )}
           </div>
+          <input ref={filesRef} type="file" multiple hidden onChange={(e) => void run(e.target.files).finally(() => (e.target.value = ''))} />
+          <input
+            ref={folderRef}
+            type="file"
+            hidden
+            {...({ webkitdirectory: '' } as object)}
+            onChange={(e) => void run(e.target.files).finally(() => (e.target.value = ''))}
+          />
+          <input
+            ref={replaceRef}
+            type="file"
+            hidden
+            aria-label="Replacement file"
+            onChange={(e) => void replace(replacing, e.target.files?.[0]).finally(() => (e.target.value = ''))}
+          />
           {pending.map((p, i) => (
-            <div key={i}>
+            <div key={i} className="pending">
               <strong>{p.name}</strong>
               <Progress p={p.p} label={p.done} />
             </div>
           ))}
-        </Panel>
-      )}
-      <Panel title="Files">
-        {t.files.length ? (
-          <Table
-            head={['File', 'Size', 'Status', 'Revision', '']}
-            rows={t.files.map((f: any) => [
-              f.folder_path ? `${f.folder_path}/${f.name}` : f.name,
-              fmtBytes(f.size),
-              <Badge key="s" state={f.status} />,
-              f.revision > 1 ? `rev ${f.revision}${f.replacement_note ? ` · ${f.replacement_note}` : ''}` : '—',
-              <div key="a" className="actions">
-                {f.status === 'available' && <Button onClick={() => ownerDownload(workspace.id, 'transfer_file', f.id)}>Download</Button>}
-                {t.status === 'active' && (
-                  <label className="button file-button">
-                    Replace
-                    <input
-                      type="file"
-                      aria-label={`Replace ${f.name}`}
-                      onChange={(e) => void replace(f, e.target.files?.[0]).finally(() => (e.target.value = ''))}
-                    />
-                  </label>
-                )}
-                <Button
-                  onClick={async () => {
-                    await api(`${P}/transfers/${enc(id)}/files/${enc(f.id)}/remove`, { body: {} });
-                    reload();
-                  }}
-                >
-                  Remove
-                </Button>
-              </div>,
-            ])}
-          />
-        ) : (
-          <Empty>No files yet.</Empty>
-        )}
-      </Panel>
-      <Recipients transfer={t} />
-      <Panel title="Manage">
-        <div className="actions">
-          {t.status === 'active' && (
-            <Button onClick={() => go('links', undefined, { target_type: 'transfer', target_id: id, label: t.title })}>Advanced link…</Button>
+          {t.files.length ? (
+            <ul className="tr-files">
+              {t.files.map((f: any) => (
+                <li key={f.id}>
+                  <span className="file-ext">{(/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] ?? 'file').toUpperCase()}</span>
+                  <span className="people-main">
+                    <strong title={f.name}>{f.folder_path ? `${f.folder_path}/${f.name}` : f.name}</strong>
+                    <span className="muted">
+                      {fmtBytes(f.size)}
+                      {f.revision > 1 ? ` · replaced${f.replacement_note ? `: ${f.replacement_note}` : ''}` : ''}
+                    </span>
+                  </span>
+                  {f.status !== 'available' && <Badge state={f.status} />}
+                  <RowMenu
+                    label={`Actions for ${f.name}`}
+                    items={[
+                      { label: 'Download', hidden: f.status !== 'available', onSelect: () => ownerDownload(workspace.id, 'transfer_file', f.id) },
+                      {
+                        label: 'Replace with a new version…',
+                        hidden: !active,
+                        onSelect: () => {
+                          setReplacing(f);
+                          replaceRef.current?.click();
+                        },
+                      },
+                      {
+                        label: 'Remove',
+                        danger: true,
+                        onSelect: async () => {
+                          await api(`${P}/transfers/${enc(id)}/files/${enc(f.id)}/remove`, { body: {} });
+                          reload();
+                        },
+                      },
+                    ]}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No files yet.</p>
           )}
-          {t.status === 'active' && (
-            <Button
-              kind="danger"
-              onClick={async () => {
-                if (!confirmAction('Revoke every link to this transfer? Copies already downloaded cannot be recalled.')) return;
-                await api(`${P}/transfers/${enc(id)}/revoke`, { body: {} });
-                reload();
-              }}
-            >
-              Revoke transfer
-            </Button>
-          )}
-          <Button
-            kind="danger"
-            onClick={async () => {
-              if (!confirmAction('Delete this transfer and its files?')) return;
-              await api(`${P}/transfers/${enc(id)}/delete`, { body: {} });
-              go('transfers');
-            }}
-          >
-            Delete transfer
-          </Button>
-        </div>
-      </Panel>
-    </>
+        </section>
+        <Recipients transfer={t} />
+      </div>
+    </div>
   );
 }

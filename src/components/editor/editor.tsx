@@ -347,57 +347,38 @@ export function Editor({
 
   return (
     <div className="editor">
-      <div className="toolbar" role="toolbar" aria-label="Editor">
-        <div className="group">
+      <input
+        ref={openRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        onChange={(e) => void onDropFile(e.target.files?.[0]).finally(() => (e.target.value = ''))}
+      />
+      <input
+        ref={mergeRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        multiple
+        onChange={async (e) => {
+          try {
+            for (const f of e.target.files ?? []) await addSource(await fileBytes(f));
+          } catch (err) {
+            notice((err as Error).message, true);
+          } finally {
+            e.target.value = '';
+          }
+        }}
+      />
+      <div className="ed-bar" role="toolbar" aria-label="Editor">
+        <div className="ed-doc">
+          <FileText size={18} aria-hidden="true" className="muted" />
           <span className="doc-title" title={title}>
-            <FileText size={18} aria-hidden="true" className="muted" />
-            <span>{s.pages.length ? title : 'No document'}</span>
+            {s.pages.length ? title : 'Edit a PDF'}
           </span>
           {s.pages.length > 0 && <span className={`save-state${dirty ? ' dirty' : ''}`}>{dirty ? 'Unsaved changes' : doc ? 'Saved' : 'On this device'}</span>}
         </div>
-        <div className="group">
-          <Button onClick={() => openRef.current?.click()} title="Open a PDF">
-            <FolderOpen size={16} aria-hidden="true" /> Open PDF
-          </Button>
-          <Button onClick={() => mergeRef.current?.click()} disabled={!s.pages.length} title="Append the pages of another PDF">
-            <Combine size={16} aria-hidden="true" /> Add PDF
-          </Button>
-          <Button
-            disabled={!s.pages.length}
-            title="Insert a blank page at the end"
-            onClick={async () => {
-              const last = s.pages[s.pages.length - 1];
-              const info = last && pageInfo(last.src, last.index);
-              await addSource(await blankPdf(info?.w, info?.h));
-            }}
-          >
-            <FilePlus size={16} aria-hidden="true" /> Blank page
-          </Button>
-          <input
-            ref={openRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            hidden
-            onChange={(e) => void onDropFile(e.target.files?.[0]).finally(() => (e.target.value = ''))}
-          />
-          <input
-            ref={mergeRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            hidden
-            multiple
-            onChange={async (e) => {
-              try {
-                for (const f of e.target.files ?? []) await addSource(await fileBytes(f));
-              } catch (err) {
-                notice((err as Error).message, true);
-              } finally {
-                e.target.value = '';
-              }
-            }}
-          />
-        </div>
-        <div className="group tools" role="radiogroup" aria-label="Tool">
+        <div className="ed-tools" role="radiogroup" aria-label="Tool">
           {TOOLS.map(([t, label, hint]) => {
             const Icon = TOOL_ICONS[t];
             return (
@@ -420,116 +401,160 @@ export function Editor({
             );
           })}
         </div>
-        <div className="group">
-          <span className="swatches" role="radiogroup" aria-label="Colour">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                role="radio"
-                aria-checked={color === c}
-                aria-label={`Colour ${c}`}
-                className={`swatch${color === c ? ' active' : ''}`}
-                style={{ background: c }}
-                onClick={() => setColor(c)}
-              />
-            ))}
-          </span>
-          {(tool === 'text' || selectedAnnot?.kind === 'text') && (
-            <label className="inline">
-              Size
-              <select value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))}>
-                {[8, 10, 12, 14, 18, 24, 32, 48].map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          {tool === 'ink' && (
-            <label className="inline">
-              Width
-              <select value={inkWidth} onChange={(e) => setInkWidth(Number(e.target.value))}>
-                {[1, 2, 4, 8].map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          {tool === 'signature' && (
-            <Button kind="ghost" onClick={() => setSigOpen(true)}>
-              {signature ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- a local data: URL, nothing to optimize */}
-                  <img src={signature.src} alt="Your signature" className="sig-thumb" /> Change
-                </>
-              ) : (
-                'Create signature'
-              )}
-            </Button>
-          )}
-          {tool === 'field' && (
-            <span className="seg" role="radiogroup" aria-label="Field type">
-              {(
-                [
-                  ['text', 'Text field'],
-                  ['checkbox', 'Checkbox'],
-                ] as Array<[FieldAnnot['field'], string]>
-              ).map(([v, label]) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="radio"
-                  aria-checked={fieldType === v}
-                  className={fieldType === v ? 'on' : ''}
-                  onClick={() => setFieldType(v)}
-                >
-                  {label}
-                </button>
-              ))}
-            </span>
-          )}
-          {selectedAnnot?.kind === 'field' && (
-            <label className="inline">
-              Name
-              <input
-                key={selectedAnnot.id}
-                defaultValue={selectedAnnot.name}
-                maxLength={60}
-                className="field-name"
-                onBlur={(e) => {
-                  const name = uniqueFieldName(s, e.target.value, selectedAnnot.id);
-                  e.target.value = name;
-                  if (name !== selectedAnnot.name) commit((cur) => upsertAnnot(cur, selected!.page, { ...selectedAnnot, name }));
-                }}
-                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-              />
-            </label>
-          )}
-          {selectedAnnot && selectedAnnot.kind !== 'whiteout' && selectedAnnot.kind !== 'image' && (
-            <Button
-              kind="ghost"
-              onClick={() =>
-                commit((cur) =>
-                  upsertAnnot(cur, selected!.page, { ...selectedAnnot, color, ...(selectedAnnot.kind === 'text' ? { size: fontSize } : {}) } as Annot),
-                )
-              }
-            >
-              Apply style
-            </Button>
-          )}
-          {selectedAnnot && (
-            <Button
-              kind="ghost"
-              onClick={() => {
-                commit((cur) => removeAnnot(cur, selected!.page, selected!.id));
-                setSelected(undefined);
-              }}
-            >
-              Delete
+        <div className="ed-actions">
+          <Button onClick={download} disabled={!s.pages.length}>
+            <Download size={16} aria-hidden="true" /> Download<span className="wide-only"> PDF</span>
+          </Button>
+          {doc ? (
+            <>
+              <Button kind="primary" disabled={!s.pages.length} onClick={() => saveDraft(doc.orgId, doc.id)}>
+                <Save size={16} aria-hidden="true" /> Save draft
+              </Button>
+              <Link className="button ghost" href={`/app?ws=${enc(doc.orgId)}&tab=documents&id=${enc(doc.id)}`}>
+                Export &amp; share →
+              </Link>
+            </>
+          ) : (
+            <Button kind="primary" disabled={!s.pages.length} onClick={openSaveDialog}>
+              <CloudUpload size={16} aria-hidden="true" /> Save<span className="wide-only"> to workspace</span>
             </Button>
           )}
         </div>
-        <div className="group">
+      </div>
+      {s.pages.length > 0 && (
+        <div className="ed-sub">
+          <div className="ed-file">
+            <Button onClick={() => openRef.current?.click()} title="Open a PDF">
+              <FolderOpen size={16} aria-hidden="true" /> Open PDF
+            </Button>
+            <Button onClick={() => mergeRef.current?.click()} disabled={!s.pages.length} title="Append the pages of another PDF">
+              <Combine size={16} aria-hidden="true" /> Add PDF
+            </Button>
+            <Button
+              disabled={!s.pages.length}
+              title="Insert a blank page at the end"
+              onClick={async () => {
+                const last = s.pages[s.pages.length - 1];
+                const info = last && pageInfo(last.src, last.index);
+                await addSource(await blankPdf(info?.w, info?.h));
+              }}
+            >
+              <FilePlus size={16} aria-hidden="true" /> Blank page
+            </Button>
+          </div>
+          <div className="ed-style">
+            <span className="swatches" role="radiogroup" aria-label="Colour">
+              {COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  role="radio"
+                  aria-checked={color === c}
+                  aria-label={`Colour ${c}`}
+                  className={`swatch${color === c ? ' active' : ''}`}
+                  style={{ background: c }}
+                  onClick={() => setColor(c)}
+                />
+              ))}
+            </span>
+            {(tool === 'text' || selectedAnnot?.kind === 'text') && (
+              <label className="inline">
+                Size
+                <select value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))}>
+                  {[8, 10, 12, 14, 18, 24, 32, 48].map((n) => (
+                    <option key={n}>{n}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {tool === 'ink' && (
+              <label className="inline">
+                Width
+                <select value={inkWidth} onChange={(e) => setInkWidth(Number(e.target.value))}>
+                  {[1, 2, 4, 8].map((n) => (
+                    <option key={n}>{n}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {tool === 'signature' && (
+              <Button kind="ghost" onClick={() => setSigOpen(true)}>
+                {signature ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- a local data: URL, nothing to optimize */}
+                    <img src={signature.src} alt="Your signature" className="sig-thumb" /> Change
+                  </>
+                ) : (
+                  'Create signature'
+                )}
+              </Button>
+            )}
+            {tool === 'field' && (
+              <span className="seg" role="radiogroup" aria-label="Field type">
+                {(
+                  [
+                    ['text', 'Text field'],
+                    ['checkbox', 'Checkbox'],
+                  ] as Array<[FieldAnnot['field'], string]>
+                ).map(([v, label]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={fieldType === v}
+                    className={fieldType === v ? 'on' : ''}
+                    onClick={() => setFieldType(v)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            )}
+            {selectedAnnot?.kind === 'field' && (
+              <label className="inline">
+                Name
+                <input
+                  key={selectedAnnot.id}
+                  defaultValue={selectedAnnot.name}
+                  maxLength={60}
+                  className="field-name"
+                  onBlur={(e) => {
+                    const name = uniqueFieldName(s, e.target.value, selectedAnnot.id);
+                    e.target.value = name;
+                    if (name !== selectedAnnot.name) commit((cur) => upsertAnnot(cur, selected!.page, { ...selectedAnnot, name }));
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                />
+              </label>
+            )}
+            {selectedAnnot && selectedAnnot.kind !== 'whiteout' && selectedAnnot.kind !== 'image' && (
+              <Button
+                kind="ghost"
+                onClick={() =>
+                  commit((cur) =>
+                    upsertAnnot(cur, selected!.page, { ...selectedAnnot, color, ...(selectedAnnot.kind === 'text' ? { size: fontSize } : {}) } as Annot),
+                  )
+                }
+              >
+                Apply style
+              </Button>
+            )}
+            {selectedAnnot && (
+              <Button
+                kind="ghost"
+                onClick={() => {
+                  commit((cur) => removeAnnot(cur, selected!.page, selected!.id));
+                  setSelected(undefined);
+                }}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {s.pages.length > 0 && (
+        <div className="ed-zoom" role="group" aria-label="History and zoom">
           <Button kind="ghost" onClick={undo} disabled={!h.past.length} title="Undo (Ctrl+Z)">
             <Undo2 size={18} aria-hidden="true" />
             <span className="sr-only">Undo</span>
@@ -548,29 +573,10 @@ export function Editor({
             <span className="sr-only">Zoom in</span>
           </Button>
         </div>
-        <div className="group end">
-          <Button onClick={download} disabled={!s.pages.length}>
-            <Download size={16} aria-hidden="true" /> Download PDF
-          </Button>
-          {doc ? (
-            <>
-              <Button kind="primary" disabled={!s.pages.length} onClick={() => saveDraft(doc.orgId, doc.id)}>
-                <Save size={16} aria-hidden="true" /> Save draft
-              </Button>
-              <Link className="button ghost" href={`/app?ws=${enc(doc.orgId)}&tab=documents&id=${enc(doc.id)}`}>
-                Export &amp; share →
-              </Link>
-            </>
-          ) : (
-            <Button kind="primary" disabled={!s.pages.length} onClick={openSaveDialog}>
-              <CloudUpload size={16} aria-hidden="true" /> Save to workspace
-            </Button>
-          )}
-        </div>
-      </div>
+      )}
 
       <div className="editor-body">
-        <aside className="thumbs" aria-label="Pages">
+        <aside className="thumbs" aria-label="Pages" hidden={!s.pages.length}>
           {s.pages.map((pg, i) => {
             const src = sources[pg.src];
             const info = src?.info[pg.index];
@@ -638,15 +644,15 @@ export function Editor({
           {busy && <p className="muted center">{busy}</p>}
           <Progress p={progress} />
           {!s.pages.length && !busy && (
-            <div className="dropzone">
-              <span className="file-icon">
-                <Upload size={30} aria-hidden="true" />
-              </span>
+            <div className="ed-empty">
               <h1>{doc ? doc.title : 'Edit a PDF'}</h1>
-              <p>Open a PDF or drop it here. It is processed on your device{doc ? '' : ' and nothing is uploaded unless you save it to a workspace'}.</p>
-              <Button kind="primary" onClick={() => openRef.current?.click()}>
-                Choose a PDF
-              </Button>
+              <p>Add text, highlights, signatures and form fields, then download. Your file stays on this device{doc ? '' : ' unless you save it'}.</p>
+              <div className="bigdrop">
+                <button type="button" className="button primary xl" onClick={() => openRef.current?.click()}>
+                  <Upload size={22} aria-hidden="true" /> Choose PDF
+                </button>
+                <span className="bigdrop-hint">or drop a PDF here</span>
+              </div>
             </div>
           )}
           {s.pages.map((pg, i) => {

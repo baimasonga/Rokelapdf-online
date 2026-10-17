@@ -18,7 +18,7 @@ function Thumb({ doc, index }: { doc: PDFDocumentProxy; index: number }) {
         io.disconnect();
         const page = await doc.getPage(index + 1);
         const base = page.getViewport({ scale: 1 });
-        const vp = page.getViewport({ scale: (140 / Math.max(base.width, base.height)) * Math.min(window.devicePixelRatio || 1, 2) });
+        const vp = page.getViewport({ scale: (190 / Math.max(base.width, base.height)) * Math.min(window.devicePixelRatio || 1, 2) });
         el.width = Math.floor(vp.width);
         el.height = Math.floor(vp.height);
         await page.render({ canvas: el, viewport: vp }).promise.catch(() => undefined);
@@ -109,4 +109,30 @@ export function toRanges(sel: Set<number>): string {
     i = j + 1;
   }
   return out.join(', ');
+}
+
+/** The first page of a PDF as a small picture (file cards). */
+export function FirstPageThumb({ bytes }: { bytes: Uint8Array }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let doc: PDFDocumentProxy | undefined;
+    let live = true;
+    (async () => {
+      doc = await openPdf(bytes);
+      const page = await doc.getPage(1);
+      const el = ref.current;
+      if (!live || !el) return;
+      const base = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: (150 / Math.max(base.width, base.height)) * Math.min(window.devicePixelRatio || 1, 2) });
+      el.width = Math.floor(vp.width);
+      el.height = Math.floor(vp.height);
+      await page.render({ canvas: el, viewport: vp }).promise;
+    })().catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+      void doc?.destroy();
+    };
+  }, [bytes]);
+  return failed ? <span className="thumb-fallback">PDF</span> : <canvas ref={ref} className="file-thumb" aria-hidden="true" />;
 }

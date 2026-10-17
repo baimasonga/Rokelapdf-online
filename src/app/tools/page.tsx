@@ -12,12 +12,14 @@ export default function ToolsPage() {
   return (
     <>
       <Header />
-      <main className="landing">
-        <section className="section tools-intro">
+      <main className="tool-page">
+        <section className="tool-hero">
           <h1>All PDF tools</h1>
-          <p className="lead">Every tool runs in your browser — your files are never uploaded unless you choose to share them.</p>
-          <ToolGrid />
+          <p>Every tool is free and runs in your browser — your files are never uploaded.</p>
         </section>
+        <div className="tools-all">
+          <ToolGrid />
+        </div>
       </main>
       <SiteFooter />
     </>

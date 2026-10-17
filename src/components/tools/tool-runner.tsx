@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { zipSync } from 'fflate';
-import { ArrowDown, ArrowUp, Download, FileArchive, FilePen, Loader2, Lock, Plus, RotateCcw, Upload, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Download, FileArchive, FilePen, Loader2, Lock, Plus, RotateCcw, Upload, X } from 'lucide-react';
 import { toolBySlug, type ToolSlug } from '@/lib/tools/registry';
 import {
   addBlankPages,
@@ -28,7 +28,7 @@ import {
 import { imageForPdf, pdfToImages } from '@/lib/client/raster';
 import { putHandoff } from '@/lib/client/handoff';
 import { fmtBytes } from '@/lib/client/format';
-import { PagePicker, toRanges } from './page-picker';
+import { FirstPageThumb, PagePicker, toRanges } from './page-picker';
 
 // One component runs every single-step tool: choose files, set options, run the operation in this browser and
 // download the result. Nothing is uploaded. Interactive tools (sign, edit…) hand the file to the editor instead.
@@ -681,13 +681,29 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
       break;
   }
 
-  const Icon = busy ? Loader2 : Upload;
+  const fileInput = (testId?: string) => (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={accept}
+      multiple={tool.multiple}
+      hidden
+      {...(testId ? { 'data-testid': testId } : {})}
+      onChange={(e) => {
+        const f = e.target.files;
+        void choose(f ? Array.from(f) : null);
+        e.target.value = '';
+      }}
+    />
+  );
+  const noun = tool.accept === 'image' ? 'images' : tool.multiple ? 'PDF files' : 'PDF file';
 
+  // 1. Nothing chosen yet: one big button, like the big PDF tool sites.
   if (!files.length) {
     return (
       <div className="tool-run">
         <div
-          className={`drop${over ? ' over' : ''}`}
+          className={`bigdrop${over ? ' over' : ''}`}
           onDragOver={(e) => {
             e.preventDefault();
             setOver(true);
@@ -695,53 +711,99 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
           onDragLeave={() => setOver(false)}
           onDrop={onDrop}
         >
-          <span className="file-icon">
-            <Icon size={30} className={busy ? 'spin' : undefined} aria-hidden="true" />
-          </span>
-          <button type="button" className="button primary lg" disabled={!!busy} onClick={() => inputRef.current?.click()}>
-            {busy ?? (tool.accept === 'image' ? 'Choose images' : tool.multiple ? 'Choose PDF files' : 'Choose PDF file')}
+          <button type="button" className="button primary xl" disabled={!!busy} onClick={() => inputRef.current?.click()}>
+            {busy ? <Loader2 size={22} className="spin" aria-hidden="true" /> : <Upload size={22} aria-hidden="true" />}
+            {busy ?? `Select ${noun}`}
           </button>
-          <span className="muted">or drop {tool.multiple ? 'files' : 'a file'} here</span>
-          <input
-            ref={inputRef}
-            type="file"
-            accept={accept}
-            multiple={tool.multiple}
-            hidden
-            data-testid="tool-input"
-            onChange={(e) => {
-              const f = e.target.files;
-              void choose(f ? Array.from(f) : null);
-              e.target.value = '';
-            }}
-          />
+          <span className="bigdrop-hint">or drop {tool.multiple ? noun : `a ${noun.replace(/s$/, '')}`} here</span>
+          <span className="bigdrop-note">
+            <Lock size={13} aria-hidden="true" /> Processed in your browser — files are never uploaded
+          </span>
+          {fileInput('tool-input')}
         </div>
         {error && (
-          <p className="tool-error" role="alert">
+          <p className="tool-error center-error" role="alert">
             {error}
           </p>
         )}
-        <p className="privacy">
-          <Lock size={14} aria-hidden="true" /> Your files are processed in this browser and never uploaded.
-        </p>
       </div>
     );
   }
 
+  // 3. Finished: a clear, celebratory result with one big download.
+  if (outputs.length) {
+    const one = outputs.length === 1 ? outputs[0]! : undefined;
+    return (
+      <div className="tool-run">
+        <section className="results done" aria-live="polite">
+          <span className="done-check" aria-hidden="true">
+            <CheckCircle2 size={44} />
+          </span>
+          <h2>{one ? 'Done! Your file is ready' : `Done — ${outputs.length} files are ready`}</h2>
+          {one ? (
+            <a href={one.url} download={one.name} className="button primary xl">
+              <Download size={22} aria-hidden="true" /> Download <span className="sr-only">{one.name}</span>
+            </a>
+          ) : (
+            <button type="button" className="button primary xl" onClick={downloadZip}>
+              <FileArchive size={22} aria-hidden="true" /> Download all (ZIP)
+            </button>
+          )}
+          {one ? (
+            <p className="done-file">
+              {one.name} · {fmtBytes(one.blob.size)}
+            </p>
+          ) : (
+            <ul className="done-list">
+              {outputs.map((o) => (
+                <li key={o.name}>
+                  <a href={o.url} download={o.name} className="result-link">
+                    <Download size={15} aria-hidden="true" /> {o.name}
+                  </a>
+                  <span className="muted">{fmtBytes(o.blob.size)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="done-actions">
+            {one?.pdf && (
+              <button type="button" className="button" onClick={() => void openInEditor(one)}>
+                <FilePen size={16} aria-hidden="true" /> Edit in the editor
+              </button>
+            )}
+            <button type="button" className="button" onClick={() => setOutputs([])}>
+              <ArrowLeft size={16} aria-hidden="true" /> Change options
+            </button>
+            <button type="button" className="button ghost" onClick={reset}>
+              <RotateCcw size={16} aria-hidden="true" /> Start over
+            </button>
+          </div>
+          <p className="bigdrop-note">
+            <Lock size={13} aria-hidden="true" /> Made in your browser — nothing was uploaded
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  // 2. Working: files on the left, options and the big action button on the right.
   return (
     <div className="tool-run">
       <div className="tool-work">
         <div className="tool-main">
-          {tool.multiple && (
-            <ul className="file-list" aria-label="Files">
+          {tool.multiple ? (
+            <ul className="file-cards" aria-label="Files">
               {files.map((f, i) => (
-                <li key={f.id}>
+                <li key={f.id} className="file-card">
                   <span className="file-order">{i + 1}</span>
-                  <span className="file-name">{f.file.name}</span>
-                  <span className="muted">{fmtBytes(f.file.size)}</span>
-                  <span className="file-actions">
+                  <div className="file-card-art">{tool.accept === 'image' ? <ImageThumb file={f.file} /> : <FirstPageThumb bytes={f.bytes} />}</div>
+                  <span className="file-card-name" title={f.file.name}>
+                    {f.file.name}
+                  </span>
+                  <span className="muted small">{fmtBytes(f.file.size)}</span>
+                  <span className="file-card-actions">
                     <button type="button" className="icon-button" aria-label={`Move ${f.file.name} up`} disabled={i === 0} onClick={() => move(i, -1)}>
-                      <ArrowUp size={16} />
+                      <ArrowLeft size={15} />
                     </button>
                     <button
                       type="button"
@@ -750,7 +812,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
                       disabled={i === files.length - 1}
                       onClick={() => move(i, 1)}
                     >
-                      <ArrowDown size={16} />
+                      <ArrowRight size={15} />
                     </button>
                     <button
                       type="button"
@@ -758,93 +820,69 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
                       aria-label={`Remove ${f.file.name}`}
                       onClick={() => setFiles((xs) => xs.filter((x) => x.id !== f.id))}
                     >
-                      <X size={16} />
+                      <X size={15} />
                     </button>
                   </span>
                 </li>
               ))}
+              <li>
+                <button type="button" className="file-card add" onClick={() => inputRef.current?.click()}>
+                  <Plus size={28} aria-hidden="true" />
+                  Add more
+                </button>
+              </li>
             </ul>
-          )}
-          {!tool.multiple && (
+          ) : (
             <div className="file-chip">
               <strong>{first!.file.name}</strong>
               <span className="muted">
                 {fmtBytes(first!.file.size)}
                 {count ? ` · ${count} page${count === 1 ? '' : 's'}` : ''}
               </span>
+              <button type="button" className="button ghost" onClick={reset}>
+                Change file
+              </button>
             </div>
           )}
           {preview}
         </div>
         <aside className="tool-side" aria-label="Options">
           <h2>{tool.title}</h2>
-          {options}
+          <div className="tool-options">{options}</div>
           {error && (
             <p className="tool-error" role="alert">
               {error}
             </p>
           )}
-          <button type="button" className="button accent lg wide" disabled={!ready || !!busy} onClick={run}>
+          <button type="button" className="button primary xl wide" disabled={!ready || !!busy} onClick={run}>
             {busy ? (
               <>
-                <Loader2 size={18} className="spin" aria-hidden="true" /> {busy}
+                <Loader2 size={20} className="spin" aria-hidden="true" /> {busy}
               </>
             ) : (
-              tool.title
+              <>
+                {tool.title} <ArrowRight size={20} aria-hidden="true" />
+              </>
             )}
           </button>
-          <div className="actions">
-            {tool.multiple && (
-              <button type="button" className="button" onClick={() => inputRef.current?.click()}>
-                <Plus size={16} aria-hidden="true" /> Add files
-              </button>
-            )}
-            <button type="button" className="button ghost" onClick={reset}>
-              <RotateCcw size={16} aria-hidden="true" /> Start over
-            </button>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept={accept}
-            multiple={tool.multiple}
-            hidden
-            onChange={(e) => {
-              const f = e.target.files;
-              void choose(f ? Array.from(f) : null);
-              e.target.value = '';
-            }}
-          />
-          {outputs.length > 0 && (
-            <div className="results" aria-live="polite">
-              <h3>{outputs.length === 1 ? 'Your file is ready' : `${outputs.length} files are ready`}</h3>
-              {outputs.length > 1 && (
-                <button type="button" className="button primary wide" onClick={downloadZip}>
-                  <FileArchive size={16} aria-hidden="true" /> Download all (ZIP)
-                </button>
-              )}
-              <ul>
-                {outputs.map((o) => (
-                  <li key={o.name}>
-                    <a href={o.url} download={o.name} className={outputs.length === 1 ? 'button primary wide' : 'result-link'}>
-                      <Download size={16} aria-hidden="true" /> {outputs.length === 1 ? `Download ${o.name}` : o.name}
-                    </a>
-                    <span className="muted">{fmtBytes(o.blob.size)}</span>
-                  </li>
-                ))}
-              </ul>
-              {outputs.length === 1 && outputs[0]!.pdf && (
-                <button type="button" className="button wide" onClick={() => void openInEditor(outputs[0]!)}>
-                  <FilePen size={16} aria-hidden="true" /> Continue in the editor
-                </button>
-              )}
-            </div>
-          )}
-          <p className="privacy">
-            <Lock size={14} aria-hidden="true" /> Processed in this browser — nothing is uploaded.
+          {fileInput()}
+          <p className="bigdrop-note">
+            <Lock size={13} aria-hidden="true" /> Processed in your browser
           </p>
         </aside>
       </div>
     </div>
   );
+}
+
+/** A small preview of a chosen image (object URL, released when the card goes away). */
+function ImageThumb({ file }: { file: File }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  // eslint-disable-next-line @next/next/no-img-element -- a local blob: URL of the user's own image
+  return url ? <img src={url} alt="" className="file-thumb" /> : null;
 }

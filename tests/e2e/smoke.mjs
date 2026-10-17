@@ -102,7 +102,7 @@ async function main() {
     );
     check(res.headers()['x-frame-options'] === 'DENY', 'framing denied');
     await p.getByRole('heading', { name: /Every PDF tool you need/ }).waitFor();
-    check((await p.locator('.tool-grid a.tool[href^="/tools/"]').count()) >= 20, 'home page lists every tool');
+    check((await p.locator('.tiles a.tile[href^="/tools/"]').count()) >= 20, 'home page lists every tool');
     ok('landing page renders');
     await shot(p, 'home');
 
@@ -210,7 +210,7 @@ async function main() {
     check(fields.map((f) => f.constructor.name).join(',') === 'PDFTextField,PDFCheckBox', 'create fillable: text field and checkbox added');
 
     await v.goto(ORIGIN);
-    await v.locator('.hero-drop input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.locator('.home-hero input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
     await v.waitForURL(/\/edit\?handoff=1/);
     await v.locator('.thumb').nth(1).waitFor();
     ok('home page drop opens the PDF in the editor');
@@ -223,7 +223,7 @@ async function main() {
     await p.getByLabel('Password').fill('correct horse battery');
     await p.getByRole('button', { name: 'Create account' }).click();
     await p.waitForURL(/\/app/);
-    await p.getByRole('heading', { name: /Usage this month/ }).waitFor();
+    await p.getByRole('heading', { name: 'What would you like to do?' }).waitFor();
     ok('account created and personal workspace shown');
 
     step('Send files, WeTransfer-style');
@@ -294,8 +294,8 @@ async function main() {
 
     await p.goto(`${ORIGIN}/app?tab=transfers`);
     await p.getByRole('button', { name: /Project pack/ }).click();
-    await p.getByRole('heading', { name: 'Recipients and downloads' }).waitFor();
-    await p.locator('table', { hasText: 'Link' }).getByRole('cell', { name: '1', exact: true }).waitFor();
+    await p.getByRole('heading', { name: 'Recipients' }).waitFor();
+    await p.locator('.people li', { hasText: 'Shareable link' }).getByText('Downloaded 1×').waitFor();
     ok('sender sees the download on the transfer');
     await shot(p, 'transfer-detail');
 

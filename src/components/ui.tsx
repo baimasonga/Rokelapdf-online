@@ -1,6 +1,6 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Inbox, type LucideIcon } from 'lucide-react';
+import { Inbox, MoreHorizontal, type LucideIcon } from 'lucide-react';
 import type { UploadProgress } from '@/lib/client/uploader';
 import { fmtBytes } from '@/lib/client/format';
 
@@ -305,5 +305,62 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
       </div>
       {children}
     </dialog>
+  );
+}
+
+// ---- row menu ("⋯") -----------------------------------------------------------------------------------------
+export interface MenuItem {
+  label: string;
+  onSelect: () => unknown;
+  danger?: boolean;
+  hidden?: boolean;
+}
+/** A compact actions menu for list rows, so a row shows one control instead of a line of buttons. */
+export function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const notice = useNotice();
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [open]);
+  const shown = items.filter((i) => !i.hidden);
+  if (!shown.length) return null;
+  return (
+    <div className="row-menu" ref={ref}>
+      <button type="button" className="row-menu-button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <MoreHorizontal size={18} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="row-menu-list" role="menu">
+          {shown.map((i) => (
+            <button
+              key={i.label}
+              type="button"
+              role="menuitem"
+              className={i.danger ? 'danger-item' : ''}
+              onClick={async () => {
+                setOpen(false);
+                try {
+                  await i.onSelect();
+                } catch (e) {
+                  notice((e as Error).message, true);
+                }
+              }}
+            >
+              {i.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,96 +1,82 @@
 import Link from 'next/link';
-import { ArrowRight, FileInput, Link2, Lock, QrCode, Send, ShieldCheck, Sparkles, Zap, type LucideIcon } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Check, Globe2, Lock, Mail, Send } from 'lucide-react';
 import { Header } from '@/components/header';
 import { SiteFooter } from '@/components/site-footer';
 import { HeroDrop } from '@/components/tools/hero-drop';
-import { ToolGrid } from '@/components/tools/tool-grid';
-import { ToolIcon } from '@/components/tools/icons';
-import { TOOLS } from '@/lib/tools/registry';
-
-const SHARING: Array<{ icon: LucideIcon; title: string; text: string }> = [
-  { icon: Send, title: 'Send files', text: 'Share large files with expiring links and download limits.' },
-  { icon: Link2, title: 'Short links', text: 'Short, editable links for anything you publish.' },
-  { icon: QrCode, title: 'QR codes', text: 'A printable QR code for every short link.' },
-  { icon: FileInput, title: 'Request files', text: 'Collect documents from clients with a checklist and deadline.' },
-];
+import { ToolBrowser } from '@/components/tools/tool-browser';
 
 export default function Home() {
-  const popular = TOOLS.filter((t) => t.popular);
   return (
     <>
       <Header />
-      <main className="landing">
-        <section className="hero">
-          <div className="hero-inner">
-            <div>
-              <div className="eyebrow">
-                <Zap size={14} aria-hidden="true" /> {TOOLS.length} free PDF tools · no sign-up
+      <main className="home">
+        <section className="home-hero">
+          <h1>Every PDF tool you need, in one place</h1>
+          <p className="home-lead">Merge, split, edit, sign and convert PDFs for free — right in your browser. No sign-up, no watermarks.</p>
+          <HeroDrop />
+        </section>
+
+        <section className="home-tools" id="tools" aria-label="PDF tools">
+          <ToolBrowser />
+        </section>
+
+        <section className="home-send">
+          <div className="home-send-copy">
+            <span className="kicker">
+              <Send size={15} aria-hidden="true" /> Rokela Send
+            </span>
+            <h2>Send big files. See who downloaded them.</h2>
+            <ul className="ticks">
+              <li>
+                <Check size={18} aria-hidden="true" /> Email a personal link to each person, or get one link to share
+              </li>
+              <li>
+                <Check size={18} aria-hidden="true" /> Passwords, expiry dates and download limits
+              </li>
+              <li>
+                <Check size={18} aria-hidden="true" /> Recipients preview files and download everything as one ZIP
+              </li>
+            </ul>
+            <Link href="/send" className="button primary xl">
+              Send files <ArrowRight size={20} aria-hidden="true" />
+            </Link>
+          </div>
+          <div className="home-send-art" aria-hidden="true">
+            <div className="art-card">
+              <div className="art-file">
+                <span className="art-dot" style={{ background: '#ef4444' }} />
+                Contract-final.pdf <em>2.4 MB</em>
               </div>
-              <h1>
-                Every PDF tool you need — <em>private by design.</em>
-              </h1>
-              <p className="lead">
-                Edit, sign, merge, split, convert and organize PDFs right in your browser. Your files stay on your device; share them only when you choose.
-              </p>
-              <div className="hero-tools" aria-label="Popular tools">
-                {popular.map((t) => (
-                  <Link key={t.slug} href={`/tools/${t.slug}`} className="quick-tool">
-                    <ToolIcon name={t.icon} size={16} /> {t.title}
-                  </Link>
-                ))}
+              <div className="art-file">
+                <span className="art-dot" style={{ background: '#0ea5e9' }} />
+                Site-photos.zip <em>184 MB</em>
               </div>
-              <p className="hero-note">
-                <span>
-                  <Lock size={14} aria-hidden="true" /> Processed in your browser
-                </span>
-                <span>
-                  <ShieldCheck size={14} aria-hidden="true" /> No watermarks, no account needed
-                </span>
-              </p>
+              <div className="art-chip">
+                <Mail size={14} /> ama@client.com
+              </div>
+              <div className="art-btn">Transfer</div>
             </div>
-            <HeroDrop />
+            <div className="art-toast">
+              <BadgeCheck size={18} /> Ama downloaded your files
+            </div>
           </div>
         </section>
 
-        <section className="section" id="tools">
-          <ToolGrid />
-        </section>
-
-        <div className="band">
-          <section className="section">
-            <div className="section-head">
-              <div className="eyebrow">
-                <Sparkles size={14} aria-hidden="true" /> With a free account
-              </div>
-              <h2>Finished? Share it with control</h2>
-              <p>Publish a version and send it with passwords, expiry and download limits — or collect files from clients. Revoke any link at any time.</p>
-            </div>
-            <div className="tool-grid">
-              {SHARING.map(({ icon: Icon, title, text }) => (
-                <Link key={title} href="/signin?mode=signup" className="tool">
-                  <span className="tool-icon amber">
-                    <Icon size={22} aria-hidden="true" />
-                  </span>
-                  <h3>{title}</h3>
-                  <p>{text}</p>
-                </Link>
-              ))}
-            </div>
-            <div className="actions">
-              <Link href="/signin?mode=signup" className="button accent lg">
-                Create a free account <ArrowRight size={18} aria-hidden="true" />
-              </Link>
-            </div>
-          </section>
-        </div>
-
-        <section className="section">
-          <div className="panel honest">
-            <h2>What sharing controls can and cannot do</h2>
-            <p>
-              View-only access cannot prevent screenshots, photos of the screen or other copying. Revoking a link stops future access; it cannot recall copies
-              already downloaded.
-            </p>
+        <section className="home-why" aria-label="Why Rokela">
+          <div>
+            <Lock size={26} aria-hidden="true" />
+            <h3>Private by design</h3>
+            <p>PDF tools run on your device. Files you send are stored privately and deleted when the transfer expires.</p>
+          </div>
+          <div>
+            <BadgeCheck size={26} aria-hidden="true" />
+            <h3>Free, no watermarks</h3>
+            <p>Use every tool without an account. Your documents come out exactly as you made them.</p>
+          </div>
+          <div>
+            <Globe2 size={26} aria-hidden="true" />
+            <h3>Works everywhere</h3>
+            <p>Any modern browser on Windows, Mac, Linux, Android or iPhone. Nothing to install.</p>
           </div>
         </section>
       </main>
