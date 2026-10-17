@@ -318,6 +318,16 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
         const { unlockPdf } = await import('@/lib/tools/security');
         return pdf(`${name}-unlocked.pdf`, await unlockPdf(b, pw));
       }
+      case 'ocr-pdf': {
+        const { ocrPdf } = await import('@/lib/client/ocr');
+        const r = await ocrPdf(b, (p) => setBusy(p.stage === 'loading' ? 'Loading the text reader…' : `Reading page ${p.page} of ${p.pages}…`));
+        const note = r.words
+          ? `${r.words.toLocaleString()} words recognised on ${r.pagesRead} page${r.pagesRead === 1 ? '' : 's'}${r.pagesSkipped ? ` · ${r.pagesSkipped} already had text` : ''}`
+          : r.pagesSkipped
+            ? 'This PDF already has searchable text.'
+            : 'No text could be recognised. Try a sharper scan.';
+        return [{ ...pdf(`${name}-ocr.pdf`, r.bytes)[0]!, note }];
+      }
       case 'compress-pdf': {
         const r = await compressPdf(b, level, browserRecoder);
         const saved = r.before - r.after;
@@ -648,6 +658,15 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
         </Field>
       );
       ready = !!first && pw.length > 0;
+      break;
+    case 'ocr-pdf':
+      preview = picker('check', false);
+      options = (
+        <p className="muted">
+          Recognises English text in scanned pages and adds it as an invisible layer, so you can search, select and copy it. The pages look exactly the same.
+          The first run downloads the text reader (about 7 MB); it runs on your device.
+        </p>
+      );
       break;
     case 'compress-pdf':
       preview = picker('check', false);

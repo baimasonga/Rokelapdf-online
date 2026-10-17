@@ -25,7 +25,8 @@ export type ToolSlug =
   | 'unlock-pdf'
   | 'pdf-to-jpg'
   | 'pdf-to-png'
-  | 'jpg-to-pdf';
+  | 'jpg-to-pdf'
+  | 'ocr-pdf';
 
 export interface ToolDef {
   slug: ToolSlug;
@@ -51,7 +52,7 @@ export const GROUPS: Array<{ id: ToolGroup; title: string; blurb: string }> = [
   { id: 'organize', title: 'Organize & optimize', blurb: 'Merge, split, compress, reorder and tidy up pages.' },
   { id: 'edit', title: 'Edit & annotate', blurb: 'Add text, highlights, watermarks and page numbers.' },
   { id: 'sign', title: 'Sign, forms & security', blurb: 'Sign documents, fill or create forms, add or remove passwords.' },
-  { id: 'convert', title: 'Convert images', blurb: 'Turn PDFs into images and images into PDFs.' },
+  { id: 'convert', title: 'Convert & OCR', blurb: 'PDFs to images and back, and searchable text from scans.' },
 ];
 
 export const TOOLS: ToolDef[] = [
@@ -314,6 +315,19 @@ export const TOOLS: ToolDef[] = [
     icon: 'Image',
     accept: 'pdf',
     multiple: false,
+  },
+  {
+    slug: 'ocr-pdf',
+    color: '#9333ea',
+    title: 'OCR PDF',
+    short: 'Make scanned PDFs searchable and copyable.',
+    description:
+      'Recognise the text in scanned PDFs and add it as an invisible, searchable layer — the pages look the same. English, in your browser; nothing is uploaded.',
+    group: 'convert',
+    icon: 'ScanText',
+    accept: 'pdf',
+    multiple: false,
+    popular: true,
   },
   {
     slug: 'jpg-to-pdf',

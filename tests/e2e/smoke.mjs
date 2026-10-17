@@ -242,6 +242,17 @@ async function main() {
     const fromImage = await fetchDownload(v.getByRole('link', { name: /^Download page\.pdf/ }));
     check((await PDFDocument.load(fromImage.bytes)).getPageCount() === 1, 'image to pdf: one page per image');
 
+    // OCR: the image-only PDF above is a "scan" with no text; OCR makes "Original page 1" searchable again.
+    const scanText = (await textOf(fromImage.bytes)).join('').trim();
+    await v.goto(`${ORIGIN}/tools/ocr-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: fromImage.bytes });
+    await v.getByRole('button', { name: /^OCR PDF/ }).click();
+    await v.locator('.results').waitFor({ timeout: 120_000 });
+    const ocrNote = await v.locator('.done-note').innerText();
+    const searchable = await fetchDownload(v.getByRole('link', { name: /^Download/ }));
+    const ocrText = (await textOf(searchable.bytes)).join(' ');
+    check(scanText === '' && /Original/.test(ocrText) && /page/.test(ocrText), `ocr: scan had no text, now reads "${ocrText.trim()}" (${ocrNote})`);
+
     await v.goto(`${ORIGIN}/tools/sign-pdf`);
     await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
     await v.waitForURL(/\/edit\?handoff=1&tool=signature/);

@@ -107,7 +107,7 @@ does not remove it (not redaction); encrypted PDFs must be unlocked first.
 
 ## Browser tools
 
-`/tools` lists 23 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
+`/tools` lists 24 tools (`src/lib/tools/registry.ts`, the single source for titles, descriptions and routes). Each
 `/tools/<slug>` page is server-rendered for search engines; one-step tools (merge, split, delete/extract pages, rotate,
 add pages, crop, compress, watermark, page numbers, flatten, fill form, PDF ↔ images) run in the browser on `src/lib/tools/ops.ts`
 (pdf-lib) and `src/lib/client/raster.ts` (pdf.js + canvas); several results download as a ZIP. Interactive tools
@@ -129,6 +129,12 @@ flatten and protect on several PDFs with the same settings and returns one ZIP (
 one of those tools runs (`src/lib/tools/security.ts`). Protect encrypts with AES-256; the open password is the
 user's, the owner password is random and discarded, so permission restrictions cannot be lifted with the open
 password. Unlock needs the current password and writes an unencrypted copy.
+
+**OCR PDF** runs Tesseract (WebAssembly) in the browser: pages without real text are rendered at 300 dpi with
+pdf.js, read with the English LSTM model, and words above 40% confidence are added back by `addTextLayer` as an
+invisible text layer (rendering mode 3), positioned through pdf.js's viewport so it is right on rotated and cropped
+pages. The worker, cores and model are copied to `public/ocr` at install time and served from this origin
+(`script-src` already allows `'wasm-unsafe-eval'`; no CDN). The model (~3 MB) is cached by the browser.
 
 ## Background work
 

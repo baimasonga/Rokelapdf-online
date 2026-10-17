@@ -1,7 +1,7 @@
 import { png } from './png';
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, StandardFonts, degrees } from 'pdf-lib';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   addBlankPages,
   addPageNumbers,
@@ -21,6 +21,8 @@ import {
   rotatePages,
   splitPdf,
   organizePdf,
+  addTextLayer,
+  type OcrWord,
 } from '@/lib/tools/ops';
 
 const FONTS = `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/`;
@@ -296,5 +298,43 @@ describe('organize pages', () => {
     await expect(organizePdf([a], [{ src: 0, index: 5, rotate: 0 }])).rejects.toThrow(/no longer exists/);
     await expect(organizePdf([a], [{ src: 1, index: 0, rotate: 0 }])).rejects.toThrow(/no longer exists/);
     await expect(organizePdf([a], [{ src: 0, index: 0, rotate: 45 as 90 }])).rejects.toThrow(/quarter turns/);
+  });
+});
+
+describe('OCR text layer', () => {
+  /** Words placed like the browser OCR does: image boxes (display space) mapped through pdf.js to PDF points. */
+  async function wordsFor(bytes: Uint8Array, pageIndex: number, boxes: Array<{ text: string; x0: number; y0: number; x1: number; y1: number }>) {
+    const doc = await getDocument({ data: bytes.slice(), standardFontDataUrl: FONTS }).promise;
+    const vp = (await doc.getPage(pageIndex + 1)).getViewport({ scale: 1 });
+    const pt = (x: number, y: number) => vp.convertToPdfPoint(x, y) as [number, number];
+    return boxes.map((b): OcrWord => ({ text: b.text, p0: pt(b.x0, b.y1), p1: pt(b.x1, b.y1), p2: pt(b.x0, b.y0) }));
+  }
+
+  it('adds invisible, selectable words where they appear, upright on rotated pages too', async () => {
+    const d = await PDFDocument.create();
+    d.addPage([400, 600]);
+    d.addPage([400, 600]).setRotation(degrees(90));
+    const scan = await d.save();
+    const boxes = [
+      { text: 'Invoice', x0: 40, y0: 50, x1: 140, y1: 74 },
+      { text: '2026', x0: 150, y0: 50, x1: 210, y1: 74 },
+    ];
+    const out = await addTextLayer(scan, [
+      { index: 0, words: await wordsFor(scan, 0, boxes) },
+      { index: 1, words: await wordsFor(scan, 1, boxes) },
+    ]);
+    const pages = await read(out);
+    for (const p of pages) {
+      expect(p.text.replace(/\s+/g, ' ')).toContain('Invoice 2026');
+      const first = p.runs.find((r) => r.str.includes('Invoice'))!;
+      expect(first.angle).toBe(0); // upright as displayed
+      expect(first.u).toBeCloseTo(40 / p.w, 2);
+      expect(first.v).toBeCloseTo(74 / p.h, 2);
+    }
+    // Invisible rendering mode (3): the page looks exactly as before.
+    const doc = await getDocument({ data: out.slice(), standardFontDataUrl: FONTS }).promise;
+    const ops = await (await doc.getPage(1)).getOperatorList();
+    const modes = ops.fnArray.flatMap((fn, i) => (fn === OPS.setTextRenderingMode ? [ops.argsArray[i][0]] : []));
+    expect(modes).toEqual([3]);
   });
 });

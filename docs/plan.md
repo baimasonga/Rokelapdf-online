@@ -27,7 +27,7 @@ bandwidth estimate and API changes, so a free account cannot create unbounded co
 - Short links: public (alias, editable destination with history, folders/tags/search/bulk, aggregate stats) and
   confidential; QR codes.
 - Upload requests with checklists and deadlines; in-app notifications.
-- 23 browser PDF tools with their own pages (merge, split, compress, protect/unlock, visual organize, batch mode, delete/extract/add pages, rotate, crop, organize,
+- 24 browser PDF tools with their own pages (OCR, merge, split, compress, protect/unlock, visual organize, batch mode, delete/extract/add pages, rotate, crop, organize,
   watermark, page numbers, flatten, fill and create forms, sign, PDF ↔ JPG/PNG); nothing is uploaded.
 - Editor signatures (draw/type/upload) and fillable form fields.
 - WeTransfer-style sending: drag-and-drop files and folders, email or link mode, personal link per recipient with
@@ -43,7 +43,7 @@ bandwidth estimate and API changes, so a free account cannot create unbounded co
 - Billing (e.g. Stripe) driving `org_plans` instead of the operator command.
 - Branding and custom domains in the UI (the API and data model already exist).
 - Editor: Unicode fonts (embed a font for non-Latin text), true redaction.
-- More tools: PDF ↔ Office conversion (server-side worker), OCR.
+- More tools: PDF ↔ Office conversion (server-side worker); OCR in more languages.
 - Admin UI for abuse reports (API exists).
 
 **Phase 3 — later**

@@ -11,8 +11,17 @@ import {
   PDFRawStream,
   PDFTextField,
   StandardFonts,
+  TextRenderingMode,
+  beginText,
   degrees,
+  endText,
+  popGraphicsState,
+  pushGraphicsState,
   rgb,
+  setFontAndSize,
+  setTextMatrix,
+  setTextRenderingMode,
+  showText,
   type PDFFont,
   type PDFPage,
 } from 'pdf-lib';
@@ -565,4 +574,43 @@ export async function compressPdf(bytes: Uint8Array, level: CompressLevel, recod
   // Never hand back something bigger than what came in.
   const smaller = result.length < bytes.length;
   return { bytes: smaller ? result : bytes, before: bytes.length, after: smaller ? result.length : bytes.length, images: smaller ? images : 0 };
+}
+
+// ---- OCR text layer ------------------------------------------------------------------------------------------
+/** A recognised word, in PDF user space (points): baseline start, baseline end and the top of the word's start. */
+export interface OcrWord {
+  text: string;
+  p0: [number, number];
+  p1: [number, number];
+  p2: [number, number];
+}
+
+/**
+ * Adds an invisible, selectable text layer (text rendering mode 3) on top of scanned pages, one run per recognised
+ * word, stretched and turned to cover the word on the page. The page's appearance does not change; the words become
+ * searchable and copyable. Characters the built-in font cannot encode become "?".
+ */
+export async function addTextLayer(bytes: Uint8Array, pages: Array<{ index: number; words: OcrWord[] }>): Promise<Uint8Array> {
+  const d = await load(bytes);
+  const font = await d.embedFont(StandardFonts.Helvetica);
+  for (const { index, words } of pages) {
+    const page = d.getPages()[index];
+    if (!page || !words.length) continue;
+    const key = page.node.newFontDictionary('OCR', font.ref);
+    const ops = [pushGraphicsState(), beginText(), setFontAndSize(key, 1), setTextRenderingMode(TextRenderingMode.Invisible)];
+    for (const w of words) {
+      const text = drawableText(w.text).replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      const w1 = font.widthOfTextAtSize(text, 1);
+      const ux = w.p1[0] - w.p0[0];
+      const uy = w.p1[1] - w.p0[1];
+      const vx = w.p2[0] - w.p0[0];
+      const vy = w.p2[1] - w.p0[1];
+      if (!w1 || (!ux && !uy) || (!vx && !vy)) continue;
+      ops.push(setTextMatrix(ux / w1, uy / w1, vx, vy, w.p0[0], w.p0[1]), showText(font.encodeText(text)));
+    }
+    ops.push(endText(), popGraphicsState());
+    page.pushOperators(...ops);
+  }
+  return save(d);
 }

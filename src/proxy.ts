@@ -17,5 +17,5 @@ export function proxy(req: NextRequest) {
 
 // Proxy (formerly middleware) always runs on the Node.js runtime in Next 16.
 export const config = {
-  matcher: [{ source: '/((?!api/|l/|d/|_next/static|_next/image|pdfjs/|favicon.ico).*)' }],
+  matcher: [{ source: '/((?!api/|l/|d/|_next/static|_next/image|pdfjs/|ocr/|favicon.ico).*)' }],
 };
