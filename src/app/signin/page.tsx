@@ -51,6 +51,16 @@ function SignIn() {
     );
   return (
     <div className="auth-card">
+      {(mode === 'signin' || mode === 'signup') && (
+        <div className="seg auth-tabs" role="tablist" aria-label="Account">
+          <button type="button" role="tab" aria-selected={mode === 'signin'} className={mode === 'signin' ? 'on' : ''} onClick={() => setMode('signin')}>
+            Log in
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? 'on' : ''} onClick={() => setMode('signup')}>
+            Sign up
+          </button>
+        </div>
+      )}
       <h1>{{ signin: 'Welcome back', signup: 'Create your free account', forgot: 'Reset your password', update: 'Choose a new password' }[mode]}</h1>
       <p className="muted">
         {
@@ -118,14 +128,9 @@ function SignIn() {
         />
       )}
       <p className="switch">
-        {mode !== 'signin' && (
+        {mode === 'forgot' && (
           <button type="button" className="link" onClick={() => setMode('signin')}>
-            I have an account
-          </button>
-        )}
-        {mode !== 'signup' && mode !== 'update' && (
-          <button type="button" className="link" onClick={() => setMode('signup')}>
-            Create an account
+            Back to log in
           </button>
         )}
         {mode === 'signin' && (
@@ -141,36 +146,27 @@ function SignIn() {
   );
 }
 
-const POINTS = [
-  'Edit PDFs in your browser — files stay on your device until you save',
-  'Share with passwords, expiry, download limits and named recipients',
-  'Short links and QR codes, with a full history of every change',
-  'Collect files from clients with a checklist and a deadline',
-];
-
 export default function Page() {
   return (
-    <div className="auth">
-      <aside className="auth-aside on-dark">
+    <div className="auth-page">
+      <header className="auth-top">
         <Brand />
-        <div>
-          <h2>Your PDFs, finished and delivered.</h2>
-          <ul>
-            {POINTS.map((p) => (
-              <li key={p}>
-                <CheckCircle2 size={18} aria-hidden="true" /> {p}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <p className="muted" style={{ color: '#a5b4fc' }}>
-          © Rokela PDF Pro
-        </p>
-      </aside>
-      <main className="auth-main">
+      </header>
+      <main className="auth-center">
         <Suspense fallback={<p className="muted center">Loading…</p>}>
           <SignIn />
         </Suspense>
+        <ul className="auth-points">
+          <li>
+            <CheckCircle2 size={16} aria-hidden="true" /> Free account
+          </li>
+          <li>
+            <CheckCircle2 size={16} aria-hidden="true" /> Send files with tracking
+          </li>
+          <li>
+            <CheckCircle2 size={16} aria-hidden="true" /> Save and share PDFs
+          </li>
+        </ul>
       </main>
     </div>
   );

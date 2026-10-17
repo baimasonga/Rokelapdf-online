@@ -30,12 +30,11 @@ function LinkList() {
           <Muted>Loading…</Muted>
         ) : data.items.length ? (
           <Table
-            head={['Link', 'Target', 'Serves', 'Access', 'State', '']}
+            head={['Link', 'Shares', 'Who can open it', 'State', '']}
             rows={data.items.map((l: any) => [
-              l.label || l.id,
-              l.target_type,
-              serves(l),
-              `${l.permission}${l.has_password ? ' · password' : ''}${l.restriction !== 'none' ? ` · ${l.restriction}` : ''}`,
+              <strong key="n">{l.label || 'Untitled link'}</strong>,
+              l.target_type === 'transfer' ? 'Sent files' : `Document · ${serves(l).toLowerCase()}`,
+              `${l.restriction === 'recipients' ? 'Named people' : l.restriction === 'members' ? 'Workspace members' : 'Anyone with the link'}${l.permission === 'view' ? ' · view only' : l.permission === 'review' ? ' · review' : ''}${l.has_password ? ' · password' : ''}`,
               <Badge key="s" state={l.state} />,
               <Button key="m" onClick={() => go('links', l.id)}>
                 Manage

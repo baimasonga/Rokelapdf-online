@@ -8,7 +8,7 @@ import { PagePicker } from '@/components/tools/page-picker';
 import { IN_MEMORY_LIMIT, downloadZip, pickSaveTarget } from '@/lib/client/zip-download';
 import { ApiError, api, enc } from '@/lib/client/api';
 import { useAuth } from '@/lib/client/auth';
-import { fmtBytes, when } from '@/lib/client/format';
+import { fmtBytes } from '@/lib/client/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const STATES: Record<string, string> = {
@@ -135,40 +135,41 @@ function Manifest({
     }
   }
 
+  const isTransfer = m.kind === 'transfer';
+  const docFile = !isTransfer ? m.files[0] : undefined;
+  const expires = m.transfer_expires_at ?? m.expires_at;
   return (
     <>
-      <Panel className="share-hero">
+      <section className="share-card">
         <SenderBrand branding={m.branding} />
-        <span className="file-icon">{m.kind === 'document' ? <FileText size={30} aria-hidden="true" /> : <Files size={30} aria-hidden="true" />}</span>
+        <span className="tile-icon share-icon" aria-hidden="true">
+          {isTransfer ? <Files size={28} /> : <FileText size={28} />}
+        </span>
         <h1>{m.title}</h1>
-        {m.message && <p className="quote">{m.message}</p>}
-        <div className="share-meta">
-          {m.kind === 'document' && (
+        {m.message && <p className="share-message">{m.message}</p>}
+        <p className="share-facts">
+          {isTransfer ? (
             <span>
-              <Badge state={m.version.mode === 'fixed' ? m.version.label : 'published'} />
+              {m.files.length} file{m.files.length === 1 ? '' : 's'} · {fmtBytes(totalBytes)}
             </span>
+          ) : (
+            <span>Version {m.version.number}</span>
           )}
-          {m.version?.published_at && <span>Published {when(m.version.published_at)}</span>}
-          {m.expires_at && (
+          {expires && (
             <span>
-              <Clock size={14} aria-hidden="true" /> Available until {when(m.expires_at)}
+              <Clock size={14} aria-hidden="true" /> Available until {new Date(expires).toLocaleDateString()}
             </span>
           )}
           {m.downloads_remaining !== null && m.downloads_remaining !== undefined && (
             <span>
-              <Download size={14} aria-hidden="true" /> {m.downloads_remaining} downloads left
+              <Download size={14} aria-hidden="true" /> {m.downloads_remaining} download{m.downloads_remaining === 1 ? '' : 's'} left
             </span>
           )}
-        </div>
-        {m.kind === 'transfer' && (
-          <p className="share-summary">
-            {m.files.length} file{m.files.length === 1 ? '' : 's'} · {fmtBytes(totalBytes)}
-          </p>
-        )}
-        {m.kind === 'transfer' && ready.length > 0 && (
+        </p>
+        {isTransfer && ready.length > 0 && (
           <div className="share-download">
-            <button type="button" className="button accent lg" disabled={!!zipping} onClick={() => void downloadAll()}>
-              {ready.length > 1 ? <FileArchive size={18} aria-hidden="true" /> : <Download size={18} aria-hidden="true" />}
+            <button type="button" className="button primary xl" disabled={!!zipping} onClick={() => void downloadAll()}>
+              {ready.length > 1 ? <FileArchive size={22} aria-hidden="true" /> : <Download size={22} aria-hidden="true" />}
               {zipping
                 ? `Downloading… ${zipping.total ? Math.round((zipping.done / zipping.total) * 100) : 0}%`
                 : ready.length > 1
@@ -178,96 +179,111 @@ function Manifest({
             {zipping && <progress max={zipping.total || 1} value={zipping.done} aria-label="Download progress" />}
           </div>
         )}
+        {docFile && (
+          <div className="share-download">
+            {docFile.downloadable && (
+              <button
+                type="button"
+                className="button primary xl"
+                onClick={async () => {
+                  const url = await fileUrl(docFile.id, 'attachment');
+                  if (url) window.location.assign(url);
+                }}
+              >
+                <Download size={22} aria-hidden="true" /> Download
+              </button>
+            )}
+            {docFile.viewable && (
+              <button type="button" className="button" onClick={() => setPreview({ ...docFile, content_type: 'application/pdf' })}>
+                <Eye size={16} aria-hidden="true" /> {m.permission === 'view' ? 'View' : 'Preview'}
+              </button>
+            )}
+            {docFile.status !== 'available' && (
+              <span className="badge off">{docFile.status === 'processing' ? 'Being checked, available shortly' : docFile.status}</span>
+            )}
+          </div>
+        )}
         {m.kind === 'document' && m.version.mode !== 'fixed' && <p className="fine-print">{m.version.label}</p>}
         {m.version?.replacement_note && <p className="replacement">What changed: {m.version.replacement_note}</p>}
-        {m.history?.length > 1 && (
-          <p className="fine-print">
-            Earlier published versions:{' '}
-            {m.history
-              .slice(1)
-              .map((h: any) => `v${h.number}`)
-              .join(', ')}
-          </p>
-        )}
-      </Panel>
-      <Panel title={m.kind === 'document' ? 'Document' : 'Files'}>
-        {m.files.length ? (
-          <ul className="file-list">
+
+        {isTransfer && (
+          <ul className="share-files" aria-label="Files">
             {m.files.map((f: any) => (
               <li key={f.id}>
-                <div className="file-row">
-                  <span className="file-icon">
-                    <FileText size={20} aria-hidden="true" />
+                <span className="file-ext">{(/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] ?? 'file').toUpperCase()}</span>
+                <span className="people-main">
+                  <strong title={f.name}>{f.folder_path ? `${f.folder_path}/${f.name}` : f.name}</strong>
+                  <span className="muted">
+                    {fmtBytes(f.size)}
+                    {f.status !== 'available' ? ` · ${f.status === 'processing' ? 'being checked, available shortly' : f.status}` : ''}
+                    {f.replacement_note ? ` · replaced: ${f.replacement_note}` : ''}
                   </span>
-                  <div>
-                    <strong>{f.folder_path ? `${f.folder_path}/${f.name}` : f.name}</strong> <span className="muted">· {fmtBytes(f.size)}</span>
-                    {f.status !== 'available' && <span className="badge off">{f.status === 'processing' ? 'being checked, available shortly' : f.status}</span>}
-                    {f.replacement_note && <p className="replacement">Replaced: {f.replacement_note}</p>}
-                  </div>
-                </div>
-                <div className="actions">
-                  {f.viewable && (
-                    <Button onClick={() => setPreview(f)}>
-                      <Eye size={16} aria-hidden="true" /> {m.permission === 'view' ? 'View' : 'Preview'}
-                    </Button>
-                  )}
-                  {f.downloadable && (
-                    <Button
-                      kind="primary"
-                      onClick={async () => {
-                        const url = await fileUrl(f.id, 'attachment');
-                        if (url) window.location.assign(url);
-                      }}
-                    >
-                      <Download size={16} aria-hidden="true" /> Download
-                    </Button>
-                  )}
-                </div>
+                </span>
+                {f.viewable && (
+                  <button type="button" className="icon-button lg" aria-label={`Preview ${f.name}`} title="Preview" onClick={() => setPreview(f)}>
+                    <Eye size={18} />
+                  </button>
+                )}
+                {f.downloadable && (
+                  <button
+                    type="button"
+                    className="icon-button lg"
+                    aria-label={`Download ${f.name}`}
+                    title="Download"
+                    onClick={async () => {
+                      const url = await fileUrl(f.id, 'attachment');
+                      if (url) window.location.assign(url);
+                    }}
+                  >
+                    <Download size={18} />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
-        ) : (
-          <Empty>No files are available yet.</Empty>
         )}
-      </Panel>
+      </section>
       <Modal open={!!preview} onClose={() => setPreview(undefined)} title={preview?.name ?? 'Preview'}>
         {preview && <Preview key={preview.id} file={preview} fileUrl={fileUrl} />}
       </Modal>
       {m.permission === 'review' && <Review base={base} grant={m.grant} />}
-      <Panel title="Confirm receipt">
-        <p className="muted">Let the sender know you received this. A visit or download alone is not a confirmation.</p>
+      <section className="share-ack">
         {acked ? (
           <p>Receipt confirmed. Thank you.</p>
         ) : signedIn ? (
-          <Button
-            onClick={async () => {
-              await api(`${base}/acknowledge`, { body: { grant: m.grant } });
-              setAcked(true);
-              notice('Receipt confirmed.');
-            }}
-          >
-            I confirm receipt
-          </Button>
+          <>
+            <p>Let the sender know you received this.</p>
+            <Button
+              onClick={async () => {
+                await api(`${base}/acknowledge`, { body: { grant: m.grant } });
+                setAcked(true);
+                notice('Receipt confirmed.');
+              }}
+            >
+              I confirm receipt
+            </Button>
+          </>
         ) : (
-          <Form
-            fields={[{ name: 'name', label: 'Your name (shown to the sender as unverified)', autoComplete: 'name' }]}
-            submit="I confirm receipt"
-            onSubmit={async (v) => {
-              await api(`${base}/acknowledge`, { body: { grant: m.grant, declared_name: v.name } });
-              setAcked(true);
-              notice('Receipt confirmed.');
-            }}
-          />
+          <>
+            <p>Let the sender know you received this (a download alone is not a confirmation).</p>
+            <Form
+              fields={[{ name: 'name', label: 'Your name (shown to the sender as unverified)', autoComplete: 'name' }]}
+              submit="I confirm receipt"
+              onSubmit={async (v) => {
+                await api(`${base}/acknowledge`, { body: { grant: m.grant, declared_name: v.name } });
+                setAcked(true);
+                notice('Receipt confirmed.');
+              }}
+            />
+          </>
         )}
-      </Panel>
+      </section>
       {m.notices?.length > 0 && (
-        <Panel>
+        <div className="share-notices">
           {m.notices.map((n: string) => (
-            <p key={n} className="fine-print">
-              {n}
-            </p>
+            <p key={n}>{n}</p>
           ))}
-        </Panel>
+        </div>
       )}
     </>
   );
