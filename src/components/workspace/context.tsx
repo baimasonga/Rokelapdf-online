@@ -3,7 +3,19 @@ import { createContext, useContext, useEffect, useRef, useState, type Dependency
 import { ApiError, api, enc, sharingPath } from '@/lib/client/api';
 import { fileKey, uploadFile, type UploadProgress } from '@/lib/client/uploader';
 
-export type Tab = 'overview' | 'documents' | 'transfers' | 'links' | 'short-links' | 'requests' | 'notifications' | 'members';
+export type Tab =
+  | 'overview'
+  | 'documents'
+  | 'transfers'
+  | 'links'
+  | 'short-links'
+  | 'requests'
+  | 'notifications'
+  | 'members'
+  | 'signatures'
+  | 'settings'
+  | 'activity'
+  | 'abuse';
 export interface Workspace {
   id: string;
   name: string;
@@ -24,7 +36,7 @@ export interface Nav {
   linkTarget?: LinkTarget | undefined;
 }
 interface WsState {
-  me: { id: string; email: string; email_verified: boolean };
+  me: { id: string; email: string; email_verified: boolean; is_operator?: boolean };
   workspace: Workspace;
   P: string;
   nav: Nav;

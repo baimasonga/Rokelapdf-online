@@ -1,5 +1,9 @@
 # Cost model and phased plan
 
+Current implementation and remaining deployment prerequisites are recorded in
+[feature-status.md](feature-status.md). Billing remains operator-managed and SSO
+is preparation only, per the current product decisions.
+
 ## Monthly cost (approximate list prices — check current pricing before budgeting)
 
 | Item                         | Pilot / small                                             | Growing                                                                |

@@ -23,7 +23,7 @@ export interface PageInfo {
   /** /Rotate of the source page. */
   base: Rotation;
 }
-export type Tool = 'select' | 'text' | 'highlight' | 'rect' | 'whiteout' | 'ink' | 'signature' | 'field';
+export type Tool = 'select' | 'text' | 'highlight' | 'rect' | 'whiteout' | 'redact' | 'ink' | 'signature' | 'field';
 /** A signature ready to place: PNG data URL and its width / height. */
 export interface Signature {
   src: string;
@@ -180,6 +180,7 @@ export function AnnotLayer({
         </g>
       );
     if (a.kind === 'highlight') return <rect key={a.id} {...common} {...r} fill={a.color} fillOpacity={0.35} style={{ mixBlendMode: 'multiply' }} />;
+    if (a.kind === 'redact') return <rect key={a.id} {...common} {...r} fill="#000000" stroke={a.id === selected ? '#1e88e5' : '#000000'} />;
     if (a.kind === 'whiteout')
       return <rect key={a.id} {...common} {...r} fill="#ffffff" stroke={a.id === selected ? '#1e88e5' : '#d0d7de'} strokeDasharray="3 2" strokeWidth={0.5} />;
     return <rect key={a.id} {...common} {...r} fill="none" stroke={a.color} strokeWidth={1.5} />;

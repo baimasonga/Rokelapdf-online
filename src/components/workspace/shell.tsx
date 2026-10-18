@@ -13,9 +13,13 @@ import { Documents } from './documents';
 import { Transfers } from './transfers';
 import { ShareLinks } from './links';
 import { ShortLinks } from './short-links';
+import { SignatureRequests } from './signatures';
 import { Requests } from './requests';
 import { Notifications } from './notifications';
 import { Members } from './members';
+import { WorkspaceSettings } from './settings';
+import { WorkspaceActivity } from './activity';
+import { AbuseReview } from './abuse';
 
 const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['overview', 'Home', House, 'Send, edit and share your files.'],
@@ -26,6 +30,10 @@ const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['requests', 'Upload requests', FileInput, 'Collect files from anyone, with a checklist and deadline.'],
   ['notifications', 'Notifications', Bell, 'Access, downloads, receipts and submissions.'],
   ['members', 'Members', Users, 'Who can work in this team workspace.'],
+  ['signatures', 'Request signatures', FilePen, 'Send a fixed PDF for signing and collect the signed copy.'],
+  ['settings', 'Settings', House, 'Branding, custom domains and workspace limits.'],
+  ['activity', 'Activity', FileText, 'Audit history and workspace data exports.'],
+  ['abuse', 'Abuse review', Share2, 'Platform operator review of reported links.'],
 ];
 const isTab = (t: string | null): t is Tab => TABS.some(([k]) => k === t);
 const initial = (email: string) => email.slice(0, 1) || '?';
@@ -34,7 +42,7 @@ export function WorkspaceApp() {
   const { ready, session } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
-  const [me, setMe] = useState<{ user: { id: string; email: string; email_verified: boolean }; workspaces: Workspace[] }>();
+  const [me, setMe] = useState<{ user: { id: string; email: string; email_verified: boolean; is_operator?: boolean }; workspaces: Workspace[] }>();
   const [error, setError] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [linkTarget, setLinkTarget] = useState<LinkTarget>();
@@ -90,8 +98,12 @@ export function WorkspaceApp() {
     links: ShareLinks,
     'short-links': ShortLinks,
     requests: Requests,
+    signatures: SignatureRequests,
     notifications: Notifications,
     members: Members,
+    settings: WorkspaceSettings,
+    activity: WorkspaceActivity,
+    abuse: AbuseReview,
   }[nav.tab];
 
   const current = TABS.find(([t]) => t === nav.tab)!;
@@ -160,7 +172,10 @@ export function WorkspaceApp() {
             {TABS.slice(1, 6).map(navItem)}
             <div className="nav-label">Workspace</div>
             {TABS.slice(6)
-              .filter(([t]) => t !== 'members' || workspace.kind === 'team')
+              .filter(
+                ([t]) =>
+                  (t !== 'members' || workspace.kind === 'team') && (t !== 'abuse' || me.user.is_operator) && (t !== 'activity' || workspace.role !== 'member'),
+              )
               .map(navItem)}
             <button type="button" onClick={() => setCreating(true)}>
               <Plus size={18} aria-hidden="true" /> New team workspace

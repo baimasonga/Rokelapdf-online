@@ -171,7 +171,7 @@ async function main() {
     const uploads = [];
     v.on('request', (rq) => rq.method() !== 'GET' && uploads.push(`${rq.method()} ${rq.url()}`));
     const fetchDownload = async (locator) => {
-      const [dl] = await Promise.all([v.waitForEvent('download'), locator.click()]);
+      const [dl] = await Promise.all([locator.page().waitForEvent('download'), locator.click()]);
       return { name: dl.suggestedFilename(), bytes: readFileSync(await dl.path()) };
     };
     const pdf = await fixturePdf();
@@ -310,6 +310,36 @@ async function main() {
     const searchable = await fetchDownload(v.getByRole('link', { name: /^Download/ }));
     const ocrText = (await textOf(searchable.bytes)).join(' ');
     check(scanText === '' && /Original/.test(ocrText) && /page/.test(ocrText), `ocr: scan had no text, now reads "${ocrText.trim()}" (${ocrNote})`);
+
+    step('Secure redaction removes original content from every page');
+    await v.goto(`${ORIGIN}/tools/redact-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'secret.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.waitForURL(/tool=redact/);
+    await v.locator('.page canvas').first().waitFor();
+    const redactionPage = await v.locator('.page').first().boundingBox();
+    await v.mouse.move(redactionPage.x + redactionPage.width * 0.08, redactionPage.y + redactionPage.height * 0.04);
+    await v.mouse.down();
+    await v.mouse.move(redactionPage.x + redactionPage.width * 0.7, redactionPage.y + redactionPage.height * 0.18, { steps: 8 });
+    await v.mouse.up();
+    const redacted = await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    check((await PDFDocument.load(redacted.bytes)).getPageCount() === 2, 'redaction preserves the page count');
+    check(
+      (await textOf(redacted.bytes)).every((t) => !t.trim()),
+      'redaction exports fresh image-only pages without source text',
+    );
+    const redactedDoc = await getDocument({ data: new Uint8Array(redacted.bytes) }).promise;
+    const redactedOps = await (await redactedDoc.getPage(1)).getOperatorList();
+    check(redactedOps.fnArray.includes(OPS.paintImageXObject), 'redaction output contains the rendered page');
+    await v.goto(`${ORIGIN}/tools/edit-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'redacted.pdf', mimeType: 'application/pdf', buffer: redacted.bytes });
+    await v.waitForURL(/handoff=1/);
+    await v.waitForFunction(() => {
+      const canvas = document.querySelector('.page canvas');
+      if (!canvas || canvas.width < 10) return false;
+      const pixel = canvas.getContext('2d').getImageData(Math.floor(canvas.width * 0.2), Math.floor(canvas.height * 0.1), 1, 1).data;
+      return pixel[3] === 255 && pixel[0] < 5 && pixel[1] < 5 && pixel[2] < 5;
+    });
+    ok('redaction mask stays black when the exported PDF is reopened');
 
     await v.goto(`${ORIGIN}/tools/sign-pdf`);
     await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
@@ -527,9 +557,9 @@ async function main() {
     const page1 = p.locator('.page').first();
     const box = await page1.boundingBox();
     await p.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.3);
-    await p.getByLabel('Text', { exact: true }).fill('Signed by Rokela');
+    await p.getByLabel('Text', { exact: true }).fill('Signed by Rokela — Привет');
     await p.keyboard.press('Control+Enter');
-    await p.locator('.page svg text', { hasText: 'Signed by Rokela' }).waitFor();
+    await p.locator('.page svg text', { hasText: 'Signed by Rokela — Привет' }).waitFor();
     ok('text annotation placed');
     await p.getByRole('radio', { name: 'Highlight' }).click();
     await p.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.08);
@@ -589,7 +619,7 @@ async function main() {
     check(doc.getPageCount() === 2, 'downloaded PDF has 2 pages');
     check(doc.getPage(1).getRotation().angle === 90, 'page 2 is rotated');
     const text = await textOf(bytes);
-    check(text[0].includes('Signed by Rokela') && text[0].includes('Original page 1'), 'added text is in the downloaded file');
+    check(text[0].includes('Signed by Rokela — Привет') && text[0].includes('Original page 1'), 'added text is in the downloaded file');
     await r.getByRole('button', { name: 'I confirm receipt' }).waitFor();
     await r.getByLabel(/Your name/).fill('Aminata');
     await r.getByRole('button', { name: 'I confirm receipt' }).click();
@@ -638,7 +668,7 @@ async function main() {
       '--plan',
       'business',
       '--entitlements',
-      '{"share_upload_requests":true}',
+      '{"share_upload_requests":true,"share_branding":true,"share_custom_domains":true}',
       '--by',
       'owner@example.test',
       '--reason',
@@ -662,6 +692,46 @@ async function main() {
     await p.getByText('Aminata').waitFor();
     await shot(p, 'request-detail');
     ok('submission received by the requester');
+
+    step('Short-link management, workspace settings and audit exports');
+    await p.getByRole('button', { name: 'Short links', exact: true }).click();
+    await p.getByLabel('Destination', { exact: true }).fill('https://example.com/campaign');
+    await p.getByLabel(/^Label/).fill('Campaign launch');
+    await p.getByLabel(/^Custom alias/).fill('launch-campaign');
+    await p.getByRole('button', { name: 'Create short link', exact: true }).click();
+    await p.getByRole('heading', { name: 'Campaign launch', exact: true }).waitFor();
+    const campaignUrl = await p.getByLabel('Short URL', { exact: true }).inputValue();
+    check(campaignUrl.endsWith('/launch-campaign'), 'shortener honors a custom alias');
+    await p.getByRole('button', { name: '← All short links' }).click();
+    await p.getByLabel('Search short links').fill('Campaign launch');
+    await p.getByText('Campaign launch', { exact: true }).waitFor();
+    const csv = await fetchDownload(p.getByRole('button', { name: 'Export CSV', exact: true }));
+    check(csv.bytes.toString().includes('Campaign launch'), 'filtered short links export as CSV');
+    await p.getByRole('button', { name: 'Settings', exact: true }).click();
+    await p.getByLabel('Display name').fill('Example Studio');
+    await p.getByRole('button', { name: 'Save branding' }).click();
+    await p.locator('.toast').filter({ hasText: 'Branding saved.' }).waitFor();
+    await p.getByRole('button', { name: 'Activity', exact: true }).click();
+    await p.getByLabel('Filter action').fill('short_link.created');
+    await p.getByRole('cell', { name: 'short_link.created', exact: true }).first().waitFor();
+    const metadata = await fetchDownload(p.getByRole('button', { name: 'Export workspace metadata' }));
+    check(JSON.parse(metadata.bytes.toString()).data.short_links.length >= 2, 'manager downloads workspace metadata');
+    await p.getByRole('button', { name: 'Request signatures', exact: true }).click();
+    await p.getByRole('button', { name: 'Create signature request' }).click();
+    await p.getByLabel('Return signed PDF').waitFor();
+    check((await p.getByLabel('Document to sign').inputValue()).includes('/s/'), 'signature collection provides a fixed document and return URL');
+
+    step('Operator abuse review');
+    const report = await r.request.post(`${ORIGIN}/api/v1/public/abuse-reports`, {
+      data: { reference: campaignUrl, category: 'other', details: 'Browser workflow review' },
+    });
+    check(report.status() === 202, 'anonymous report accepted');
+    await p.getByRole('button', { name: 'Abuse review', exact: true }).click();
+    await p.getByText('Browser workflow review', { exact: true }).waitFor();
+    await p.getByLabel(/^Reason/).fill('Reviewed the test report');
+    await p.getByRole('button', { name: 'Record decision' }).click();
+    await p.getByText('No reports.', { exact: true }).waitFor();
+    ok('operator can record an audited report decision');
 
     if (problems.length) throw new Error(`browser problems:\n${problems.join('\n')}`);
     console.log('\nE2E smoke test passed.');

@@ -67,6 +67,7 @@ export function SendPanel({ onSent }: { onSent: () => void }) {
   const [days, setDays] = useState(7);
   const [password, setPassword] = useState('');
   const [limit, setLimit] = useState('');
+  const [remind, setRemind] = useState(false);
   const [notify, setNotify] = useState(true);
   const [over, setOver] = useState(false);
   const [error, setError] = useState<string>();
@@ -235,7 +236,9 @@ export function SendPanel({ onSent }: { onSent: () => void }) {
           const l = await api(`${P}/links`, { body: { ...linkBody, label: addr } });
           links.push({ id: l.id, label: addr, url: l.url });
           if (cfg?.email && me.email_verified) {
-            await api(`${P}/links/${enc(l.id)}/email`, { body: { to: [addr], ...(message.trim() ? { message: message.trim() } : {}) } });
+            await api(`${P}/links/${enc(l.id)}/email`, {
+              body: { to: [addr], remind_before_expiry: remind, ...(message.trim() ? { message: message.trim() } : {}) },
+            });
             emailed = true;
           }
         }
@@ -409,7 +412,11 @@ export function SendPanel({ onSent }: { onSent: () => void }) {
           <input type="number" min={1} value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="Unlimited" />
         </label>
         <label className="check">
-          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Tell me when files are downloaded
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Tell me when files are downloaded (daily email digest)
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={remind} onChange={(e) => setRemind(e.target.checked)} /> Email a reminder 24 hours before expiry if files have not
+          been downloaded (email mode)
         </label>
       </details>
 

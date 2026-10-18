@@ -145,6 +145,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const otherRef = useRef<HTMLInputElement>(null);
   const { ready: authReady, session } = useAuth();
+  const [ocrLanguage, setOcrLanguage] = useState('eng');
   const [convertOn, setConvertOn] = useState<boolean>();
 
   // ---- options (one flat set; each tool reads the ones it needs) ----------------------------------------------
@@ -370,7 +371,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
       }
       case 'ocr-pdf': {
         const { ocrPdf } = await import('@/lib/client/ocr');
-        const r = await ocrPdf(b, (p) => setBusy(p.stage === 'loading' ? 'Loading the text reader…' : `Reading page ${p.page} of ${p.pages}…`));
+        const r = await ocrPdf(b, (p) => setBusy(p.stage === 'loading' ? 'Loading the text reader…' : `Reading page ${p.page} of ${p.pages}…`), ocrLanguage);
         const note = r.words
           ? `${r.words.toLocaleString()} words recognised on ${r.pagesRead} page${r.pagesRead === 1 ? '' : 's'}${r.pagesSkipped ? ` · ${r.pagesSkipped} already had text` : ''}`
           : r.pagesSkipped
@@ -713,10 +714,28 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
     case 'ocr-pdf':
       preview = picker('check', false);
       options = (
-        <p className="muted">
-          Recognises English text in scanned pages and adds it as an invisible layer, so you can search, select and copy it. The pages look exactly the same.
-          The first run downloads the text reader (about 7 MB); it runs on your device.
-        </p>
+        <>
+          <label>
+            Document language
+            <select value={ocrLanguage} onChange={(e) => setOcrLanguage(e.target.value)}>
+              {[
+                ['eng', 'English'],
+                ['fra', 'French'],
+                ['spa', 'Spanish'],
+                ['deu', 'German'],
+                ['por', 'Portuguese'],
+              ].map(([code, label]) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted">
+            Recognises text in scanned pages and adds it as an invisible layer, so you can search, select and copy it. The pages look exactly the same. The
+            first run downloads the text reader and selected language model; it runs on your device.
+          </p>
+        </>
       );
       break;
     case 'compress-pdf':

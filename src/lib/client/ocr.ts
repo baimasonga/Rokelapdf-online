@@ -23,11 +23,12 @@ export interface OcrResult {
   words: number;
 }
 
-export async function ocrPdf(bytes: Uint8Array, onProgress?: (p: OcrProgress) => void): Promise<OcrResult> {
+export async function ocrPdf(bytes: Uint8Array, onProgress?: (p: OcrProgress) => void, language = 'eng'): Promise<OcrResult> {
+  if (!['eng', 'fra', 'spa', 'deu', 'por'].includes(language)) throw new Error('Choose a supported OCR language.');
   const doc = await openPdf(bytes);
   onProgress?.({ page: 0, pages: doc.numPages, stage: 'loading' });
   const { createWorker } = await import('tesseract.js');
-  const worker = await createWorker('eng', 1, {
+  const worker = await createWorker(language, 1, {
     workerPath: '/ocr/worker.min.js',
     corePath: '/ocr/core',
     langPath: '/ocr/lang',

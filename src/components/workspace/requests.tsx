@@ -105,7 +105,7 @@ function RequestList() {
   );
 }
 
-function RequestDetail({ id }: { id: string }) {
+export function RequestDetail({ id }: { id: string }) {
   const { P, go, workspace } = useWs();
   const { data: r, error, reload } = useLoad<any>(() => api(`${P}/upload-requests/${enc(id)}`), [P, id]);
   usePollWhile(!!r?.submissions.some((x: any) => x.files.some((f: any) => f.status === 'processing')), reload);

@@ -1112,7 +1112,12 @@ export class SharingService {
    * sends each email and derives the link token again at that moment; it is never stored in the job. Senders must have
    * a confirmed address (it is shown to the recipient and used as reply-to), and emails are capped per month.
    */
-  async emailLink(p: UserPrincipal, orgId: string, linkId: string, input: { to: string[]; message?: string | undefined }) {
+  async emailLink(
+    p: UserPrincipal,
+    orgId: string,
+    linkId: string,
+    input: { to: string[]; message?: string | undefined; remindBeforeExpiry?: boolean | undefined },
+  ) {
     if (!this.#d.mailer) throw new DomainError('conflict', 'email delivery is not set up yet; copy the link and send it yourself');
     if (!p.emailVerified) throw new DomainError('forbidden', 'confirm your email address before sending emails');
     const to = [...new Set(input.to.map(normalizeEmail))];
@@ -1123,8 +1128,15 @@ export class SharingService {
       if (!l) throw notFound();
       await this.#requireManager(p, orgId, l.createdBy);
       if (effectiveLinkState(l, now, true) !== 'active') throw invalid('this link is no longer active');
-      if ((await tx.addUsage(orgId, monthKey(now), 'emails_sent', to.length)) > limits.emailsPerMonth) throw quota('email');
-      for (const addr of to) await this.#enqueue(tx, orgId, 'share_email', l.id, now, { to: addr, from: p.email, message: message ?? '' });
+      const transfer = l.targetType === 'transfer' ? await tx.get('transfer', orgId, l.targetId) : undefined;
+      const expires = [l.expiresAt, transfer?.expiresAt].filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0];
+      const remindAt = input.remindBeforeExpiry && expires && expires.getTime() > now.getTime() + 86400000 ? new Date(expires.getTime() - 86400000) : undefined;
+      const emailCount = to.length * (remindAt ? 2 : 1);
+      if ((await tx.addUsage(orgId, monthKey(now), 'emails_sent', emailCount)) > limits.emailsPerMonth) throw quota('email');
+      for (const addr of to) {
+        await this.#enqueue(tx, orgId, 'share_email', l.id, now, { to: addr, from: p.email, message: message ?? '' });
+        if (remindAt) await this.#enqueue(tx, orgId, 'share_email', l.id, remindAt, { to: addr, from: p.email, message: '', mode: 'expiry_reminder' });
+      }
       await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.link.emailed', { type: 'share_link', id: l.id }, { recipients: to.length });
       return { sent: to.length };
     });
@@ -1432,6 +1444,14 @@ export class SharingService {
       createdAt: now,
       readAt: null,
     });
+    if (email && this.#d.mailer && kind === 'share.downloaded') {
+      const pending = (await tx.list('job', orgId, { kind: 'notify_email', subjectId: userId }, { limit: 1000 })).find(
+        (j) => j.payload['digest'] === 'downloads' && !j.claim,
+      );
+      if (pending) await tx.update('job', orgId, pending.id, { payload: { ...pending.payload, count: String(Number(pending.payload['count'] ?? '0') + 1) } });
+      else await this.#enqueue(tx, orgId, 'notify_email', userId, new Date(now.getTime() + 86400000), { userId, digest: 'downloads', count: '1' });
+      return;
+    }
     if (email && this.#d.mailer)
       await this.#enqueue(tx, orgId, 'notify_email', subject.id, now, {
         userId,
@@ -2383,6 +2403,42 @@ export class SharingService {
     };
   }
 
+  /** Native sign-and-return workflow. Submission identity is declared, not a signing certificate. */
+  async createSignatureRequest(p: UserPrincipal, orgId: string, input: { documentId: string; deadline: Date; password?: string }) {
+    await this.#d.authorize(p, orgId, 'share:create');
+    const limits = await this.limits(orgId);
+    if (!limits.uploadRequests) throw new DomainError('forbidden', 'signature collection requires upload requests in your plan');
+    if (input.deadline <= this.#now()) throw invalid('deadline must be in the future');
+    const document = await this.getDocument(p, orgId, input.documentId);
+    if (!document.publishedVersionId) throw new DomainError('conflict', 'publish a document version before requesting a signature');
+    const source = await this.createLink(p, orgId, {
+      targetType: 'document',
+      targetId: input.documentId,
+      versionMode: 'fixed',
+      versionId: document.publishedVersionId,
+      permission: 'download',
+      expiresAt: input.deadline,
+      password: input.password,
+      label: 'Signature source',
+    });
+    try {
+      const request = await this.createUploadRequest(p, orgId, {
+        title: `Signature requested: ${document.title}`.slice(0, 200),
+        instructions: `Download the document: ${source.url}\nSign the PDF using Rokela's Sign PDF tool, then return the signed PDF here. Enter your name and email with your submission. Returned signatures are submitted by the signer; this is not certificate-based digital signing.`,
+        requirements: [{ key: 'signed_pdf', label: 'Signed PDF', accept: ['pdf'], required: true, maxFiles: 1 }],
+        deadline: input.deadline,
+        maxFileBytes: Math.min(limits.maxFileBytes, 50 * 1024 * 1024),
+        maxTotalBytes: Math.min(limits.maxFileBytes, 50 * 1024 * 1024),
+        password: input.password,
+        notify: true,
+      });
+      return { ...request, sourceUrl: source.url, sourceLinkId: source.id, documentId: input.documentId, versionId: document.publishedVersionId };
+    } catch (e) {
+      await this.setLinkStatus(p, orgId, source.id, 'revoke', 'Signature request could not be created');
+      throw e;
+    }
+  }
+
   async listUploadRequests(p: UserPrincipal, orgId: string) {
     await this.#d.authorize(p, orgId, 'share:read');
     const now = this.#now();
@@ -3069,8 +3125,11 @@ export class SharingService {
       await this.#d.mailer.send({
         id: job.id,
         to: who.email,
-        subject: job.payload['subject'] ?? 'Notification',
-        text: job.payload['text'] ?? '',
+        subject: job.payload['digest'] === 'downloads' ? 'Your shared files were downloaded' : (job.payload['subject'] ?? 'Notification'),
+        text:
+          job.payload['digest'] === 'downloads'
+            ? `${job.payload['count'] ?? '1'} download events occurred for your shared files in the last day. Open your workspace to see recipient activity. You receive this because download notifications are enabled.`
+            : (job.payload['text'] ?? ''),
       });
     await s.transaction((tx) => this.#finish(tx, job, claim));
   }
@@ -3083,6 +3142,8 @@ export class SharingService {
     if (!this.#d.mailer || !l || effectiveLinkState(l, now, true) !== 'active') return;
     const subjectRow = l.targetType === 'transfer' ? await s.get('transfer', l.orgId, l.targetId) : await s.get('document', l.orgId, l.targetId);
     if (!subjectRow || subjectRow.status !== 'active') return;
+    const reminder = job.payload['mode'] === 'expiry_reminder';
+    if (reminder && (l.downloadCount > 0 || (subjectRow && 'expiresAt' in subjectRow && subjectRow.expiresAt && subjectRow.expiresAt <= now))) return;
     const oneLine = (v: string, max: number) =>
       v
         .replace(/[\r\n\t]+/g, ' ')
@@ -3092,7 +3153,7 @@ export class SharingService {
     const what = oneLine(subjectRow.title, 120) || 'files';
     const message = job.payload['message'] ?? '';
     const lines = [
-      `${from} sent you "${what}" with Rokela PDF Pro.`,
+      reminder ? `Reminder: "${what}" is approaching its expiry. Download it before access ends.` : `${from} sent you "${what}" with Rokela PDF Pro.`,
       ...(message ? ['', message] : []),
       '',
       `Open and download: ${this.#shareUrl(l)}`,
@@ -3104,7 +3165,7 @@ export class SharingService {
     await this.#d.mailer.send({
       id: job.id,
       to: job.payload['to'] ?? '',
-      subject: oneLine(`${from} sent you ${what}`, 150),
+      subject: oneLine(reminder ? `Reminder: ${what} expires soon` : `${from} sent you ${what}`, 150),
       text: lines.join('\n'),
       replyTo: from || undefined,
     });

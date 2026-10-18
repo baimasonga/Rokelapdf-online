@@ -183,7 +183,9 @@ export const shareTokenParams = z.object({ token: urlToken }).strict();
 export const openBody = z.object({ password: z.string().min(1).max(128).optional() }).strict();
 export const fileUrlBody = z.object({ grant, file_id: id, disposition: z.enum(['inline', 'attachment']) }).strict();
 export const archiveBody = z.object({ grant }).strict();
-export const linkEmailBody = z.object({ to: z.array(email).min(1).max(20), message: z.string().max(2000).optional() }).strict();
+export const linkEmailBody = z
+  .object({ to: z.array(email).min(1).max(20), message: z.string().max(2000).optional(), remind_before_expiry: z.boolean().optional() })
+  .strict();
 export const acknowledgeBody = z.object({ grant, declared_name: z.string().max(100).optional() }).strict();
 export const commentBody = z.object({ grant, body: str(2000), page: z.number().int().min(1).max(100_000).optional() }).strict();
 export const decisionBody = z
@@ -213,3 +215,5 @@ export const abuseParams = z.object({ id }).strict();
 export const abuseResolveBody = z.object({ action: z.enum(['suspend', 'dismiss']), reason }).strict();
 export const holdParams = z.object({ orgId: id, type: z.enum(['short', 'share', 'request']), id }).strict();
 export const holdBody = z.object({ hold: z.boolean(), reason }).strict();
+
+export const signatureRequestBody = z.object({ document_id: id, deadline: date, password: password.optional() }).strict();

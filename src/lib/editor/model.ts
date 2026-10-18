@@ -33,7 +33,7 @@ export interface TextAnnot extends Base {
   rot: Rotation;
 }
 export interface BoxAnnot extends Base {
-  kind: 'highlight' | 'rect' | 'whiteout';
+  kind: 'highlight' | 'rect' | 'whiteout' | 'redact';
   x: number;
   y: number;
   w: number;

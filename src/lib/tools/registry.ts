@@ -12,6 +12,7 @@ export type ToolSlug =
   | 'add-pages'
   | 'crop-pdf'
   | 'compress-pdf'
+  | 'redact-pdf'
   | 'edit-pdf'
   | 'highlight-pdf'
   | 'annotate-pdf'
@@ -56,7 +57,7 @@ export interface ToolDef {
   accept: ToolInput;
   multiple: boolean;
   /** Tools that work interactively open the editor with this tool selected. */
-  editorTool?: 'select' | 'text' | 'highlight' | 'rect' | 'ink' | 'signature' | 'field';
+  editorTool?: 'redact' | 'select' | 'text' | 'highlight' | 'rect' | 'ink' | 'signature' | 'field';
   /** Can run on many PDFs at once (same settings for each, results as a ZIP). */
   batch?: boolean;
   popular?: boolean;
@@ -179,6 +180,19 @@ export const TOOLS: ToolDef[] = [
     accept: 'pdf',
     multiple: false,
     popular: true,
+  },
+  {
+    slug: 'redact-pdf',
+    title: 'Redact PDF',
+    short: 'Permanently remove sensitive content.',
+    description:
+      'Mark sensitive areas and export a new image-only PDF. Covered text, original content streams and interactive form fields are removed from the exported file.',
+    color: '#111827',
+    group: 'edit',
+    icon: 'Eraser',
+    accept: 'pdf',
+    multiple: false,
+    editorTool: 'redact',
   },
   {
     slug: 'edit-pdf',

@@ -58,9 +58,30 @@ export function buildRouter(): Router {
 
   // ---- account and workspaces ------------------------------------------------------------------------
   r.add('GET', '/api/v1/me', 'user', async (x) => ({
-    user: { id: me(x).userId, email: me(x).email, emailVerified: me(x).emailVerified },
+    user: { id: me(x).userId, email: me(x).email, emailVerified: me(x).emailVerified, isOperator: await x.c.workspaces.isOperator(me(x).userId) },
     workspaces: await x.c.workspaces.list(me(x)),
   }));
+  r.add('GET', '/api/v1/workspaces/:orgId/audit', 'user', async (x) => {
+    const q = parse(
+      z
+        .object({
+          action: z.string().max(100).optional(),
+          before: z
+            .string()
+            .regex(/^[0-9]{1,19}$/)
+            .refine((v) => BigInt(v) <= BigInt('9223372036854775807'), 'invalid cursor')
+            .optional(),
+        })
+        .strict(),
+      Object.fromEntries(x.query),
+    );
+    return x.c.workspaces.auditLog(me(x), org(x), q);
+  });
+  r.add('GET', '/api/v1/workspaces/:orgId/export', 'user', async (x) => {
+    await x.c.workspaces.require(me(x), org(x), 'share:manage');
+    if (!(await x.c.rateLimiter.hit(`workspace-export:${me(x).userId}`, 2, 60))) throw new DomainError('rate_limited', 'Wait a minute before exporting again.');
+    return x.c.workspaces.exportMetadata(me(x), org(x));
+  });
   r.add('POST', '/api/v1/workspaces', 'user', async (x) => created(await x.c.workspaces.createTeam(me(x), parse(teamBody, await x.body()).name)));
   r.add('GET', '/api/v1/workspaces/:orgId/members', 'user', async (x) => ({ items: await x.c.workspaces.members(me(x), org(x)) }));
   r.add('POST', '/api/v1/workspaces/:orgId/members', 'user', async (x) => {
@@ -205,7 +226,7 @@ export function buildRouter(): Router {
   });
   r.add('POST', `${P}/links/:id/email`, 'user', async (x) => {
     const b = parse(s.linkEmailBody, await x.body());
-    return sh(x).emailLink(me(x), ids(x).orgId, ids(x).id, { to: b.to, message: b.message });
+    return sh(x).emailLink(me(x), ids(x).orgId, ids(x).id, { to: b.to, message: b.message, remindBeforeExpiry: b.remind_before_expiry });
   });
   r.add('GET', `${P}/links/:id/activity`, 'user', async (x) => sh(x).linkActivity(me(x), ids(x).orgId, ids(x).id));
 
@@ -266,6 +287,10 @@ export function buildRouter(): Router {
   });
 
   // ---- upload requests, notifications, branding, domains ----------------------------------------------
+  r.add('POST', `${P}/signature-requests`, 'user', async (x) => {
+    const b = parse(s.signatureRequestBody, await x.body());
+    return created(await sh(x).createSignatureRequest(me(x), org(x), { documentId: b.document_id, deadline: new Date(b.deadline), password: b.password }));
+  });
   r.add('GET', `${P}/upload-requests`, 'user', async (x) => ({ items: await sh(x).listUploadRequests(me(x), org(x)) }));
   r.add('POST', `${P}/upload-requests`, 'user', async (x) => {
     const b = parse(s.uploadRequestBody, await x.body());

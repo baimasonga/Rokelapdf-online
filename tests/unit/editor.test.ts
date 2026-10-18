@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, degrees } from 'pdf-lib';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
@@ -305,5 +306,18 @@ describe('editor signatures and form fields', () => {
       near(rect.width, 200);
       near(rect.height, 30);
     }
+  });
+});
+
+describe('Unicode text export', () => {
+  it('embeds Unicode characters with a custom font and refuses missing glyphs', async () => {
+    const src = await blankPdf();
+    const s = initial(1);
+    s.annots[s.pages[0]!.id] = [{ id: 'u', kind: 'text', x: 0.1, y: 0.1, text: 'Привет κόσμε', size: 18, rot: 0, color: '#000000' }];
+    const fontBytes = new Uint8Array(readFileSync('public/fonts/NotoSans-Regular.ttf'));
+    const out = await buildPdf([src], s, { fontBytes });
+    expect((await textOnScreen(out)).map((x) => x.str).join(' ')).toContain('Привет κόσμε');
+    s.annots[s.pages[0]!.id]![0] = { ...s.annots[s.pages[0]!.id]![0]!, kind: 'text', x: 0.1, y: 0.1, text: '中文', size: 18, rot: 0 };
+    await expect(buildPdf([src], s, { fontBytes })).rejects.toThrow(/does not support/);
   });
 });

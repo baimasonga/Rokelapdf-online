@@ -106,6 +106,55 @@ export class WorkspaceService {
     return r.rows.map((x) => x.entitlements as Record<string, unknown>);
   }
 
+  async auditLog(p: UserPrincipal, orgId: string, input: { action?: string; before?: string }) {
+    await this.require(p, orgId, 'share:manage');
+    const result = await this.#pool.query(
+      `SELECT seq::text, occurred_at, actor_type, actor_id, action, target_type, target_id, reason
+       FROM audit_events WHERE org_id = $1 AND ($2::text IS NULL OR action = $2)
+       AND ($3::bigint IS NULL OR seq < $3::bigint) ORDER BY seq DESC LIMIT 101`,
+      [orgId, input.action || null, input.before ?? null],
+    );
+    const items = result.rows.slice(0, 100);
+    return { items, nextCursor: result.rows.length > 100 ? items[items.length - 1]!.seq : null };
+  }
+
+  async exportMetadata(p: UserPrincipal, orgId: string) {
+    await this.require(p, orgId, 'share:manage');
+    return this.#tx(async (q, audit) => {
+      const tables: Record<string, string> = {
+        documents: 'id, title, status, require_approval, created_at, updated_at',
+        transfers: 'id, title, kind, status, expires_at, created_at, updated_at',
+        versions: 'id, document_id, number, file_name, created_at, published_at',
+        links: 'id, target_type, target_id, permission, label, status, expires_at, created_at',
+        short_links: 'id, kind, code, destination_type, destination_url, label, folder, tags, status, expires_at, created_at',
+      };
+      const names: Record<string, string> = {
+        documents: 'share_documents',
+        transfers: 'share_transfers',
+        versions: 'share_versions',
+        links: 'share_links',
+        short_links: 'short_links',
+      };
+      const data: Record<string, unknown> = {};
+      const truncated: string[] = [];
+      for (const [key, columns] of Object.entries(tables)) {
+        const result = await q.query(`SELECT ${columns} FROM ${names[key]} WHERE org_id = $1 ORDER BY created_at, id LIMIT 10001`, [orgId]);
+        data[key] = result.rows.slice(0, 10000);
+        if (result.rows.length > 10000) truncated.push(key);
+      }
+      audit.push({ actor: { type: 'user', id: p.userId }, action: 'org.metadata.exported', target: { type: 'org', id: orgId }, orgId });
+      return {
+        workspaceId: orgId,
+        exportedAt: this.#clock.now(),
+        formatVersion: 1,
+        excludes: ['file_contents', 'credentials', 'password_hashes', 'access_tokens'],
+        rowLimitPerCollection: 10000,
+        truncated,
+        data,
+      };
+    });
+  }
+
   async createTeam(p: UserPrincipal, name: string): Promise<Workspace> {
     const n = name.trim();
     if (n.length < 1 || n.length > 200) throw new DomainError('invalid_request', 'invalid workspace name');

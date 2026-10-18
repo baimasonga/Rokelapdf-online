@@ -139,6 +139,9 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
             <Link href="/tools/sign-pdf" className="nav-link">
               Sign
             </Link>
+            <Link href="/shorten" className="nav-link">
+              Shorten links
+            </Link>
             <Link href="/send" className="nav-link">
               Send files
             </Link>
@@ -158,6 +161,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
               <div className="mobile-links">
                 <Link href="/edit">Edit a PDF</Link>
                 <Link href="/send">Send files</Link>
+                <Link href="/shorten">Shorten links</Link>
                 <Link href="/tools">All tools</Link>
               </div>
               <ToolsMenu onPick={() => setMobile(false)} />

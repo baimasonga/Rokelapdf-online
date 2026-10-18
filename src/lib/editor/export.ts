@@ -94,7 +94,7 @@ function drawAnnot(page: PDFPage, font: PDFFont, a: Annot, images: Map<string, P
   // Page space (top-left, normalized) → PDF user space (bottom-left, points).
   const user = (x: number, y: number) => ({ x: box.x + x * W, y: box.y + (1 - y) * H });
   if (a.kind === 'text') {
-    const text = drawableText(a.text);
+    const text = font.name === 'Helvetica' ? drawableText(a.text) : a.text.replace(/\r\n?/g, '\n');
     const d = displaySize(W, H, a.rot);
     const anchor = toDisplay(a.x, a.y, a.rot);
     text.split('\n').forEach((line, i) => {
@@ -123,14 +123,27 @@ function drawAnnot(page: PDFPage, font: PDFFont, a: Annot, images: Map<string, P
   const lo = user(a.x, a.y + a.h);
   const common = { x: lo.x, y: lo.y, width: a.w * W, height: a.h * H };
   if (a.kind === 'highlight') page.drawRectangle({ ...common, color: hex(a.color), opacity: 0.35, blendMode: 'Multiply' as never });
+  else if (a.kind === 'redact') page.drawRectangle({ ...common, color: rgb(0, 0, 0) });
   else if (a.kind === 'whiteout') page.drawRectangle({ ...common, color: rgb(1, 1, 1) });
   else page.drawRectangle({ ...common, borderColor: hex(a.color), borderWidth: 1.5 });
 }
 
-export async function buildPdf(sources: Uint8Array[], s: EditorState, meta: { title?: string } = {}): Promise<Uint8Array> {
+export async function buildPdf(sources: Uint8Array[], s: EditorState, meta: { title?: string; fontBytes?: Uint8Array } = {}): Promise<Uint8Array> {
   if (!s.pages.length) throw new EditorError('The document has no pages.');
   const out = await PDFDocument.create();
-  const font = await out.embedFont(StandardFonts.Helvetica);
+  let font: PDFFont;
+  if (meta.fontBytes) {
+    const { default: fontkit } = await import('@pdf-lib/fontkit');
+    out.registerFontkit(fontkit);
+    font = await out.embedFont(meta.fontBytes, { subset: true });
+    const supported = new Set(font.getCharacterSet());
+    for (const a of Object.values(s.annots).flat())
+      if (a.kind === 'text') {
+        for (const ch of a.text)
+          if (!/[\r\n\t]/.test(ch) && !supported.has(ch.codePointAt(0)!))
+            throw new EditorError('The selected font does not support every character. Choose a font that covers this language.');
+      }
+  } else font = await out.embedFont(StandardFonts.Helvetica);
   const loaded = new Map<number, PDFDocument>();
   const images = new Map<string, PDFImage>();
   const names = new Set<string>();

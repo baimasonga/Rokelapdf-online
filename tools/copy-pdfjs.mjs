@@ -29,3 +29,9 @@ if (existsSync(tjs) && existsSync(core) && existsSync(lang)) {
     cpSync(join(core, f), join(ocr, 'core', f));
   cpSync(lang, join(ocr, 'lang', 'eng.traineddata.gz'));
 }
+
+// Additional OCR languages remain local to this origin; no document data or model request goes to a CDN.
+for (const language of ['fra', 'spa', 'deu', 'por']) {
+  const model = join(root, 'node_modules', '@tesseract.js-data', language, '4.0.0_best_int', `${language}.traineddata.gz`);
+  if (existsSync(model)) cpSync(model, join(ocr, 'lang', `${language}.traineddata.gz`));
+}

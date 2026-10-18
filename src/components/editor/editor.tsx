@@ -36,7 +36,8 @@ import { ownerUpload, type Workspace } from '@/components/workspace/context';
 import { api, enc, fetchSigned, sharingPath } from '@/lib/client/api';
 import { useAuth } from '@/lib/client/auth';
 import type { UploadProgress } from '@/lib/client/uploader';
-import { EditorError, blankPdf, buildPdf, loadSource } from '@/lib/editor/export';
+import { EditorError, blankPdf, loadSource } from '@/lib/editor/export';
+import { buildEditedPdf } from '@/lib/client/editor-export';
 import { takeHandoff } from '@/lib/client/handoff';
 import {
   appendPages,
@@ -67,6 +68,7 @@ const TOOLS: Array<[Tool, string, string]> = [
   ['highlight', 'Highlight', 'Drag to highlight'],
   ['rect', 'Box', 'Drag to draw a box'],
   ['ink', 'Draw', 'Draw freehand'],
+  ['redact', 'Redact', 'Permanently removes covered content on export. All pages become images; searchable text and form fields are removed.'],
   ['whiteout', 'Whiteout', 'Covers content visually. The covered text is still in the file — this is not redaction.'],
   ['signature', 'Sign', 'Click on the page to place your signature'],
   ['field', 'Form field', 'Drag to add a fillable text field, or click to place a checkbox'],
@@ -78,6 +80,7 @@ const TOOL_ICONS: Record<Tool, LucideIcon> = {
   rect: Square,
   ink: PenLine,
   whiteout: Eraser,
+  redact: Eraser,
   signature: SignatureIcon,
   field: FormInput,
 };
@@ -136,6 +139,8 @@ export function Editor({
   const [signature, setSignature] = useState<Signature>();
   const [sigOpen, setSigOpen] = useState(false);
   const [fieldType, setFieldType] = useState<FieldAnnot['field']>('text');
+  const [customFont, setCustomFont] = useState<Uint8Array>();
+  const [fontName, setFontName] = useState('Automatic (Unicode fallback)');
   const [fontSize, setFontSize] = useState(14);
   const [inkWidth, setInkWidth] = useState(2);
   const [zoom, setZoom] = useState(1);
@@ -295,10 +300,10 @@ export function Editor({
 
   // ---- output -------------------------------------------------------------------------------------------
   const build = () =>
-    buildPdf(
+    buildEditedPdf(
       sources.map((x) => x.bytes),
       s,
-      { title },
+      { title, ...(customFont ? { fontBytes: customFont } : {}) },
     );
   const download = async () => {
     const bytes = await build();
@@ -465,6 +470,26 @@ export function Editor({
                     <option key={n}>{n}</option>
                   ))}
                 </select>
+              </label>
+            )}
+            {(tool === 'text' || selectedAnnot?.kind === 'text') && (
+              <label className="inline">
+                Font: {fontName}
+                <input
+                  aria-label="Upload text font"
+                  type="file"
+                  accept=".ttf,.otf"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (file.size > 10 * 1024 * 1024) {
+                      notice('Choose a font smaller than 10 MB.', true);
+                      return;
+                    }
+                    setCustomFont(new Uint8Array(await file.arrayBuffer()));
+                    setFontName(file.name);
+                  }}
+                />
               </label>
             )}
             {tool === 'ink' && (
