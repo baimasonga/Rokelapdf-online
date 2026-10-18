@@ -38,6 +38,31 @@ describe('deployment tooling (owner connection)', () => {
     expect(ev).toMatchObject({ reason: 'upgrade', actor: { type: 'operator' } });
   });
 
+  it('uses one workspace subscription for PDF, transfers and short links, with authorized access', async () => {
+    env = await makeEnv();
+    const owner = await env.user('bundle@example.test', { verified: true });
+    const outsider = await env.user('outside@example.test', { verified: true });
+    await env.operator('ops@example.test');
+    const path = `/api/v1/workspaces/${owner.orgId}/subscription`;
+    const read = () => env.call('GET', path, { token: owner.token });
+    expect((await read()).body).toMatchObject({
+      plan: 'free',
+      scope: 'workspace',
+      billing_mode: 'operator_managed',
+      services: ['pdf', 'file_transfer', 'link_shortener'],
+    });
+    expect((await env.call('GET', path, { token: outsider.token })).status).toBe(404);
+    const base = { orgId: owner.orgId, byEmail: 'ops@example.test', reason: 'one plan for all products' };
+    await setPlan(env.admin, { ...base, plan: 'business', entitlements: { share_storage_bytes: 5e9, share_custom_domains: true } });
+    expect((await read()).body.plan).toBe('business');
+    const overview = await env.call('GET', `/api/v1/workspaces/${owner.orgId}/sharing/overview`, { token: owner.token });
+    expect(overview.body.limits).toMatchObject({ storage_bytes: 5e9, custom_domains: true, persistent: false });
+    await setPlan(env.admin, { ...base, plan: 'free', entitlements: {} });
+    expect((await read()).body.plan).toBe('free');
+    expect((await env.admin.query('SELECT count(*)::int AS n FROM org_plans WHERE org_id=$1', [owner.orgId])).rows[0].n).toBe(1);
+    expect((await env.call('GET', `/api/v1/workspaces/${outsider.orgId}/subscription`, { token: outsider.token })).body.plan).toBe('free');
+  });
+
   it('rejects unknown or mistyped entitlements', () => {
     expect(() => validateEntitlements({ share_persistant: true })).toThrow(/unknown/);
     expect(() => validateEntitlements({ share_persistent: 'yes' })).toThrow(/invalid value/);

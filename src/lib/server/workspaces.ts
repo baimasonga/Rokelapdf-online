@@ -106,6 +106,20 @@ export class WorkspaceService {
     return r.rows.map((x) => x.entitlements as Record<string, unknown>);
   }
 
+  /** One workspace plan covers every product; service-specific subscriptions are not created. */
+  async subscription(p: UserPrincipal, orgId: string) {
+    await this.require(p, orgId, 'org:read');
+    const result = await this.#pool.query('SELECT plan, updated_at FROM org_plans WHERE org_id = $1', [orgId]);
+    const row = result.rows[0];
+    return {
+      plan: row?.plan ?? 'free',
+      scope: 'workspace',
+      billingMode: 'operator_managed',
+      services: ['pdf', 'file_transfer', 'link_shortener'],
+      updatedAt: row?.updated_at ?? null,
+    };
+  }
+
   async auditLog(p: UserPrincipal, orgId: string, input: { action?: string; before?: string }) {
     await this.require(p, orgId, 'share:manage');
     const result = await this.#pool.query(

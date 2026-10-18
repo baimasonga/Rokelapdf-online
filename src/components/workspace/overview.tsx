@@ -8,8 +8,11 @@ import { useLoad, useWs } from './context';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function Overview() {
-  const { P, go } = useWs();
-  const { data: o } = useLoad<any>(() => api(`${P}/overview`), [P]);
+  const { P, go, workspace } = useWs();
+  const { data: o } = useLoad<any>(async () => {
+    const [overview, subscription] = await Promise.all([api(`${P}/overview`), api(`/api/v1/workspaces/${workspace.id}/subscription`)]);
+    return { ...overview, subscription };
+  }, [P, workspace.id]);
   const { data: t } = useLoad<any>(() => api(`${P}/transfers`), [P]);
   const recent = (t?.items ?? [])
     .slice()
@@ -91,10 +94,11 @@ export function Overview() {
         <section className="ws-card" aria-labelledby="plan">
           <div className="ws-card-head">
             <h2 id="plan">Your plan</h2>
-            <span className="plan-pill">{o?.limits.persistent ? 'Business' : 'Free'}</span>
+            <span className="plan-pill">{o ? o.subscription.plan : '…'}</span>
           </div>
           {o ? (
             <>
+              <p>One workspace plan for PDF tools, file transfers and link shortening.</p>
               <div className="storage">
                 <div className="storage-row">
                   <span>Storage</span>

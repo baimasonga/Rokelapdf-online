@@ -61,6 +61,7 @@ export function buildRouter(): Router {
     user: { id: me(x).userId, email: me(x).email, emailVerified: me(x).emailVerified, isOperator: await x.c.workspaces.isOperator(me(x).userId) },
     workspaces: await x.c.workspaces.list(me(x)),
   }));
+  r.add('GET', '/api/v1/workspaces/:orgId/subscription', 'user', async (x) => x.c.workspaces.subscription(me(x), org(x)));
   r.add('GET', '/api/v1/workspaces/:orgId/audit', 'user', async (x) => {
     const q = parse(
       z

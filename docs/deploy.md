@@ -135,6 +135,14 @@ runtime install (the build needs dev dependencies).
 
 ## 4. First operator and plans
 
+Each workspace has **one unified Rokela plan** covering PDF tools, file transfers
+and link shortening. `org_plans.org_id` is the primary key, so updating a plan
+replaces that workspace's plan rather than adding a product subscription. Entitlement
+keys control capabilities and limits within this bundle, not separate subscriptions.
+Plans remain operator-managed; no payment provider or automatic charges are enabled.
+Browser PDF tools stay free, while server conversions retain sign-in and safety limits.
+A team workspace's plan covers its members; another workspace has its own plan.
+
 1. Sign up in the app with your own email and confirm it.
 2. From your machine (or a Railway one-off shell) with `DATABASE_MIGRATE_URL` and `DATABASE_CA_PEM` set:
    ```bash

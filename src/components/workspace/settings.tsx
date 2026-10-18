@@ -8,9 +8,14 @@ export function WorkspaceSettings() {
   const { P, workspace } = useWs();
   const notice = useNotice();
   const { data, error, reload } = useLoad<any>(async () => {
-    const [brand, domains, overview] = await Promise.all([api(`${P}/branding`), api(`${P}/domains`), api(`${P}/overview`)]);
-    return { brand, domains: domains.items, overview };
-  }, [P]);
+    const [brand, domains, overview, subscription] = await Promise.all([
+      api(`${P}/branding`),
+      api(`${P}/domains`),
+      api(`${P}/overview`),
+      api(`/api/v1/workspaces/${workspace.id}/subscription`),
+    ]);
+    return { brand, domains: domains.items, overview, subscription };
+  }, [P, workspace.id]);
   const manage = workspace.role !== 'member';
   if (error)
     return (
@@ -21,6 +26,19 @@ export function WorkspaceSettings() {
   if (!data) return <Muted>Loading settings…</Muted>;
   return (
     <>
+      <Panel title="One plan for all your tools">
+        <p>
+          <strong>{data.subscription.plan}</strong> · This workspace
+        </p>
+        <p>
+          PDF tools, file transfers and link shortening are included under this single workspace plan, with the limits shown below. There are no separate
+          product subscriptions.
+        </p>
+        <p className="muted">
+          Plan changes are currently managed by the platform operator. Browser PDF tools remain free; server conversions require sign-in and have service
+          limits.
+        </p>
+      </Panel>
       <Panel title="Workspace branding">
         {!data.brand.available ? (
           <p>Your current plan does not include branded recipient pages.</p>
