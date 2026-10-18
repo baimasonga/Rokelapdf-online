@@ -1,26 +1,33 @@
 /* Rokela PDF Pro design system.
-   Blue carries structure and actions; amber is the warm complementary accent for emphasis and highlights.
+   The folded-paper R icon sets the palette: deep navy, coral red and white.
+   Navy carries structure and actions; coral adds emphasis with readable light and dark variants.
    One type family (Inter, self-hosted), a 4px spacing rhythm, 8–16px radii, quiet borders over heavy shadows. */
 
 :root {
-  --blue-950: #0b1b4d;
-  --blue-900: #12286b;
-  --blue-800: #1e3a8a;
-  --blue-700: #1d4ed8;
-  --blue-600: #2563eb;
-  --blue-500: #3b82f6;
-  --blue-100: #dbeafe;
-  --blue-50: #eff6ff;
-  --amber-600: #d97706;
-  --amber-500: #f59e0b;
-  --amber-400: #fbbf24;
-  --amber-100: #fef3c7;
-  --amber-50: #fffbeb;
+  --blue-950: #041638;
+  --blue-900: #082451;
+  --blue-800: #0c3064;
+  --blue-700: #123c78;
+  --blue-600: #194b8c;
+  --blue-500: #3869a2;
+  --blue-100: #dce7f4;
+  --blue-50: #f0f5fb;
+  --coral-700: #b82d32;
+  --coral-600: #cc3438;
+  --coral-500: #ff6759;
+  --coral-400: #ff9185;
+  --coral-100: #ffe0db;
+  --coral-50: #fff4f1;
+  --amber-600: var(--coral-700);
+  --amber-500: var(--coral-500);
+  --amber-400: var(--coral-400);
+  --amber-100: var(--coral-100);
+  --amber-50: var(--coral-50);
 
-  --bg: #f6f7fb;
+  --bg: #f5f7fb;
   --surface: #ffffff;
   --surface-2: #f8fafc;
-  --text: #0f172a;
+  --text: #101f38;
   --text-2: #334155;
   --muted: #64748b;
   --line: #e2e8f0;
@@ -35,7 +42,7 @@
   --ok: #059669;
   --ok-tint: #ecfdf5;
   --info: var(--blue-600);
-  --focus: var(--blue-500);
+  --focus: var(--coral-600);
 
   --r-sm: 8px;
   --r: 12px;
@@ -88,7 +95,7 @@ p {
   margin: 0.4rem 0;
 }
 :focus-visible {
-  outline: 3px solid rgb(59 130 246 / 60%);
+  outline: 3px solid rgb(204 52 56 / 65%);
   outline-offset: 2px;
 }
 .sr-only {
@@ -173,7 +180,7 @@ button.primary,
   background: var(--brand-2);
   border-color: var(--brand-2);
   color: #fff;
-  box-shadow: 0 1px 2px rgb(29 78 216 / 30%);
+  box-shadow: 0 1px 2px rgb(4 22 56 / 22%);
 }
 button.primary:hover:not(:disabled),
 .button.primary:hover {
@@ -606,21 +613,22 @@ progress::-moz-progress-bar {
 }
 .brand strong {
   font-weight: 700;
+  color: var(--coral-700);
 }
 .logo {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
+  display: block;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
   border-radius: 9px;
-  background: linear-gradient(135deg, var(--blue-600), var(--blue-900));
-  color: var(--amber-400);
-  font-weight: 800;
-  font-size: 1rem;
-  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 15%);
+  object-fit: contain;
 }
+
 .on-dark .brand {
   color: #fff;
+}
+.on-dark .brand strong {
+  color: var(--coral-400);
 }
 
 /* ---- marketing header (Tools menu, phone menu) ------------------------------------------------------- */
@@ -830,8 +838,8 @@ main.narrow {
   overflow: hidden;
   color: #fff;
   background:
-    radial-gradient(900px 400px at 85% -10%, rgb(251 191 36 / 28%), transparent 60%),
-    radial-gradient(700px 500px at 0% 100%, rgb(59 130 246 / 45%), transparent 60%), linear-gradient(160deg, var(--blue-900), var(--blue-950));
+    radial-gradient(900px 400px at 85% -10%, rgb(255 103 89 / 24%), transparent 60%),
+    radial-gradient(700px 500px at 0% 100%, rgb(25 75 140 / 40%), transparent 60%), linear-gradient(160deg, var(--blue-900), var(--blue-950));
   padding: clamp(3rem, 8vw, 6rem) clamp(1rem, 4vw, 2.5rem) clamp(4rem, 9vw, 7rem);
 }
 .hero-inner {
@@ -865,7 +873,7 @@ main.narrow {
 }
 .lead {
   font-size: 1.15rem;
-  color: #c7d2fe;
+  color: #dce7f4;
   max-width: 34rem;
 }
 .hero .actions {
@@ -881,7 +889,7 @@ main.narrow {
   background: rgb(255 255 255 / 18%);
 }
 .hero-note {
-  color: #a5b4fc;
+  color: #bfcee3;
   font-size: 0.9rem;
   margin-top: 1rem;
   display: flex;
@@ -1043,7 +1051,7 @@ main.narrow {
   flex-direction: column;
   justify-content: space-between;
   gap: 2rem;
-  background: radial-gradient(600px 300px at 100% 0%, rgb(251 191 36 / 25%), transparent 60%), linear-gradient(160deg, var(--blue-800), var(--blue-950));
+  background: radial-gradient(600px 300px at 100% 0%, rgb(255 103 89 / 23%), transparent 60%), linear-gradient(160deg, var(--blue-800), var(--blue-950));
 }
 .auth-aside h2 {
   font-size: clamp(1.6rem, 3vw, 2.2rem);
@@ -2670,16 +2678,24 @@ button.xl {
   justify-items: center;
   gap: 0.7rem;
   padding: clamp(2rem, 5vw, 3rem) 1.25rem;
-  border: 2px dashed #bcd0fb;
+  border: 2px dashed var(--coral-100);
   border-radius: 24px;
-  background: #eef4ff;
+  background: var(--blue-50);
   transition:
     background 0.15s ease,
     border-color 0.15s ease;
 }
+.home-hero .bigdrop {
+  background: linear-gradient(135deg, var(--coral-50), var(--surface));
+  border-color: #f2b2a8;
+}
+.home-hero .bigdrop.over {
+  border-color: var(--coral-600);
+  background: var(--coral-100);
+}
 .bigdrop.over {
   border-color: var(--brand-2);
-  background: #dfeaff;
+  background: var(--blue-100);
 }
 .bigdrop-hint {
   color: var(--text-2);
@@ -2792,7 +2808,7 @@ button.xl {
   padding: clamp(2rem, 5vw, 3.5rem);
   border-radius: 28px;
   color: #fff;
-  background: radial-gradient(600px 300px at 90% 0%, rgb(96 165 250 / 35%), transparent 60%), linear-gradient(135deg, #1d4ed8, #12286b);
+  background: radial-gradient(600px 300px at 100% 0%, rgb(255 103 89 / 25%), transparent 65%), linear-gradient(135deg, var(--blue-800), var(--blue-950));
 }
 .home-send h2 {
   font-size: clamp(1.6rem, 3.5vw, 2.3rem);
@@ -2837,7 +2853,7 @@ button.xl {
   box-shadow: 0 10px 30px rgb(0 0 0 / 25%);
 }
 .home-send .button.primary.xl:hover {
-  background: #eef4ff;
+  background: var(--blue-50);
 }
 .home-send-art {
   position: relative;
@@ -3150,15 +3166,15 @@ button.xl {
 button.file-card.add {
   width: 100%;
   min-height: 236px;
-  border: 2px dashed #bcd0fb;
-  background: #eef4ff;
+  border: 2px dashed var(--coral-100);
+  background: var(--blue-50);
   color: var(--brand-2);
   font-weight: 700;
   flex-direction: column;
   box-shadow: none;
 }
 button.file-card.add:hover:not(:disabled) {
-  background: #dfeaff;
+  background: var(--blue-100);
   border-color: var(--brand-2);
 }
 .results.done {
@@ -4028,7 +4044,7 @@ button.org-page:hover:not(:disabled) {
   flex: none;
   border-style: dashed;
   border-color: #bcd0fb;
-  background: #eef4ff;
+  background: var(--blue-50);
   color: var(--brand-2);
 }
 .req-send {

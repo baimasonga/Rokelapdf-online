@@ -10,9 +10,9 @@ import { ToolIcon } from '@/components/tools/icons';
 export function Brand({ href = '/' }: { href?: string }) {
   return (
     <Link href={href} className="brand" aria-label="Rokela PDF Pro home">
-      <span className="logo" aria-hidden="true">
-        R
-      </span>
+      {/* The adjacent wordmark supplies the accessible brand name. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img className="logo" src="/brand/rokela-icon.png" alt="" width={36} height={36} />
       <span>
         Rokela <strong>PDF</strong>
       </span>
