@@ -9,6 +9,16 @@ permissions:
   contents: read
 
 jobs:
+  converter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build converter with pinned Python dependencies and LibreOffice
+        run: docker build --target test -t rokela-converter-test converter
+      - name: Exercise engines and HTTP worker as the production user
+        run: docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges rokela-converter-test
+
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

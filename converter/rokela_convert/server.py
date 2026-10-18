@@ -13,8 +13,10 @@ and file names are never logged.
 from __future__ import annotations
 
 import hmac
+import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -78,7 +80,7 @@ def looks_like(ext: str, head: bytes) -> bool:
     return False
 
 
-def run_job(settings: Settings, target: str, ext: str, data: bytes) -> tuple[int, bytes | str]:
+def run_job(settings: Settings, target: str, ext: str, data: bytes, request_id: str = "") -> tuple[int, bytes | str]:
     """Returns (0, output bytes), (2, user message), (1, '') on internal error, or (3, '') on timeout."""
     work = tempfile.mkdtemp(prefix="job-")
     try:
@@ -111,6 +113,7 @@ def run_job(settings: Settings, target: str, ext: str, data: bytes) -> tuple[int
             out, _err = proc.communicate(timeout=settings.timeout + 15)
         except subprocess.TimeoutExpired:
             _kill(proc)
+            print(json.dumps({"msg": "conversion job failed", "request_id": request_id, "reason": "timeout"}), flush=True)
             return 3, ""
         finally:
             _kill(proc)  # LibreOffice may leave helpers behind in the group
@@ -122,6 +125,18 @@ def run_job(settings: Settings, target: str, ext: str, data: bytes) -> tuple[int
                 return 2, str(json.loads(out.decode().strip().splitlines()[-1])["message"])[:300]
             except (ValueError, KeyError, IndexError):
                 pass
+        # job.py emits only an exception class as JSON. Never log raw stderr/stdout,
+        # which LibreOffice or a document parser could populate with file contents.
+        error = "unknown"
+        for line in _err.decode(errors="replace").splitlines():
+            try:
+                value = json.loads(line)
+                name = value.get("error") if isinstance(value, dict) else None
+                if isinstance(name, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", name):
+                    error = name
+            except ValueError:
+                pass
+        print(json.dumps({"msg": "conversion job failed", "request_id": request_id, "returncode": proc.returncode, "error": error}), flush=True)
         return 1, ""
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -152,6 +167,7 @@ def make_handler(settings: Settings, slots: threading.BoundedSemaphore):
             self.send_header("content-type", ctype)
             self.send_header("content-length", str(len(body)))
             self.send_header("cache-control", "no-store")
+            self.send_header("x-rokela-service", "converter")
             self.send_header("connection", "close")
             self.end_headers()
             self.wfile.write(body)
@@ -162,12 +178,16 @@ def make_handler(settings: Settings, slots: threading.BoundedSemaphore):
 
         def do_GET(self) -> None:
             if urlsplit(self.path).path == "/health":
-                return self._send(200, b'{"ok":true}')
+                modules = ("docx", "openpyxl", "pptx", "pdfplumber", "pypdfium2", "PIL")
+                ready = shutil.which("soffice") is not None and all(importlib.util.find_spec(m) is not None for m in modules)
+                return self._send(200 if ready else 503, json.dumps({"ok": ready, "service": "rokela-converter"}).encode())
             self._error(404, "not_found", "not found")
 
         def do_POST(self) -> None:
             started = time.monotonic()
             status, target, ext, size_in, size_out = 500, "", "", 0, 0
+            raw_id = self.headers.get("x-request-id", "")
+            request_id = raw_id if re.fullmatch(r"[A-Za-z0-9-]{1,64}", raw_id) else ""
             try:
                 url = urlsplit(self.path)
                 parts = url.path.strip("/").split("/")
@@ -205,7 +225,7 @@ def make_handler(settings: Settings, slots: threading.BoundedSemaphore):
                     status = 429
                     return self._error(429, "busy", "The converter is busy. Try again in a minute.")
                 try:
-                    code, result = run_job(settings, target, ext, data)
+                    code, result = run_job(settings, target, ext, data, request_id)
                 finally:
                     slots.release()
                 del data
@@ -220,8 +240,14 @@ def make_handler(settings: Settings, slots: threading.BoundedSemaphore):
                     return self._error(504, "timeout", "This file took too long to convert.")
                 status = 500
                 return self._error(500, "internal", "The file could not be converted.")
+            except (BrokenPipeError, ConnectionResetError):
+                status = 499
+            except Exception as e:
+                status = 500
+                print(json.dumps({"msg": "conversion request failed", "request_id": request_id, "error": type(e).__name__}), flush=True)
+                return self._error(500, "internal", "The file could not be converted.")
             finally:
-                line = {"msg": "convert", "status": status, "target": target, "from": ext, "bytes_in": size_in, "bytes_out": size_out}
+                line = {"msg": "convert", "request_id": request_id, "status": status, "target": target, "from": ext, "bytes_in": size_in, "bytes_out": size_out}
                 line["ms"] = int((time.monotonic() - started) * 1000)
                 print(json.dumps(line), flush=True)
 

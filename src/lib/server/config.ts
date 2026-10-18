@@ -113,16 +113,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // Both or neither, like mail. In production the converter must be reached over HTTPS or Railway's private network.
   let converter: AppConfig['converter'];
   if (env['CONVERTER_URL'] || env['CONVERTER_TOKEN']) {
-    const raw = need('CONVERTER_URL');
+    const raw = need('CONVERTER_URL').trim();
+    // Railway's private-domain reference is a hostname, without a scheme or port.
+    // Only that exact host format gets defaults; other URLs must be explicit.
+    const privateHost = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.railway\.internal(?::[0-9]+)?$/i.test(raw);
+    const address = privateHost ? `http://${raw}${raw.includes(':') ? '' : ':8080'}` : raw;
+    const invalidOrigin = () =>
+      new Error(
+        'CONVERTER_URL must be an origin, e.g. http://converter.railway.internal:8080 or https://convert.example.com (no credentials, path, query or fragment)',
+      );
     let u: URL;
     try {
-      u = new URL(raw);
+      u = new URL(address);
     } catch {
-      throw new Error('CONVERTER_URL must be an origin');
+      throw invalidOrigin();
     }
     const privateNet = u.protocol === 'http:' && u.hostname.endsWith('.railway.internal');
-    if (u.username || u.password || u.pathname !== '/' || u.search || u.hash || !['http:', 'https:'].includes(u.protocol))
-      throw new Error('CONVERTER_URL must be an origin');
+    if (u.username || u.password || u.pathname !== '/' || u.search || u.hash || !['http:', 'https:'].includes(u.protocol)) throw invalidOrigin();
     if (prod && u.protocol !== 'https:' && !privateNet) throw new Error('CONVERTER_URL must be HTTPS or a *.railway.internal address in production');
     const token = need('CONVERTER_TOKEN');
     if (token.length < 32) throw new Error('CONVERTER_TOKEN must be at least 32 characters');

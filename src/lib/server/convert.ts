@@ -3,6 +3,7 @@
 // service, the result is returned in the same response, and nothing is stored. Signed-in, verified users only, with
 // per-user limits. File names and contents are never logged.
 import { DomainError, type UserPrincipal } from './kernel';
+import { randomUUID } from 'node:crypto';
 
 export type ConvertTarget = 'docx' | 'xlsx' | 'pptx' | 'pdf';
 
@@ -63,11 +64,25 @@ export class HttpConverter implements Converter {
   }
 
   async convert(target: ConvertTarget, from: string, bytes: Uint8Array): Promise<Uint8Array> {
+    const requestId = randomUUID();
+    const log = (reason: string, extra: Record<string, unknown> = {}) =>
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          msg: 'converter request failed',
+          request_id: requestId,
+          host: new URL(this.#url).host,
+          target,
+          from,
+          reason,
+          ...extra,
+        }),
+      );
     let res: Response;
     try {
       res = await this.#fetch(`${this.#url}/v1/convert/${target}?from=${encodeURIComponent(from)}`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${this.#token}`, 'content-type': 'application/octet-stream' },
+        headers: { authorization: `Bearer ${this.#token}`, 'content-type': 'application/octet-stream', 'x-request-id': requestId },
         body: bytes as BodyInit,
         signal: AbortSignal.timeout(this.#timeoutMs),
         redirect: 'error',
@@ -76,10 +91,28 @@ export class HttpConverter implements Converter {
       // Operators need the reason (DNS, refused, timeout…); only the host and error codes are logged, never the
       // token or anything about the file.
       const err = e as Error & { cause?: { code?: string } };
-      console.error(JSON.stringify({ level: 'error', msg: 'converter unreachable', host: new URL(this.#url).host, error: err?.name, code: err?.cause?.code }));
+      log('network', { error: err?.name, code: err?.cause?.code });
       throw new DomainError('unavailable', 'The converter is not reachable right now. Try again in a few minutes.');
     }
-    if (res.ok) return new Uint8Array(await res.arrayBuffer());
+    if (res.ok) {
+      try {
+        const result = new Uint8Array(await res.arrayBuffer());
+        // A misrouted service can return HTML with status 200. Do not download it as a document.
+        if (!matchesType(target, result)) {
+          log('invalid_output', { status: res.status });
+          throw new DomainError('unavailable', 'The converter returned an invalid file. Try again later.');
+        }
+        return result;
+      } catch (e) {
+        if (e instanceof DomainError) throw e;
+        log('response_interrupted', { error: (e as Error)?.name });
+        throw new DomainError('unavailable', 'The conversion response was interrupted. Try again later.');
+      }
+    }
+    const reason = res.status === 401 || res.status === 403 ? 'authentication' : res.status === 404 ? 'wrong_service_or_route' : 'http';
+    // DomainError is intentionally not logged by the API router, so log the upstream status here.
+    // Never include response bodies: they may contain document text or proxy error pages.
+    log(reason, { status: res.status });
     const j = (await res.json().catch(() => null)) as { code?: string; message?: string } | null;
     // Only the converter's own fixed, user-facing messages are passed on, and only for problems with the file.
     const msg = typeof j?.message === 'string' ? j.message.slice(0, 300) : undefined;

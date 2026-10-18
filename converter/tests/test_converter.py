@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from docx import Document
@@ -228,7 +229,8 @@ class ServerTests(unittest.TestCase):
         cls.dir = tempfile.mkdtemp()
         if HAS_SOFFICE:
             report_docx(os.path.join(cls.dir, "r.docx"))
-            cls.pdf = open(soffice_pdf(os.path.join(cls.dir, "r.docx"), cls.dir), "rb").read()
+            with open(soffice_pdf(os.path.join(cls.dir, "r.docx"), cls.dir), "rb") as fixture:
+                cls.pdf = fixture.read()
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -260,6 +262,32 @@ class ServerTests(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
 
+    def test_health_identifies_converter_and_checks_dependencies(self) -> None:
+        for missing, expected in [(False, 200), (True, 503)]:
+            with patch.object(server.shutil, "which", return_value=None if missing else "/usr/bin/soffice"):
+                c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1])
+                c.request("GET", "/health")
+                res = c.getresponse()
+                self.assertEqual(res.status, expected)
+                self.assertEqual(res.getheader("x-rokela-service"), "converter")
+                self.assertEqual(json.loads(res.read()), {"ok": not missing, "service": "rokela-converter"})
+                c.close()
+
+    @unittest.skipUnless(HAS_SOFFICE, "LibreOffice is not installed")
+    def test_all_conversions_through_the_resource_limited_worker(self) -> None:
+        # Engine tests run in-process. These exercise job.py with the same user,
+        # environment filtering and resource limits used by production HTTP requests.
+        document = io.BytesIO()
+        d = Document()
+        d.add_paragraph("Worker conversion check")
+        d.save(document)
+        for target, ext, data in [("pdf", "docx", document.getvalue()),
+                                  ("xlsx", "pdf", self.pdf), ("pptx", "pdf", self.pdf)]:
+            status, ctype, body = self.post(f"/v1/convert/{target}?from={ext}", data, headers={"x-request-id": "test-worker"})
+            self.assertEqual(status, 200, (target, body[:300]))
+            self.assertEqual(ctype, server.OUTPUT_TYPES[target])
+            self.assertTrue(body.startswith(b"%PDF-") if target == "pdf" else zipfile.is_zipfile(io.BytesIO(body)))
+
     def test_requires_the_shared_token(self) -> None:
         for tok in (None, "", "x" * 40, TOKEN + "x", TOKEN[:-1]):
             status, _, _ = self.post("/v1/convert/docx?from=pdf", b"%PDF-1.7\n", token=tok)
@@ -276,7 +304,9 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.post("/v1/convert/docx?from=pdf", b"PK\x03\x04 not a pdf")[0], 400)
 
     def test_enforces_the_size_limit(self) -> None:
-        status, _, body = self.post("/v1/convert/docx?from=pdf", b"%PDF-1.7\n" + b"0" * (2 * 1024 * 1024))
+        # Refusal happens before the body is read. Sending a huge body races the
+        # server closing the socket and can raise BrokenPipeError in http.client.
+        status, _, body = self.post("/v1/convert/docx?from=pdf", b"%PDF-1.7\n", headers={"content-length": str(2 * 1024 * 1024 + 1)})
         self.assertEqual((status, json.loads(body)["code"]), (413, "too_large"))
 
     def test_says_busy_instead_of_queueing_without_limit(self) -> None:

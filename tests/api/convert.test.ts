@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DomainError } from '@/lib/server/kernel';
+import { strToU8, zipSync } from 'fflate';
 import { HttpConverter, attachment, matchesType, outputName, readBody, type ConvertTarget, type Converter } from '@/lib/server/convert';
 import { pdf, sharingEnv, type SharingEnv } from './support';
 
@@ -7,7 +8,10 @@ import { pdf, sharingEnv, type SharingEnv } from './support';
 // forwarded; results returned directly and never stored.
 
 let env: SharingEnv;
-afterEach(async () => env?.close());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await env?.close();
+});
 
 class FakeConverter implements Converter {
   readonly calls: Array<{ target: ConvertTarget; from: string; bytes: Uint8Array }> = [];
@@ -22,6 +26,30 @@ class FakeConverter implements Converter {
 const DOCX = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]);
 const post = (env: SharingEnv, target: string, name: string, raw: Uint8Array, token?: string) =>
   env.call('POST', `/api/v1/convert/${target}?name=${encodeURIComponent(name)}`, { ...(token ? { token } : {}), raw });
+
+it.runIf(!!process.env['TEST_CONVERTER_URL'] && !!process.env['TEST_CONVERTER_TOKEN'])(
+  'converts a real DOCX through the application API, PostgreSQL limits and the Docker converter',
+  async () => {
+    const converter = new HttpConverter({ url: process.env['TEST_CONVERTER_URL']!, token: process.env['TEST_CONVERTER_TOKEN']! });
+    env = await sharingEnv({ converter });
+    const user = await env.user('real-conversion@example.test', { verified: true });
+    const document = zipSync({
+      '[Content_Types].xml': strToU8(
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+      ),
+      '_rels/.rels': strToU8(
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+      ),
+      'word/document.xml': strToU8(
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Real conversion check</w:t></w:r></w:p></w:body></w:document>',
+      ),
+    });
+    const response = await post(env, 'pdf', 'report.docx', document, user.token);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/pdf');
+    expect(response.text.startsWith('%PDF-')).toBe(true);
+  },
+);
 
 describe('office conversion: access', () => {
   it('is off until a converter is configured, and the public config says so', async () => {
@@ -130,10 +158,10 @@ describe('the converter client', () => {
       token: 'k'.repeat(40),
       fetch: (async (url: string, init: RequestInit) => {
         seen.push({ url, init });
-        return ok(new Uint8Array([1, 2, 3]));
+        return ok(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1]));
       }) as unknown as typeof fetch,
     });
-    expect(await c.convert('pptx', 'pdf', new Uint8Array([9]))).toEqual(new Uint8Array([1, 2, 3]));
+    expect(await c.convert('pptx', 'pdf', new Uint8Array([9]))).toEqual(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1]));
     expect(seen[0]!.url).toBe('http://converter.railway.internal:8080/v1/convert/pptx?from=pdf');
     expect(seen[0]!.init).toMatchObject({ method: 'POST', redirect: 'error', headers: { authorization: `Bearer ${'k'.repeat(40)}` } });
   });
@@ -164,6 +192,45 @@ describe('the converter client', () => {
         )
       ).code,
     ).toBe('unavailable');
+  });
+
+  it('logs upstream status and a correlation ID without logging tokens or response contents', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const c = new HttpConverter({
+      url: 'http://converter.railway.internal:8080',
+      token: 'private-converter-token',
+      fetch: (async () => new Response('private document text', { status: 401 })) as typeof fetch,
+    });
+    await expect(c.convert('pdf', 'docx', DOCX)).rejects.toMatchObject({ code: 'unavailable' });
+    expect(JSON.parse(log.mock.calls[0]![0])).toMatchObject({ reason: 'authentication', status: 401, host: 'converter.railway.internal:8080' });
+    expect(JSON.parse(log.mock.calls[0]![0]).request_id).toMatch(/^[a-f0-9-]{36}$/);
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private-converter-token|private document text/);
+  });
+
+  it('rejects HTML from a misrouted service and interrupted response bodies', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const c = new HttpConverter({
+      url: 'http://wrong-service:8080',
+      token: 'k'.repeat(40),
+      fetch: (async () => new Response('<html>app home page</html>')) as typeof fetch,
+    });
+    await expect(c.convert('pdf', 'docx', DOCX)).rejects.toMatchObject({ code: 'unavailable' });
+    expect(JSON.parse(log.mock.calls[0]![0]).reason).toBe('invalid_output');
+    const interrupted = new HttpConverter({
+      url: 'http://converter:8080',
+      token: 'k'.repeat(40),
+      fetch: (async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error('private text'));
+            },
+          }),
+        )) as typeof fetch,
+    });
+    await expect(interrupted.convert('pdf', 'docx', DOCX)).rejects.toMatchObject({ code: 'unavailable' });
+    expect(JSON.parse(log.mock.calls[1]![0]).reason).toBe('response_interrupted');
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private text');
   });
 });
 

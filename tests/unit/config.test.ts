@@ -67,6 +67,23 @@ describe('office converter configuration', () => {
     expect(() => loadConfig(env({ ...PROD, CONVERTER_TOKEN: TOKEN }))).toThrow(/CONVERTER_URL/);
     expect(() => loadConfig(env({ ...PROD, CONVERTER_URL: 'https://convert.rokela.example', CONVERTER_TOKEN: 'short' }))).toThrow(/32/);
   });
+  it('normalizes Railway private-domain references and surrounding whitespace', () => {
+    const at = (url: string) => loadConfig(env({ ...PROD, CONVERTER_URL: url, CONVERTER_TOKEN: TOKEN })).converter?.url;
+    expect(at('converter.railway.internal')).toBe('http://converter.railway.internal:8080');
+    expect(at('converter.railway.internal:8090')).toBe('http://converter.railway.internal:8090');
+    expect(at('  http://converter.railway.internal:8080/  ')).toBe('http://converter.railway.internal:8080');
+    for (const invalid of [
+      'convert.example.com',
+      'converter.railway.internal.evil.example',
+      'converter.railway.internal/path',
+      'https://convert.example.com?token=secret',
+      'https://convert.example.com#fragment',
+      '${{converter.RAILWAY_PRIVATE_DOMAIN}}',
+      '   ',
+    ]) {
+      expect(() => at(invalid)).toThrow(/CONVERTER_URL must be an origin, e.g./);
+    }
+  });
   it('in production allows plain HTTP only on the Railway private network', () => {
     const at = (url: string) => loadConfig(env({ ...PROD, CONVERTER_URL: url, CONVERTER_TOKEN: TOKEN })).converter?.url;
     expect(at('http://converter.railway.internal:8080')).toBe('http://converter.railway.internal:8080');

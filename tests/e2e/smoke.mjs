@@ -121,7 +121,12 @@ async function main() {
   let appLog = '';
   app.stdout.on('data', (d) => (appLog += d));
   app.stderr.on('data', (d) => (appLog += d));
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE_PATH }).catch((e) => {
+    app.kill();
+    converter?.close();
+    auth.close();
+    throw e;
+  });
   const problems = [];
   const pages = [];
   const watch = (page, who) => {

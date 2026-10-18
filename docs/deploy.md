@@ -41,20 +41,53 @@ the R2 and Supabase connections are exercised for the first time on your first d
 
 ## 3. Railway (app)
 
-1. _New project → Deploy from GitHub repo_ → this repository. [`railway.json`](../railway.json) is picked up:
-   build `npm run build`, **pre-deploy `npm run deploy:prepare`** (migrations + grants; a failure stops the deploy and
-   the previous version keeps serving), start `npm start`, health check `/api/v1/health`.
-2. Optional malware scanning: _New → GitHub repo_ (same repo) → service Settings → _Config file path_
-   `infra/clamav/railway.json`. ~2 GB memory, **no public domain**. Its private host is `<name>.railway.internal`.
-3. Optional Office conversion (PDF ↔ Word/Excel/PowerPoint): _New → GitHub repo_ (same repo) → service Settings →
-   _Root directory_ `converter` and _Config file path_ `/converter/railway.json` (its own `Dockerfile`,
-   health check `/health`). **No public domain.** 2 GB memory
-   is comfortable (two conversions at a time); roughly $5–20/month depending on use. Variables:
-   `CONVERTER_TOKEN` = `openssl rand -base64 48` (secret). Optional: `CONVERTER_CONCURRENCY` (2),
-   `CONVERTER_TIMEOUT` seconds (120), `CONVERTER_MAX_BYTES` (52428800), `CONVERTER_MAX_PAGES` (200),
-   `CONVERTER_MEMORY_MB` per job (3072). Then set `CONVERTER_URL` = `http://<converter>.railway.internal:8080` and the
-   same `CONVERTER_TOKEN` on the app. Until then the six Office tools show “coming soon”.
-4. App service → Settings → _Networking_: add your custom domain (Railway issues the certificate).
+Use three separate services in the **same Railway project and environment**. Service display names do not
+establish which software runs there; verify the build and runtime logs.
+
+| Service   | Root directory  | Build/start                                                             | Connections                                              |
+| --------- | --------------- | ----------------------------------------------------------------------- | -------------------------------------------------------- |
+| Main app  | `/`             | `npm run build`, pre-deploy `npm run deploy:prepare`, start `npm start` | Supabase, PostgreSQL, R2, converter, ClamAV              |
+| Converter | `/converter`    | auto-detected `Dockerfile`; leave command overrides empty               | private HTTP port `8080`; shared `CONVERTER_TOKEN`       |
+| ClamAV    | `/infra/clamav` | auto-detected `Dockerfile`; leave command overrides empty               | private TCP port `3310`; no account, API key or database |
+
+Railway's Settings UI now reports that new services cannot opt into legacy Config as Code. Configure these
+settings directly for new services; clear the Railway Config File field on the converter and ClamAV services.
+The JSON files remain for existing legacy deployments. Never put a JSON filename in Root Directory. A root
+of `/infra/clamav` automatically detects the `Dockerfile` inside that directory.
+
+- Main app: health check `/api/v1/health`; add a public/custom domain under Networking.
+- Converter: health check `/health`; `HOST=::`, `PORT=8080`; no public domain is needed. Generate a secret
+  `CONVERTER_TOKEN` with `openssl rand -base64 48`, and set the exact same token on the main app. On the app,
+  `CONVERTER_URL=http://<actual-converter-private-hostname>:8080`. Verify logs say `listening`, not Next.js.
+  Optional variables: `CONVERTER_CONCURRENCY` (2), `CONVERTER_TIMEOUT` (120 seconds),
+  `CONVERTER_MAX_BYTES` (52428800), `CONVERTER_MAX_PAGES` (200), `CONVERTER_MEMORY_MB` (3072 per-job
+  address-space limit). Set the Railway memory allocation for the total process workload; that per-job limit
+  does not allocate container memory. Start with one concurrent job on small instances and measure usage.
+- ClamAV: allow about 2 GB of memory; no public domain or HTTP health check. On the **main app** set
+  `CLAMD_HOST=<actual-clamav-private-hostname>` (no scheme or port), `CLAMD_PORT=3310`, and remove
+  `MALWARE_SCAN_DISABLED`. Logs should end with `clamd started`; initial definition updates can take time.
+
+### Verify the running system
+
+After deploying the code, run in the **main app's Railway shell** (uses its existing variables):
+
+```bash
+npm run check:services
+# Or isolate the current conversion failure:
+npm run check:services -- --only=converter
+```
+
+This checks the app database connection/schema, Supabase Auth endpoint/key, R2 bucket access, an actual ClamAV
+INSTREAM scan, converter identity/dependencies, and a real synthetic RTF-to-PDF conversion through LibreOffice.
+It doesn't modify database records or stored files and never prints credentials or response bodies. It does not
+verify browser CORS, user-specific authorization or email delivery; use the checklist below for those.
+A skipped optional service is not a passing check. Converter identity requires the updated converter image.
+
+The main app logs every failed converter HTTP response with `reason`, `status`, `host` and `request_id`.
+The converter logs the same ID and its worker's exit code/exception class. No document text or tokens are logged.
+`authentication` means 401/403; `wrong_service_or_route` means 404; `http` with 500 means conversion failed.
+If the app logs a response but the intended converter logs no request with that ID, check which private hostname
+and deployment the app is actually reaching. Do not infer a service's identity from its display name.
 
 ### App variables (mark secrets as secret)
 
@@ -82,6 +115,23 @@ account, add and verify your domain (DNS records), create an API key with _sendi
 
 The app refuses to start in production if any of these is missing or weak (e.g. local storage, short secret,
 non-HTTPS origins, no ClamAV without the explicit opt-out).
+
+### Startup error: `CONVERTER_URL must be an origin`
+
+This means configuration validation failed before the app finished starting. Set `CONVERTER_URL` on the
+**app service** to `http://<actual-converter-service-name>.railway.internal:8080`. Replace the placeholder with
+its real private hostname. Use the converter's actual listening port if you changed it. Do not append `/health`,
+`/v1/convert`, a query string, or credentials. Public converter origins must use HTTPS.
+
+A bare Railway private hostname (including a resolved `RAILWAY_PRIVATE_DOMAIN` reference) is also accepted;
+the app adds `http://` and port `8080` unless a port is supplied. Full URLs keep their explicit/default URL port.
+Unresolved Railway references and placeholder text are invalid. Keep `CONVERTER_TOKEN` identical on both services
+and at least 32 characters long. Redeploy the app after correcting the variables. If Office conversion is not
+being used, remove **both** converter variables.
+
+The npm warning `config production Use --omit=dev instead` is separate from this startup failure. If your build
+settings set `NPM_CONFIG_PRODUCTION`, remove that legacy setting; use `npm ci --omit=dev` only for a separate
+runtime install (the build needs dev dependencies).
 
 ## 4. First operator and plans
 

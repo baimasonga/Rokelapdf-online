@@ -8,7 +8,7 @@ POST /v1/convert/docx?from=pdf     PDF → Word (editable paragraphs, fonts, tab
 POST /v1/convert/xlsx?from=pdf     PDF → Excel (one sheet per page; tables as rows/columns)
 POST /v1/convert/pptx?from=pdf     PDF → PowerPoint (one slide per page; text in the notes)
 POST /v1/convert/pdf?from=<ext>    docx doc odt rtf · xlsx xls ods · pptx ppt odp → PDF (LibreOffice)
-GET  /health
+GET  /health                    service identity + installed dependency checks
 ```
 
 Every `POST` needs `Authorization: Bearer $CONVERTER_TOKEN` and a `Content-Length`; the body is the file.
@@ -26,7 +26,7 @@ message is safe to show), 429 busy, 504 timeout, 500 anything else.
 - LibreOffice runs with a hardened profile: macros disabled, linked content never updated, untrusted remote links
   blocked. A test proves a document with a linked remote image does not make LibreOffice fetch it.
 - Text from a PDF is never written to Excel as a formula (no formula injection).
-- Logs hold only status, conversion, sizes and time — never file names or contents.
+- Logs hold status, conversion, sizes, time, a request ID and worker exception class/exit code — never file names, contents or tokens.
 - Runs as a non-root user; the container works with a read-only root filesystem and all capabilities dropped.
 
 All libraries are permissively licensed (pdfplumber/pdfminer.six MIT, pypdfium2/PDFium Apache-2.0/BSD,
@@ -41,6 +41,10 @@ docker run --rm -p 127.0.0.1:8090:8080 -e CONVERTER_TOKEN=$(openssl rand -base64
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges rokela-converter
 
 # tests (needs LibreOffice and the requirements)
+# The test target exercises the production non-root user and resource-limited HTTP worker.
+docker build --target test -t rokela-converter-test converter
+docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges rokela-converter-test
+
 cd converter && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m unittest -v
 ```
 
@@ -56,3 +60,5 @@ Point the app at it with `CONVERTER_URL=http://127.0.0.1:8090` and the same `CON
 | `CONVERTER_MAX_PAGES`   | 200        | largest PDF for PDF → Office       |
 | `CONVERTER_MEMORY_MB`   | 3072       | address-space limit per conversion |
 | `CONVERTER_QUEUE_WAIT`  | 30         | seconds to wait for a free slot    |
+
+From the main app container, `npm run check:services -- --only=converter` checks service identity and performs a real synthetic Office-to-PDF conversion with the configured token. The unauthenticated health endpoint alone cannot validate the token or conversion engine.
