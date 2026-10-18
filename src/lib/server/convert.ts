@@ -72,7 +72,11 @@ export class HttpConverter implements Converter {
         signal: AbortSignal.timeout(this.#timeoutMs),
         redirect: 'error',
       });
-    } catch {
+    } catch (e) {
+      // Operators need the reason (DNS, refused, timeout…); only the host and error codes are logged, never the
+      // token or anything about the file.
+      const err = e as Error & { cause?: { code?: string } };
+      console.error(JSON.stringify({ level: 'error', msg: 'converter unreachable', host: new URL(this.#url).host, error: err?.name, code: err?.cause?.code }));
       throw new DomainError('unavailable', 'The converter is not reachable right now. Try again in a few minutes.');
     }
     if (res.ok) return new Uint8Array(await res.arrayBuffer());
