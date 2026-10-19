@@ -374,7 +374,7 @@ export function SendPanel({ onSent }: { onSent: () => void }) {
             {emailOff &&
               (cfg!.email
                 ? ' · confirm your email address to send emails; you will get a personal link for each person instead.'
-                : ' · email delivery is not switched on yet; you will get a personal link for each person to send yourself.')}
+                : ' · automatic email delivery is not configured. No email will be sent; copy and share each person’s link yourself.')}
           </p>
         </>
       )}
@@ -440,7 +440,7 @@ function SentScreen({ done, password, onAgain, onOpen, sender }: { done: Done; p
   return (
     <section className="send-card sent" aria-live="polite">
       <CheckCircle2 size={56} className="sent-icon" aria-hidden="true" />
-      <h2>{done.mode === 'link' ? 'Your link is ready' : done.emailed ? 'You’re done!' : 'Your links are ready'}</h2>
+      <h2>{done.mode === 'link' ? 'Your link is ready' : done.emailed ? 'Emails queued' : 'Your links are ready'}</h2>
       {done.mode === 'link' ? (
         <>
           <p className="muted">Copy the link and share it. It works until the transfer expires.</p>
@@ -448,18 +448,22 @@ function SentScreen({ done, password, onAgain, onOpen, sender }: { done: Done; p
         </>
       ) : done.emailed ? (
         <p className="muted">
-          We emailed a personal download link to {done.links.map((l) => l.label).join(', ')}. You will see each person’s downloads in the transfer.
+          Personal download links for {done.links.map((l) => l.label).join(', ')} are queued for email delivery. You will see each person’s downloads in the
+          transfer.
         </p>
       ) : (
         <>
-          <p className="muted">Each person has a personal link, so you can see who downloaded. Send them yourself:</p>
+          <p>
+            <strong>No email was sent.</strong> Your files are uploaded. Copy each person’s download link below and send it to them.
+          </p>
+          <p className="muted">Open email app creates a draft on this device. You still need to send the email yourself.</p>
           <ul className="sent-links">
             {done.links.map((l) => (
               <li key={l.id}>
                 <strong>{l.label}</strong>
                 <CopyField value={l.url} label={`Link for ${l.label}`} />
                 <a className="button ghost" href={mailto(l.label, l.url)}>
-                  <Mail size={15} aria-hidden="true" /> Email it
+                  <Mail size={15} aria-hidden="true" /> Open email app
                 </a>
               </li>
             ))}
