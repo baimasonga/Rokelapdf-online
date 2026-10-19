@@ -14,6 +14,10 @@ Submitters can remove and replace their own files before submitting; removals ar
 audited and object deletion is queued. Security-check status refreshes automatically,
 and submission is disabled while uploads are running. Existing checklist, deadline,
 password, file-size, storage and requester-notification policies still apply.
+Request details offer Copy and Send link. Send link queues branded email invitations
+for up to 20 recipients, with an optional message and requester reply-to. It requires
+a verified sender account and configured email provider, uses the shared email quota,
+and skips queued invitations when the request is no longer accepting submissions.
 
 The editor supports embedded Unicode fonts, including a bundled Noto Sans font and
 custom TTF/OTF uploads. Fonts must contain the requested characters. Redaction exports

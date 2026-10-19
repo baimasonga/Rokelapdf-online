@@ -311,6 +311,9 @@ export function buildRouter(): Router {
     );
   });
   r.add('GET', `${P}/upload-requests/:id`, 'user', async (x) => sh(x).getUploadRequest(me(x), ids(x).orgId, ids(x).id));
+  r.add('POST', `${P}/upload-requests/:id/email`, 'user', async (x) =>
+    sh(x).emailUploadRequest(me(x), ids(x).orgId, ids(x).id, parse(s.requestEmailBody, await x.body())),
+  );
   r.add('POST', `${P}/upload-requests/:id/status`, 'user', async (x) =>
     sh(x).closeUploadRequest(me(x), ids(x).orgId, ids(x).id, parse(s.requestActionBody, await x.body()).action),
   );

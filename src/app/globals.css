@@ -4143,3 +4143,23 @@ button.org-page:hover:not(:disabled) {
     display: none;
   }
 }
+
+.request-share-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.request-share-actions .copy-row {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.request-share-actions > button {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .request-share-actions {
+    flex-direction: column;
+  }
+}

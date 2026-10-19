@@ -229,3 +229,5 @@ export const shortUnlockBody = openBody
   .strict();
 
 export const submissionFileParams = z.object({ token: urlToken, fileId: id }).strict();
+
+export const requestEmailBody = linkEmailBody.omit({ remind_before_expiry: true }).strict();

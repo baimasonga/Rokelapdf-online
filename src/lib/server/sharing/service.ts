@@ -2456,6 +2456,30 @@ export class SharingService {
     return (await this.#d.store.list('uploadRequest', orgId, {}, { limit: 500 })).filter((r) => r.status !== 'purged').map((r) => this.#requestView(r, now));
   }
 
+  async emailUploadRequest(p: UserPrincipal, orgId: string, id: string, input: { to: string[]; message?: string | undefined }) {
+    if (!this.#d.mailer) throw new DomainError('conflict', 'email delivery is not configured; copy the link instead');
+    if (!p.emailVerified) throw new DomainError('forbidden', 'confirm your email address before sending emails');
+    const to = [...new Set(input.to.map(normalizeEmail))];
+    if (!to.length || to.length > 20) throw invalid('send to between 1 and 20 addresses');
+    const message = text(input.message, 2000, 'message');
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
+      const request = await tx.getForUpdate('uploadRequest', orgId, id);
+      if (!request) throw notFound();
+      await this.#requireManager(p, orgId, request.createdBy);
+      this.#requestAccepting(request, now);
+      if ((await tx.addUsage(orgId, monthKey(now), 'emails_sent', to.length)) > limits.emailsPerMonth) throw quota('email');
+      for (const addr of to)
+        await this.#enqueue(tx, orgId, 'share_email', request.id, now, {
+          mode: 'request_invitation',
+          to: addr,
+          from: p.email,
+          message: message ?? '',
+        });
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.request.emailed', { type: 'upload_request', id }, { recipients: to.length });
+      return { queued: to.length };
+    });
+  }
+
   async getUploadRequest(p: UserPrincipal, orgId: string, id: string) {
     await this.#d.authorize(p, orgId, 'share:read');
     const s = this.#d.store;
@@ -3151,7 +3175,8 @@ export class SharingService {
       return;
     }
     if (job.kind === 'share_email') {
-      await this.#sendShareEmail(job);
+      if (job.payload['mode'] === 'request_invitation') await this.#sendRequestInvitation(job);
+      else await this.#sendShareEmail(job);
       await s.transaction((tx) => this.#finish(tx, job, claim));
       return;
     }
@@ -3171,6 +3196,33 @@ export class SharingService {
   }
 
   /** Sends one emailed link. Skipped (not retried) when the link is no longer usable by the time the job runs. */
+  async #sendRequestInvitation(job: JobRow) {
+    const request = await this.#d.store.get('uploadRequest', job.orgId, job.subjectId);
+    if (!this.#d.mailer || !request || request.status !== 'open' || request.operatorHold || request.deadline <= this.#now()) return;
+    const from = (job.payload['from'] ?? '').replace(/[\r\n\t]+/g, ' ').slice(0, 254);
+    const title = request.title.replace(/[\r\n\t]+/g, ' ').slice(0, 120);
+    const url = this.#requestUrl(request);
+    const message = job.payload['message'] ?? '';
+    await this.#d.mailer.send({
+      id: job.id,
+      to: job.payload['to'] ?? '',
+      replyTo: from,
+      subject: `${from} requested files: ${title}`.slice(0, 150),
+      text: `${from} requested files for “${title}”.\n\n${message ? `${message}\n\n` : ''}Upload your files: ${url}\nDeadline: ${request.deadline.toUTCString()}.\n${request.passwordHash ? 'Ask the requester for the password.\n' : ''}\nNo Rokela account is required. Other submitters cannot see your files.\nIf unexpected, ignore this email or report it: ${this.#c.publicOrigin}/report`,
+      html: shareEmailHtml({
+        from,
+        title,
+        message,
+        url,
+        origin: this.#c.publicOrigin,
+        expiresAt: request.deadline,
+        password: !!request.passwordHash,
+        reminder: false,
+        purpose: 'request',
+      }),
+    });
+  }
+
   async #sendShareEmail(job: JobRow) {
     const s = this.#d.store;
     const now = this.#now();

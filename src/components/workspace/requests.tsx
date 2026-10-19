@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { Badge, Button, CopyField, Details, Empty, Form, Muted, Panel, Table, confirmAction } from '@/components/ui';
 import { api, enc } from '@/lib/client/api';
 import { fmtBytes, inDays, splitList, when } from '@/lib/client/format';
@@ -121,7 +122,7 @@ export function RequestDetail({ id }: { id: string }) {
           </Button>
         }
       >
-        <CopyField value={r.url} label="Upload request URL" />
+        <RequestSharing id={id} url={r.url} accepting={r.accepting} />
         <Details
           items={[
             ['Accepting files', r.accepting ? 'Yes' : 'No'],
@@ -186,6 +187,70 @@ export function RequestDetail({ id }: { id: string }) {
           <Empty>No submissions yet.</Empty>
         )}
       </Panel>
+    </>
+  );
+}
+
+function RequestSharing({ id, url, accepting }: { id: string; url: string; accepting: boolean }) {
+  const { P, me } = useWs();
+  const [open, setOpen] = useState(false);
+  const [queued, setQueued] = useState(0);
+  const { data: config } = useLoad<any>(() => api('/api/v1/config'), []);
+  return (
+    <>
+      <div className="request-share-actions">
+        <CopyField value={url} label="Upload request URL" />
+        <Button
+          kind="primary"
+          disabled={!accepting}
+          onClick={() => {
+            setOpen(!open);
+            setQueued(0);
+          }}
+        >
+          {open ? 'Cancel sending' : 'Send link'}
+        </Button>
+      </div>
+      {open && (
+        <Panel title="Send request link by email">
+          {!config ? (
+            <Muted>Loading email settings…</Muted>
+          ) : !config.email ? (
+            <p>Email delivery is unavailable. Use Copy to share the link.</p>
+          ) : !me.email_verified ? (
+            <p>Confirm your email address before sending invitations. You can still copy the link.</p>
+          ) : (
+            <>
+              <p className="muted">
+                Sent by {config.email_sender}. Replies go to {me.email}.
+              </p>
+              <Form
+                fields={[
+                  {
+                    name: 'to',
+                    label: 'Recipient emails',
+                    placeholder: 'person@example.com, another@example.com',
+                    hint: 'Separate addresses with commas. Up to 20 recipients.',
+                  },
+                  { name: 'message', label: 'Message', type: 'textarea', optional: true },
+                ]}
+                submit="Send link"
+                onSubmit={async (f) => {
+                  const result = await api(`${P}/upload-requests/${enc(id)}/email`, {
+                    body: { to: splitList(f.to), ...(f.message ? { message: f.message } : {}) },
+                  });
+                  setQueued(result.queued);
+                }}
+              />
+              {queued > 0 && (
+                <p role="status">
+                  Email queued for {queued} recipient{queued === 1 ? '' : 's'}. Delivery will continue in the background.
+                </p>
+              )}
+            </>
+          )}
+        </Panel>
+      )}
     </>
   );
 }
