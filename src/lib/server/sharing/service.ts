@@ -2650,6 +2650,31 @@ export class SharingService {
   }
 
   /** The submitter's own files only. */
+  async removeSubmissionFile(token: string, secret: string, fileId: string) {
+    const { r, sub } = await this.#submission(token, secret);
+    this.#requestAccepting(r, this.#now());
+    return this.#d.store.transaction(async (tx) => {
+      const cur = await tx.getForUpdate('submission', r.orgId, sub.id);
+      if (!cur || cur.status !== 'open') throw new DomainError('conflict', 'this submission was already sent');
+      const file = await tx.get('submissionFile', r.orgId, fileId);
+      if (!file || file.submissionId !== sub.id || file.status !== 'current') throw notFound();
+      await tx.update('submissionFile', r.orgId, file.id, { status: 'removed' });
+      await this.#enqueue(tx, r.orgId, 'delete_blob', file.blobId, this.#now());
+      await this.#audit(
+        tx,
+        { type: 'anonymous' },
+        r.orgId,
+        'share.request.file_removed',
+        { type: 'upload_request', id: r.id },
+        {
+          submission_id: sub.id,
+          file_id: file.id,
+        },
+      );
+      return { removed: true };
+    });
+  }
+
   async submissionStatus(token: string, secret: string) {
     const { r, sub } = await this.#submission(token, secret);
     const files = await this.#d.store.list('submissionFile', r.orgId, { submissionId: sub.id, status: 'current' }, { limit: 10_000, order: 'oldest' });

@@ -367,6 +367,10 @@ export function buildRouter(): Router {
     parse(s.emptyBody, await x.body());
     return sh(x).submit(tok(x), secret(x), await x.publicCtx());
   });
+  r.add('DELETE', `${R}/submission/files/:fileId`, 'public', async (x) => {
+    const { token, fileId } = parse(s.submissionFileParams, x.params);
+    return sh(x).removeSubmissionFile(token, secret(x), fileId);
+  });
   r.add('POST', `${R}/uploads`, 'public', async (x) => {
     const b = parse(s.submissionUploadBody, await x.body());
     return created(await sh(x).beginSubmissionUpload(tok(x), secret(x), { requirementKey: b.requirement_key, name: b.name, size: b.size }));

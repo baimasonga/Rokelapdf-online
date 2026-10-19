@@ -30,6 +30,25 @@ export default function UploadRequestPage() {
   const [progress, setProgress] = useState<Record<string, UploadProgress | undefined>>({});
   const h = useCallback((s = secret) => ({ 'x-submission-secret': s }), [secret]);
 
+  const processing = view.k === 'files' && view.sub.files.some((f: any) => f.status === 'processing');
+  const uploading = Object.values(progress).some(Boolean);
+  useEffect(() => {
+    if (!processing || !secret) return;
+    let live = true;
+    const timer = setInterval(() => {
+      api(`${base}/submission`, { auth: false, headers: { 'x-submission-secret': secret } }).then(
+        (sub) => {
+          if (live) setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
+        },
+        () => undefined,
+      );
+    }, 2000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [base, secret, processing]);
+
   const open = useCallback(
     async (pw?: string) => {
       try {
@@ -55,7 +74,8 @@ export default function UploadRequestPage() {
   };
 
   const upload = async (r: any, file: File | undefined) => {
-    if (!file) return;
+    if (!file || progress[r.key]) return;
+    setProgress((x) => ({ ...x, [r.key]: { sent: 0, total: file.size, resumed: false } }));
     try {
       await uploadFile({
         file,
@@ -70,6 +90,9 @@ export default function UploadRequestPage() {
       await refresh();
     } catch (e) {
       notice((e as Error).message, true);
+      await refresh().catch(() => undefined);
+    } finally {
+      setProgress((x) => ({ ...x, [r.key]: undefined }));
     }
   };
 
@@ -138,10 +161,10 @@ export default function UploadRequestPage() {
                 <li
                   key={r.key}
                   className={`req${done ? ' done' : ''}`}
-                  onDragOver={(e) => mine.length < r.max_files && e.preventDefault()}
+                  onDragOver={(e) => !progress[r.key] && mine.length < r.max_files && e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (mine.length < r.max_files) void upload(r, e.dataTransfer.files[0]);
+                    if (!progress[r.key] && mine.length < r.max_files) void upload(r, e.dataTransfer.files[0]);
                   }}
                 >
                   <span className="req-mark" aria-hidden="true">
@@ -161,13 +184,22 @@ export default function UploadRequestPage() {
                           <li key={f.id}>
                             <span className="file-ext sm">{(/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] ?? 'file').toUpperCase()}</span>
                             <span>{`${f.name} · ${fmtBytes(f.size)} · ${f.status === 'processing' ? 'received, being checked' : f.status}`}</span>
+                            <Button
+                              disabled={uploading}
+                              onClick={async () => {
+                                await api(`${base}/submission/files/${enc(f.id)}`, { method: 'DELETE', auth: false, headers: h() });
+                                await refresh();
+                              }}
+                            >
+                              Remove {f.name}
+                            </Button>
                           </li>
                         ))}
                       </ul>
                     )}
                     <Progress p={progress[r.key]} />
                   </div>
-                  {mine.length < r.max_files && (
+                  {!progress[r.key] && mine.length < r.max_files && (
                     <label className="button file-button req-pick">
                       <Upload size={16} aria-hidden="true" /> {done ? 'Add another' : 'Choose file'}
                       <input
@@ -185,6 +217,7 @@ export default function UploadRequestPage() {
           <div className="req-send">
             <Button
               kind="primary"
+              disabled={uploading}
               onClick={async () => {
                 try {
                   await api(`${base}/submission/submit`, { auth: false, body: {}, headers: h() });
@@ -209,7 +242,7 @@ export default function UploadRequestPage() {
             <CheckCircle2 size={44} />
           </span>
           <h1>Files sent</h1>
-          <p className="muted">Thank you. {info?.title ? `“${info.title}” has been sent and the requester was notified.` : 'The requester was notified.'}</p>
+          <p className="muted">Thank you. Your submission was received and the requester was notified. Files become available after security checks finish.</p>
         </section>
       )}
     </PublicFrame>

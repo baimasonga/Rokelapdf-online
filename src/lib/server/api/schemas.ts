@@ -227,3 +227,5 @@ export const shortUnlockBody = openBody
       .optional(),
   })
   .strict();
+
+export const submissionFileParams = z.object({ token: urlToken, fileId: id }).strict();

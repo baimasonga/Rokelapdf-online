@@ -357,6 +357,24 @@ describe('acceptance: file sharing and short links', () => {
       return begin.body.upload_id as string;
     };
     const aliceUpload = await sendFile(alice, 'id', 'alice-id.pdf', pdf('alice id'));
+    const current = await env.call('GET', `${R}/submission`, { headers: { 'x-submission-secret': alice } });
+    const originalFile = current.body.files[0].id;
+    expect(
+      (
+        await env.call('DELETE', `${R}/submission/files/${originalFile}`, {
+          headers: { 'x-submission-secret': bob },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await env.call('DELETE', `${R}/submission/files/${originalFile}`, {
+          headers: { 'x-submission-secret': alice },
+        })
+      ).status,
+    ).toBe(200);
+    expect((await env.call('GET', `${R}/submission`, { headers: { 'x-submission-secret': alice } })).body.files).toEqual([]);
+    await sendFile(alice, 'id', 'replacement-id.pdf', pdf('alice replacement id'));
     // The wrong type for a requirement is refused before any byte is accepted.
     expect(
       (
@@ -417,9 +435,10 @@ describe('acceptance: file sharing and short links', () => {
     });
     const sub = detail.body.submissions.find((s: { submitter_name: string }) => s.submitter_name === 'Alice');
     expect(sub).toMatchObject({ status: 'submitted', identity_verified: false });
+    expect((await env.call('DELETE', `${R}/submission/files/${sub.files[0].id}`, { headers: { 'x-submission-secret': alice } })).status).toBe(409);
     expect(sub.files.map((f: { name: string; status: string }) => [f.name, f.status]).sort()).toEqual([
       ['alice-contract.pdf', 'available'],
-      ['alice-id.pdf', 'available'],
+      ['replacement-id.pdf', 'available'],
     ]);
     const dl = await env.call('POST', `${P}/files/download`, {
       token: owner.token,
