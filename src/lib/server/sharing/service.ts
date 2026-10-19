@@ -44,6 +44,7 @@ import {
   validateAccentColor,
   validateAlias,
   validateExternalDestination,
+  publicShortPath,
   validateHostname,
   type DestinationPolicy,
   type EffectiveLinkState,
@@ -1834,7 +1835,7 @@ export class SharingService {
   #shortUrl(s: ShortLinkRow, domains: Map<string, string>): string {
     if (s.kind === 'confidential') return `${this.#c.publicOrigin}/d/${this.#d.keys.token('short', s.id, s.salt!, 16)}`;
     const host = s.domainId ? domains.get(s.domainId) : undefined;
-    return `${host ? `https://${host}` : this.#c.shortOrigin}/l/${s.code}`;
+    return `${host ? `https://${host}` : this.#c.shortOrigin}${publicShortPath(s.code!)}`;
   }
 
   async #domainHosts(orgId: string): Promise<Map<string, string>> {
@@ -2914,11 +2915,11 @@ export class SharingService {
     } catch {
       /* a bare code or path */
     }
-    const m = /^\/?([lsrd])\/([A-Za-z0-9_-]{3,64})\/?$/.exec(path);
+    const m = /^\/?([lsrd])\/([A-Za-z0-9_-]{3,64})\/?$/.exec(path) ?? /^\/?()([A-Za-z0-9-]{3,64})\/?$/.exec(path);
     if (!m) return undefined;
     const [, kind, code] = m as unknown as [string, string, string];
     try {
-      if (kind === 'l') {
+      if (kind === 'l' || kind === '') {
         const s = await this.#shortRow(host, code);
         return { orgId: s.orgId, type: 'short', id: s.id };
       }

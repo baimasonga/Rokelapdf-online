@@ -270,6 +270,14 @@ const RESERVED_ALIASES = new Set([
   'account',
   'billing',
   'checkout',
+  'brand',
+  'edit',
+  'send',
+  'shorten',
+  'tools',
+  'unlock',
+  'pdfjs',
+  'ocr',
   'd',
   'download',
   'help',
@@ -293,6 +301,9 @@ const RESERVED_ALIASES = new Set([
   'verify',
   'www',
 ]);
+
+/** Keep older aliases that now overlap app paths accessible through the legacy route. */
+export const publicShortPath = (code: string) => `${RESERVED_ALIASES.has(code) ? '/l' : ''}/${code}`;
 
 /** Custom aliases for PUBLIC short links only: lowercase, readable, not impersonating platform paths. */
 export function validateAlias(alias: string): string {

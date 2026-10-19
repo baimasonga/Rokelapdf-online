@@ -165,12 +165,13 @@ describe('acceptance: file sharing and short links', () => {
       },
     });
     expect(created.status).toBe(201);
-    expect(created.body.url).toBe(`${env.c.config.shortOrigin}/l/spring-sale`);
-    const go = await visit(env, '/l/spring-sale', { 'user-agent': UA, referer: 'https://news.example/item?id=7' });
+    expect(created.body.url).toBe(`${env.c.config.shortOrigin}/spring-sale`);
+    const go = await visit(env, '/spring-sale', { 'user-agent': UA, referer: 'https://news.example/item?id=7' });
     expect(go.status).toBe(302);
     expect(go.location).toBe('https://shop.example.com/spring?ref=flyer');
+    expect((await visit(env, '/l/spring-sale', { 'user-agent': UA })).location).toBe(go.location);
     expect(go.headers.get('referrer-policy')).toBe('no-referrer');
-    await visit(env, '/l/spring-sale', { 'user-agent': 'Slackbot-LinkExpanding 1.0' });
+    await visit(env, '/spring-sale', { 'user-agent': 'Slackbot-LinkExpanding 1.0' });
     const qr = await env.call('GET', `${P}/short-links/${created.body.id}/qr.svg`, { token: owner.token });
     expect(qr.status).toBe(200);
     expect(qr.headers.get('content-type')).toContain('image/svg+xml');
@@ -179,7 +180,7 @@ describe('acceptance: file sharing and short links', () => {
     const stats = await env.call('GET', `${P}/short-links/${created.body.id}/stats`, {
       token: owner.token,
     });
-    expect(stats.body.totals.visit).toEqual({ count: 1, bots: 1 });
+    expect(stats.body.totals.visit).toEqual({ count: 2, bots: 1 });
     // Referral hosts are an advanced-analytics (paid) feature.
     expect(stats.body.referrers).toBeNull();
     await env.plan(owner.orgId, BUSINESS);
@@ -188,6 +189,20 @@ describe('acceptance: file sharing and short links', () => {
     });
     expect(paid.body.referrers).toEqual([{ host: 'news.example', count: 1 }]);
     expect(JSON.stringify(stats.body)).not.toContain('id=7');
+  });
+
+  it('generates compact public URLs while keeping confidential tokens separate', async () => {
+    env = await sharingEnv();
+    const owner = await env.user('compact@example.test', { verified: true });
+    const created = await env.call('POST', `${sp(owner.orgId)}/short-links`, {
+      token: owner.token,
+      body: { kind: 'public', destination_type: 'external', destination_url: 'https://example.com/long/path?campaign=launch' },
+    });
+    expect(created.status).toBe(201);
+    const path = new URL(created.body.url).pathname;
+    expect(path).toMatch(/^\/[a-hj-km-np-z2-9]{6}$/);
+    expect((await visit(env, path)).location).toBe('https://example.com/long/path?campaign=launch');
+    expect((await visit(env, `/l${path}`)).location).toBe('https://example.com/long/path?campaign=launch');
   });
 
   it('3 & 4: password and expiry; revocation stops the very next request', async () => {

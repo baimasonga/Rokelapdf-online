@@ -62,11 +62,11 @@ export const newSalt = () => randomBytes(16).toString('base64url');
 export const tokenHash = (token: string) => sha256Hex(`sharing-token:${token}`);
 /** Random submitter handle for upload requests (only its hash is stored). */
 export const newSubmissionSecret = () => `sub_${randomBytes(32).toString('base64url')}`;
-/** Random generated short code for PUBLIC links: 8 chars from an unambiguous alphabet (~41 bits, not a secret). */
+/** Random generated short code for PUBLIC links: 6 chars from an unambiguous alphabet (~29 bits, not a secret). */
 export function newPublicCode(): string {
   const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
   let out = '';
   // randomInt draws uniformly (no modulo bias).
-  for (let i = 0; i < 8; i++) out += alphabet[randomInt(alphabet.length)];
+  for (let i = 0; i < 6; i++) out += alphabet[randomInt(alphabet.length)];
   return out;
 }

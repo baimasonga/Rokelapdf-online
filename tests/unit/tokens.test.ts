@@ -34,7 +34,7 @@ describe('sharing tokens and grants', () => {
   });
 
   it('generates readable public codes and high-entropy submission secrets', () => {
-    expect(newPublicCode()).toMatch(/^[a-hj-km-np-z2-9]{8}$/);
+    expect(newPublicCode()).toMatch(/^[a-hj-km-np-z2-9]{6}$/);
     expect(newSubmissionSecret()).toMatch(/^sub_[A-Za-z0-9_-]{43}$/);
   });
 });

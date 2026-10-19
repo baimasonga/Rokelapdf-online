@@ -13,6 +13,7 @@ import {
   sanitizeFileName,
   sanitizeFolderPath,
   validateAlias,
+  publicShortPath,
   validateExternalDestination,
   validateHostname,
   FILE_KINDS,
@@ -95,7 +96,12 @@ describe('short-link destinations and aliases', () => {
   });
   it('allows readable aliases and refuses reserved or malformed ones', () => {
     expect(validateAlias(' Spring-Sale ')).toBe('spring-sale');
-    for (const bad of ['ab', 'login', 'admin', '-x-', 'a--b', 'ünï', 'a b', 'x'.repeat(65)]) expect(() => validateAlias(bad), bad).toThrow();
+    for (const bad of ['ab', 'login', 'admin', 'edit', 'send', 'shorten', 'tools', 'unlock', 'brand', '-x-', 'a--b', 'ünï', 'a b', 'x'.repeat(65)])
+      expect(() => validateAlias(bad), bad).toThrow();
+  });
+  it('uses clean paths and keeps legacy aliases that overlap app routes reachable', () => {
+    expect(publicShortPath('spring-sale')).toBe('/spring-sale');
+    expect(publicShortPath('edit')).toBe('/l/edit');
   });
   it('validates custom hostnames', () => {
     expect(validateHostname('Go.Example.COM.')).toBe('go.example.com');

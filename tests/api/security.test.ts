@@ -774,7 +774,7 @@ describe('sharing: short links and abuse', () => {
     });
     const report = await env.call('POST', '/api/v1/public/abuse-reports', {
       body: {
-        reference: `${env.c.config.shortOrigin}/l/bank-login`,
+        reference: `${env.c.config.shortOrigin}/bank-login`,
         category: 'phishing',
         details: 'Imitates a bank login.',
       },
@@ -1014,7 +1014,7 @@ describe('sharing: review, approval and branding', () => {
         domain_id: dom.body.id,
       },
     });
-    expect(sl.body.url).toBe('https://go.kamara.example/l/offer');
+    expect(sl.body.url).toBe('https://go.kamara.example/offer');
     expect((await visit(env, '/l/offer', {}, 'go.kamara.example')).status).toBe(302);
     expect((await visit(env, '/l/offer')).status).toBe(404);
     // The canonical unlock page must retain the custom namespace, even when aliases collide.

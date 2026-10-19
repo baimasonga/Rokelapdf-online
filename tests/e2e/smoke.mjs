@@ -701,7 +701,12 @@ async function main() {
     await p.getByRole('button', { name: 'Create short link', exact: true }).click();
     await p.getByRole('heading', { name: 'Campaign launch', exact: true }).waitFor();
     const campaignUrl = await p.getByLabel('Short URL', { exact: true }).inputValue();
-    check(campaignUrl.endsWith('/launch-campaign'), 'shortener honors a custom alias');
+    check(new URL(campaignUrl).pathname === '/launch-campaign', 'shortener uses a clean custom alias');
+    const campaignRedirect = await fetch(campaignUrl, { redirect: 'manual' });
+    check(
+      campaignRedirect.status === 302 && campaignRedirect.headers.get('location') === 'https://example.com/campaign',
+      'clean short URL redirects to the destination',
+    );
     await p.getByRole('button', { name: '← All short links' }).click();
     await p.getByLabel('Search short links').fill('Campaign launch');
     await p.getByText('Campaign launch', { exact: true }).waitFor();

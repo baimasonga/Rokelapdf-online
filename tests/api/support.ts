@@ -22,10 +22,10 @@ export const sharingEnv = (o: Parameters<typeof makeEnv>[0] = {}) => makeEnv(o);
 export const sp = (orgId: string) => `/api/v1/workspaces/${orgId}/sharing`;
 export const tokenOf = (url: string) => new URL(url).pathname.split('/').pop()!;
 
-/** Resolves /l/:code or /d/:code like the Next.js route handlers do. */
+/** Resolves /:code, /l/:code or /d/:code like the Next.js route handlers do. */
 export async function visit(env: TestEnv, path: string, headers: Record<string, string> = {}, host = '127.0.0.1:3000') {
   const [, kind, code] = path.split('/');
-  const res = await publicRedirect(env.c, new Request(`http://${host}${path}`, { headers }), kind === 'd' ? 'confidential' : 'public', code!);
+  const res = await publicRedirect(env.c, new Request(`http://${host}${path}`, { headers }), kind === 'd' ? 'confidential' : 'public', code ?? kind!);
   return { status: res.status, location: res.headers.get('location'), headers: res.headers, body: await res.text() };
 }
 

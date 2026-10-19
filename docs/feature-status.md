@@ -5,6 +5,10 @@ workspace UI for short-link metadata, filters, bulk actions, CSV export, custom-
 selection, password and account restrictions, branding, domain ownership verification,
 operator abuse review, manager audit history and workspace metadata exports.
 
+Public short URLs use `SHORT_ORIGIN/code` with six-character generated codes or custom
+aliases. The previous `/l/code` URLs remain valid. Existing aliases that overlap app
+routes keep the `/l/` format. Confidential links retain their unpredictable `/d/` tokens.
+
 The editor supports embedded Unicode fonts, including a bundled Noto Sans font and
 custom TTF/OTF uploads. Fonts must contain the requested characters. Redaction exports
 all pages into a new image-only PDF, removes original searchable text and forms, and
