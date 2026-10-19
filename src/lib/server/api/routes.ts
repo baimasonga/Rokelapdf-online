@@ -355,7 +355,7 @@ export function buildRouter(): Router {
   });
   r.add('POST', '/api/v1/public/short-links/:code/unlock', 'public', async (x) => {
     const { code } = parse(s.shortCodeParams, x.params);
-    return sh(x).unlockShortLink(x.req.headers.get('host') ?? undefined, code, parse(s.openBody, await x.body()), await x.publicCtx());
+    return sh(x).unlockShortLink(x.req.headers.get('host') ?? undefined, code, parse(s.shortUnlockBody, await x.body()), await x.publicCtx());
   });
   const R = '/api/v1/public/upload-requests/:token';
   r.add('POST', `${R}/open`, 'public', async (x) => sh(x).openUploadRequest(tok(x), parse(s.openBody, await x.body()), await x.publicCtx()));

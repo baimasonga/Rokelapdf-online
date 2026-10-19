@@ -1,5 +1,5 @@
 'use client';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { PasswordPrompt, PublicFrame, SignInRequired } from '@/components/public';
 import { Muted, Panel } from '@/components/ui';
@@ -12,12 +12,16 @@ type View = { k: 'loading' } | { k: 'password'; wrong: boolean } | { k: 'signin'
 
 export default function Unlock() {
   const { code } = useParams<{ code: string }>();
+  const domain = useSearchParams().get('domain');
+  const next = `/unlock/${enc(code)}${domain ? `?domain=${enc(domain)}` : ''}`;
   const { ready, session } = useAuth();
   const [view, setView] = useState<View>({ k: 'loading' });
   const unlock = useCallback(
     async (password?: string) => {
       try {
-        const r = await api<{ location: string }>(`/api/v1/public/short-links/${enc(code)}/unlock`, { body: password ? { password } : {} });
+        const r = await api<{ location: string }>(`/api/v1/public/short-links/${enc(code)}/unlock`, {
+          body: { ...(password ? { password } : {}), ...(domain ? { domain } : {}) },
+        });
         setView({ k: 'go', location: r.location });
       } catch (e) {
         const err = e as ApiError;
@@ -26,12 +30,13 @@ export default function Unlock() {
         setView({ k: 'gone', text: err.message });
       }
     },
-    [code],
+    [code, domain],
   );
   useEffect(() => {
+    // The request resolves asynchronously; the effect rechecks when the visitor signs in.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (ready) void unlock();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, session?.user.id]);
+  }, [ready, session?.user.id, unlock]);
 
   let host = '';
   if (view.k === 'go') {
@@ -48,10 +53,10 @@ export default function Unlock() {
       {view.k === 'password' && (
         <PasswordPrompt title="Protected link" wrong={view.wrong} intro="Enter the password you were given to continue." onSubmit={(pw) => unlock(pw)} />
       )}
-      {view.k === 'signin' && <SignInRequired next={`/unlock/${code}`} />}
+      {view.k === 'signin' && <SignInRequired next={next} />}
       {view.k === 'gone' && <Panel title="Link unavailable">{view.text}</Panel>}
       {view.k === 'go' && host && (
-        <Panel title={internal ? 'Link unlocked' : 'You are leaving Rokela PDF Pro'}>
+        <Panel title={internal ? 'Link unlocked' : 'You are leaving Rokela PDF'}>
           {!internal && <p>This link goes to {host}.</p>}
           <a className="button primary" href={view.location} rel="noopener noreferrer">
             Continue{internal ? '' : ` to ${host}`}

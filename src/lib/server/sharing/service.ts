@@ -2250,15 +2250,23 @@ export class SharingService {
     host: string | undefined,
     code: string,
     ctx: PublicContext,
-  ): Promise<{ location: string } | { interstitial: { password: boolean; signIn: boolean } }> {
+  ): Promise<{ location: string } | { interstitial: { password: boolean; signIn: boolean; domain?: string } }> {
     const s = await this.#shortRow(host, code);
     this.#shortState(s, this.#now());
     await this.#countShort(s, ctx);
-    if (s.passwordHash || s.requireAuth) return { interstitial: { password: !!s.passwordHash, signIn: s.requireAuth } };
+    if (s.passwordHash || s.requireAuth) {
+      const domain = s.domainId ? await this.#d.store.get('domain', s.orgId, s.domainId) : undefined;
+      return { interstitial: { password: !!s.passwordHash, signIn: s.requireAuth, ...(domain ? { domain: domain.hostname } : {}) } };
+    }
     return { location: s.destinationUrl! };
   }
 
-  async unlockShortLink(host: string | undefined, code: string, input: { password?: string | undefined }, ctx: PublicContext) {
+  async unlockShortLink(host: string | undefined, code: string, input: { password?: string | undefined; domain?: string | undefined }, ctx: PublicContext) {
+    if (input.domain) {
+      const domain = await this.#d.store.findUnique('domain', 'hostname', input.domain.toLowerCase());
+      if (!domain || domain.status !== 'verified') throw notFound();
+      host = domain.hostname;
+    }
     const s = await this.#shortRow(host, code);
     this.#shortState(s, this.#now());
     if (s.requireAuth && !ctx.principal) throw new DomainError('unauthenticated', 'sign in to open this link');

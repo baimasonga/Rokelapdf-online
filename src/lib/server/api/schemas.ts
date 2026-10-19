@@ -217,3 +217,13 @@ export const holdParams = z.object({ orgId: id, type: z.enum(['short', 'share', 
 export const holdBody = z.object({ hold: z.boolean(), reason }).strict();
 
 export const signatureRequestBody = z.object({ document_id: id, deadline: date, password: password.optional() }).strict();
+
+export const shortUnlockBody = openBody
+  .extend({
+    domain: z
+      .string()
+      .max(253)
+      .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i)
+      .optional(),
+  })
+  .strict();

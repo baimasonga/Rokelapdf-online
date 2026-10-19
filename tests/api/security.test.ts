@@ -1017,6 +1017,25 @@ describe('sharing: review, approval and branding', () => {
     expect(sl.body.url).toBe('https://go.kamara.example/l/offer');
     expect((await visit(env, '/l/offer', {}, 'go.kamara.example')).status).toBe(302);
     expect((await visit(env, '/l/offer')).status).toBe(404);
+    // The canonical unlock page must retain the custom namespace, even when aliases collide.
+    await env.call('POST', `${P}/short-links`, {
+      token: owner.token,
+      body: { kind: 'public', destination_type: 'external', destination_url: 'https://default.example/', alias: 'offer' },
+    });
+    await env.call('PATCH', `${P}/short-links/${sl.body.id}`, {
+      token: owner.token,
+      body: { password: 'custom-password-1', require_auth: true },
+    });
+    const protectedVisit = await visit(env, '/l/offer', {}, 'go.kamara.example');
+    expect(protectedVisit.location).toBe(`${env.c.config.publicOrigin}/unlock/offer?domain=go.kamara.example`);
+    const unlock = (domain: string, password = 'custom-password-1') =>
+      env.call('POST', '/api/v1/public/short-links/offer/unlock', {
+        token: owner.token,
+        body: { domain, password },
+      });
+    expect((await unlock('go.kamara.example', 'wrong-password')).status).toBe(401);
+    expect((await unlock('go.kamara.example')).body.location).toBe('https://kamara.example/');
+    expect((await unlock('unknown.example')).status).toBe(404);
     const other = await env.user('dom2@example.test', { verified: true });
     await env.plan(other.orgId, BUSINESS);
     expect(

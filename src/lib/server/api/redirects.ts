@@ -34,7 +34,11 @@ export async function publicRedirect(c: Container, req: Request, kind: 'public' 
     if (kind === 'confidential') location = (await c.sharing.resolveConfidential(code, ctx)).location;
     else {
       const r = await c.sharing.resolveShortLink(req.headers.get('host') ?? new URL(req.url).host, code, ctx);
-      location = 'location' in r ? r.location : `${c.config.publicOrigin}/unlock/${encodeURIComponent(code)}`;
+      if ('location' in r) location = r.location;
+      else {
+        const domain = r.interstitial.domain;
+        location = `${c.config.publicOrigin}/unlock/${encodeURIComponent(code)}${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`;
+      }
     }
     return new Response(null, { status: 302, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
   } catch (e) {
