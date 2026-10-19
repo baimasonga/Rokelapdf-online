@@ -1,3 +1,5 @@
+import type { Mailer } from '../mail';
+import { shareEmailHtml } from '../share-email';
 import { randomBytes } from 'node:crypto';
 import { newId } from '../kernel';
 import { DomainError, type Clock, type UserPrincipal } from '../kernel';
@@ -107,7 +109,7 @@ export interface SharingDeps {
     verify(pw: string, hash: string): Promise<boolean>;
   };
   /** Optional email delivery for opt-in notifications (sent by the job worker, never inline). */
-  mailer?: { send(m: { id: string; to: string; subject: string; text: string; replyTo?: string | undefined }): Promise<unknown> };
+  mailer?: Mailer;
   /** DNS TXT lookup for custom-domain verification. DNS only: the platform never fetches tenant URLs. */
   resolveTxt?: (name: string) => Promise<string[][]>;
 }
@@ -3153,7 +3155,7 @@ export class SharingService {
     const what = oneLine(subjectRow.title, 120) || 'files';
     const message = job.payload['message'] ?? '';
     const lines = [
-      reminder ? `Reminder: "${what}" is approaching its expiry. Download it before access ends.` : `${from} sent you "${what}" with Rokela PDF Pro.`,
+      reminder ? `Reminder: "${what}" is approaching its expiry. Download it before access ends.` : `${from} sent you "${what}" with Rokela PDF.`,
       ...(message ? ['', message] : []),
       '',
       `Open and download: ${this.#shareUrl(l)}`,
@@ -3167,6 +3169,16 @@ export class SharingService {
       to: job.payload['to'] ?? '',
       subject: oneLine(reminder ? `Reminder: ${what} expires soon` : `${from} sent you ${what}`, 150),
       text: lines.join('\n'),
+      html: shareEmailHtml({
+        from,
+        title: what,
+        message,
+        url: this.#shareUrl(l),
+        origin: this.#c.publicOrigin,
+        expiresAt: l.expiresAt,
+        password: !!l.passwordHash,
+        reminder,
+      }),
       replyTo: from || undefined,
     });
   }

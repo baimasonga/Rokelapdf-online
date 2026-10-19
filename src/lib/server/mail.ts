@@ -7,6 +7,7 @@ export interface OutgoingMail {
   to: string;
   subject: string;
   text: string;
+  html?: string | undefined;
   replyTo?: string | undefined;
 }
 
@@ -28,7 +29,14 @@ export class ResendMailer implements Mailer {
     const res = await this.#fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { authorization: `Bearer ${this.#key}`, 'content-type': 'application/json', 'idempotency-key': m.id },
-      body: JSON.stringify({ from: this.#from, to: [m.to], subject: m.subject, text: m.text, ...(m.replyTo ? { reply_to: m.replyTo } : {}) }),
+      body: JSON.stringify({
+        from: this.#from,
+        to: [m.to],
+        subject: m.subject,
+        text: m.text,
+        ...(m.html ? { html: m.html } : {}),
+        ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+      }),
       signal: AbortSignal.timeout(15_000),
     });
     // The response body is not echoed: it can contain the recipient address.
@@ -63,6 +71,7 @@ export class CloudflareMailer implements Mailer {
         to: m.to,
         subject: m.subject,
         text: m.text,
+        ...(m.html ? { html: m.html } : {}),
         ...(m.replyTo ? { reply_to: m.replyTo } : {}),
         headers: { 'X-Rokela-Job-ID': m.id },
       }),

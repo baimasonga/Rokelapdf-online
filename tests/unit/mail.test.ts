@@ -10,7 +10,7 @@ describe('Resend mailer', () => {
       return new Response('{"error":"recipient a@b.co is blocked"}', { status });
     }) as unknown as typeof fetch;
     const m = new ResendMailer({ apiKey: 're_secret_key', from: 'Rokela <t@rokela.example>', fetch: fake });
-    await m.send({ id: 'job_1', to: 'a@b.co', subject: 'Hi', text: 'Body', replyTo: 's@x.co' });
+    await m.send({ id: 'job_1', to: 'a@b.co', subject: 'Hi', text: 'Body', html: '<p>Body</p>', replyTo: 's@x.co' });
     expect(calls[0]!.url).toBe('https://api.resend.com/emails');
     const h = calls[0]!.init.headers as Record<string, string>;
     expect(h['idempotency-key']).toBe('job_1');
@@ -20,6 +20,7 @@ describe('Resend mailer', () => {
       to: ['a@b.co'],
       subject: 'Hi',
       text: 'Body',
+      html: '<p>Body</p>',
       reply_to: 's@x.co',
     });
     status = 422;
@@ -37,7 +38,7 @@ describe('Cloudflare mailer', () => {
       return Response.json({ success: true, result });
     }) as unknown as typeof fetch;
     const mailer = new CloudflareMailer({ accountId: 'a'.repeat(32), apiToken: 'cf-secret', from: 'Rokela PDF <transfers@rokela.example>', fetch: fake });
-    const message = { id: 'job_1', to: 'a@b.co', subject: 'Download files', text: 'Your private link', replyTo: 'sender@x.co' };
+    const message = { id: 'job_1', to: 'a@b.co', subject: 'Download files', text: 'Your private link', html: '<p>Download</p>', replyTo: 'sender@x.co' };
     await mailer.send(message);
     expect(calls[0]!.url).toBe(`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/email/sending/send`);
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe('Bearer cf-secret');
@@ -47,6 +48,7 @@ describe('Cloudflare mailer', () => {
       to: 'a@b.co',
       subject: 'Download files',
       text: 'Your private link',
+      html: '<p>Download</p>',
       reply_to: 'sender@x.co',
       headers: { 'X-Rokela-Job-ID': 'job_1' },
     });
