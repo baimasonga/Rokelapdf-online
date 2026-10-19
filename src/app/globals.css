@@ -4163,3 +4163,31 @@ button.org-page:hover:not(:disabled) {
     flex-direction: column;
   }
 }
+
+.legal-footer {
+  margin-top: 2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+.legal-footer small {
+  display: block;
+}
+.legal-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.legal-page {
+  width: min(100% - 2rem, 800px);
+  margin: 3rem auto;
+  line-height: 1.8;
+}
+.legal-page h1 {
+  line-height: 1.2;
+}
+.legal-page h2 {
+  font-size: 1.25rem;
+  margin-top: 2rem;
+}

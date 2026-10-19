@@ -1,4 +1,5 @@
 'use client';
+import { LegalFooter } from '@/components/legal-footer';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -210,6 +211,7 @@ export function WorkspaceApp() {
           </div>
           {!me.user.email_verified && <div className="notice-bar">Confirm your email address to share with named recipients and use all sharing options.</div>}
           <View key={`${workspace.id}:${nav.tab}:${nav.id ?? ''}`} />
+          <LegalFooter />
         </main>
       </div>
       <Modal open={creating} onClose={() => setCreating(false)} title="New team workspace">

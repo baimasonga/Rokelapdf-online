@@ -1,3 +1,5 @@
+import { COMPANY } from '../company';
+
 const escape = (value: string) => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 /** Inline styles and presentation tables work in Gmail, Apple Mail and Outlook. All user content is escaped. */
@@ -31,6 +33,6 @@ ${input.password ? `<p style="font-size:14px;line-height:22px;color:#53647c">Thi
 <p style="margin:24px 0 0;font-size:14px;line-height:22px;color:#53647c">Reply to this email to contact the sender.</p>
 <p style="margin:24px 0 0;font-size:12px;line-height:19px;color:#53647c">Button not working? Copy this link into your browser:<br><a href="${e(input.url)}" style="color:#173f78;word-break:break-all">${e(input.url)}</a></p>
 </td></tr>
-<tr><td style="padding:20px 28px;border-top:1px solid #dce4ef;font-size:12px;line-height:19px;color:#53647c">You received this because ${e(input.from)} ${request ? 'requested files using your address' : 'shared files with your address'}. If unexpected, ignore this email or <a href="${e(input.origin)}/report" style="color:#173f78">report it</a>.</td></tr>
+<tr><td style="padding:20px 28px;border-top:1px solid #dce4ef;font-size:12px;line-height:19px;color:#53647c">You received this because ${e(input.from)} ${request ? 'requested files using your address' : 'shared files with your address'}. If unexpected, ignore this email or <a href="${e(input.origin)}/report" style="color:#173f78">report it</a>.<br><br>${e(COMPANY.copyright)}<br>${e(COMPANY.location)} · <a href="mailto:${e(COMPANY.email)}" style="color:#173f78">${e(COMPANY.email)}</a><br><a href="${e(input.origin)}/privacy" style="color:#173f78">Privacy</a> · <a href="${e(input.origin)}/terms" style="color:#173f78">Terms</a></td></tr>
 </table></td></tr></table></body></html>`;
 }

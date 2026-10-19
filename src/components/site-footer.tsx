@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LegalFooter } from './legal-footer';
 import { GROUPS, TOOLS } from '@/lib/tools/registry';
 
 export function SiteFooter() {
@@ -16,11 +17,7 @@ export function SiteFooter() {
           </nav>
         ))}
       </div>
-      <div className="footer-base">
-        <span>© Rokela PDF Pro</span>
-        <Link href="/tools">All tools</Link>
-        <Link href="/report">Report abuse</Link>
-      </div>
+      <LegalFooter />
     </footer>
   );
 }

@@ -19,7 +19,7 @@ describe('Resend mailer', () => {
       from: 'Rokela <t@rokela.example>',
       to: ['a@b.co'],
       subject: 'Hi',
-      text: 'Body',
+      text: expect.stringContaining('Quantix Sierra Leone'),
       html: '<p>Body</p>',
       reply_to: 's@x.co',
     });
@@ -47,7 +47,7 @@ describe('Cloudflare mailer', () => {
       from: { address: 'transfers@rokela.example', name: 'Rokela PDF' },
       to: 'a@b.co',
       subject: 'Download files',
-      text: 'Your private link',
+      text: expect.stringContaining('contact@quantixsl.com'),
       html: '<p>Download</p>',
       reply_to: 'sender@x.co',
       headers: { 'X-Rokela-Job-ID': 'job_1' },

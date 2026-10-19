@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { LegalFooter } from './legal-footer';
 import { Brand } from './header';
 import { Form, Panel } from './ui';
 import { useAuth } from '@/lib/client/auth';
@@ -14,8 +15,7 @@ export function PublicFrame({ children }: { children: ReactNode }) {
       </header>
       <main>{children}</main>
       <footer className="site-footer">
-        <span>Shared securely with Rokela PDF Pro</span>
-        <Link href="/report">Report abuse</Link>
+        <LegalFooter />
       </footer>
     </div>
   );

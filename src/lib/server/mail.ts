@@ -1,3 +1,7 @@
+import { COMPANY } from '../company';
+
+const mailText = (text: string) => `${text}\n\n${COMPANY.copyright}\n${COMPANY.location}\n${COMPANY.email}`;
+
 // Email delivery through Resend or Cloudflare HTTP APIs (no SDK). Used only by the background job worker, never inline in a
 // request, so a slow or failing provider cannot hold up the app. The API key is never logged.
 
@@ -33,7 +37,7 @@ export class ResendMailer implements Mailer {
         from: this.#from,
         to: [m.to],
         subject: m.subject,
-        text: m.text,
+        text: mailText(m.text),
         ...(m.html ? { html: m.html } : {}),
         ...(m.replyTo ? { reply_to: m.replyTo } : {}),
       }),
@@ -70,7 +74,7 @@ export class CloudflareMailer implements Mailer {
         from,
         to: m.to,
         subject: m.subject,
-        text: m.text,
+        text: mailText(m.text),
         ...(m.html ? { html: m.html } : {}),
         ...(m.replyTo ? { reply_to: m.replyTo } : {}),
         headers: { 'X-Rokela-Job-ID': m.id },
