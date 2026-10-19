@@ -34,6 +34,7 @@ export function buildRouter(): Router {
       supabaseUrl: x.c.config.supabaseUrl,
       supabasePublishableKey: x.c.config.supabasePublishableKey,
       email: x.c.sharing.emailEnabled,
+      emailSender: x.c.config.mail?.from ?? null,
       convert: x.c.conversions.enabled,
       transferTypes: Object.keys(FILE_KINDS),
     }),

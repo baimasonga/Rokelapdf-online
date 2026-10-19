@@ -36,6 +36,23 @@ describe('transfers: send by email', () => {
     expect(r.status).toBe(409);
   });
 
+  it('publishes the service sender address without exposing email credentials', async () => {
+    env = await sharingEnv({
+      mailer: new FakeMailer(),
+      env: {
+        MAIL_PROVIDER: 'cloudflare',
+        CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+        CLOUDFLARE_EMAIL_API_TOKEN: 'private-mail-token',
+        MAIL_FROM: 'Rokela PDF <transfers@rokela.example>',
+      },
+    });
+    const response = await env.call('GET', '/api/v1/config');
+    expect(response.body).toMatchObject({ email: true, email_sender: 'Rokela PDF <transfers@rokela.example>' });
+    expect(JSON.stringify(response.body)).not.toContain('private-mail-token');
+    expect(response.body).not.toHaveProperty('api_token');
+    expect(response.body).not.toHaveProperty('account_id');
+  });
+
   it('emails each recipient the link with the message; the token is derived at send time, never stored in the job', async () => {
     const mailer = new FakeMailer();
     env = await sharingEnv({ mailer });

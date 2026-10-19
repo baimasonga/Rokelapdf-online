@@ -74,20 +74,35 @@ export function SendPanel({ onSent }: { onSent: () => void }) {
   const [phase, setPhase] = useState<string>();
   const [sent, setSent] = useState(0);
   const [done, setDone] = useState<Done>();
-  const [cfg, setCfg] = useState<{ email: boolean; types: string[] }>();
+  const [cfg, setCfg] = useState<{ email: boolean; sender?: string; types: string[] }>();
   const [limits, setLimits] = useState<{ maxFileBytes: number; maxRetentionDays: number }>();
   const filesRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    api('/api/v1/config', { auth: false }).then(
-      (c) => setCfg({ email: !!c.email, types: c.transfer_types ?? [] }),
-      () => setCfg({ email: false, types: [] }),
-    );
+    let active = true;
+    const refreshEmail = () => {
+      void api('/api/v1/config', { auth: false }).then(
+        (c) => {
+          if (active) setCfg({ email: !!c.email, sender: typeof c.email_sender === 'string' ? c.email_sender : undefined, types: c.transfer_types ?? [] });
+        },
+        () => {
+          if (active) setCfg((previous) => previous ?? { email: false, types: [] });
+        },
+      );
+    };
+    refreshEmail();
+    window.addEventListener('focus', refreshEmail);
     api(`${P}/overview`).then(
-      (o) => setLimits({ maxFileBytes: o.limits.max_file_bytes, maxRetentionDays: o.limits.max_retention_days }),
+      (o) => {
+        if (active) setLimits({ maxFileBytes: o.limits.max_file_bytes, maxRetentionDays: o.limits.max_retention_days });
+      },
       () => undefined,
     );
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refreshEmail);
+    };
   }, [P]);
 
   const total = items.reduce((n, i) => n + i.file.size, 0);
@@ -370,7 +385,8 @@ export function SendPanel({ onSent }: { onSent: () => void }) {
             />
           </div>
           <p className="muted small">
-            From {me.email}
+            {cfg?.email && <>Sent by {cfg.sender ?? 'Rokela PDF'}. </>}
+            Replies go to {me.email}
             {emailOff &&
               (cfg!.email
                 ? ' · confirm your email address to send emails; you will get a personal link for each person instead.'
