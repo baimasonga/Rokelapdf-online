@@ -19,8 +19,8 @@ export interface AppConfig {
     | { kind: 'local'; root: string; contentOrigin: string; contentPort: number }
     | { kind: 's3'; endpoint: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string };
   clamd: { host: string; port: number } | undefined;
-  /** Transfer and notification emails (Resend). Off until a sending domain is verified. */
-  mail: { apiKey: string; from: string } | undefined;
+  /** Transfer and notification emails. Off until a provider and verified sender are configured. */
+  mail: { provider: 'resend'; apiKey: string; from: string } | { provider: 'cloudflare'; apiToken: string; accountId: string; from: string } | undefined;
   /** The Office conversion service (a separate private service). Off unless both URL and token are set. */
   converter: { url: string; token: string } | undefined;
   blockedHosts: string[];
@@ -101,13 +101,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   else if (prod && env['MALWARE_SCAN_DISABLED'] !== 'true')
     throw new Error('CLAMD_HOST is required in production (or set MALWARE_SCAN_DISABLED=true to accept structural checks only)');
 
-  // Both or neither: a half-configured mailer would fail only when the first email is due.
+  // A configured provider must be complete; retain existing Resend installations.
   let mail: AppConfig['mail'];
-  if (env['RESEND_API_KEY'] || env['MAIL_FROM']) {
+  const cloudflareMail = !!env['CLOUDFLARE_EMAIL_API_TOKEN'];
+  if (!env['MAIL_PROVIDER'] && cloudflareMail && env['RESEND_API_KEY']) throw new Error('MAIL_PROVIDER is required when both email providers are configured');
+  const provider = env['MAIL_PROVIDER'] ?? (cloudflareMail ? 'cloudflare' : 'resend');
+  if (provider !== 'resend' && provider !== 'cloudflare') throw new Error('MAIL_PROVIDER must be resend or cloudflare');
+  if (env['MAIL_PROVIDER'] || env['RESEND_API_KEY'] || env['MAIL_FROM'] || cloudflareMail) {
     const from = need('MAIL_FROM');
     if (!/^[^<>\r\n]{0,80}<[^\s@<>]+@[a-z0-9.-]+\.[a-z]{2,}>$|^[^\s@<>]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(from))
       throw new Error('MAIL_FROM must be an address, e.g. "Rokela PDF Pro <transfers@example.com>"');
-    mail = { apiKey: need('RESEND_API_KEY'), from };
+    if (provider === 'cloudflare') {
+      const accountId = need('CLOUDFLARE_ACCOUNT_ID');
+      if (!/^[a-f0-9]{32}$/i.test(accountId)) throw new Error('CLOUDFLARE_ACCOUNT_ID must be a 32-character account ID');
+      mail = { provider, accountId, apiToken: need('CLOUDFLARE_EMAIL_API_TOKEN'), from };
+    } else mail = { provider, apiKey: need('RESEND_API_KEY'), from };
   }
 
   // Both or neither, like mail. In production the converter must be reached over HTTPS or Railway's private network.

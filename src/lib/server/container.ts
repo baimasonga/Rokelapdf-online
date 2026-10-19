@@ -13,7 +13,7 @@ import { connectionConfig } from './db/connect';
 import { LocalObjectStore } from './storage/local';
 import { S3ObjectStore } from './storage/s3';
 import { ClamdScanner } from './storage/clamd';
-import { ResendMailer, type Mailer } from './mail';
+import { CloudflareMailer, ResendMailer, type Mailer } from './mail';
 import { ConversionService, HttpConverter, type ConversionLimits, type Converter } from './convert';
 import { BasicContentScanner, ChainedScanner, DEFAULT_SHARING_CONFIG, SharingKeys, SharingService, type FileScanner, type ObjectStore } from './sharing';
 
@@ -72,7 +72,8 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
       objects = localStore;
     } else objects = new S3ObjectStore(config.storage, { now: () => clock.now() });
   }
-  const mailer = o.mailer ?? (config.mail ? new ResendMailer(config.mail) : undefined);
+  const mailer =
+    o.mailer ?? (config.mail ? (config.mail.provider === 'cloudflare' ? new CloudflareMailer(config.mail) : new ResendMailer(config.mail)) : undefined);
   const basic = new BasicContentScanner();
   const scanner = o.scanner ?? (config.clamd ? new ChainedScanner([basic, new ClamdScanner(config.clamd)]) : basic);
   const sharing = new SharingService({

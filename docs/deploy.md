@@ -107,11 +107,40 @@ and deployment the app is actually reaching. Do not infer a service's identity f
 | `TRUST_PROXY`                                                          | `1` (Railway's proxy sets `X-Forwarded-For`)                                                   |
 | `CONVERTER_URL`, `CONVERTER_TOKEN` (optional)                          | `http://<converter>.railway.internal:8080` and the converter's token — set both or neither     |
 
-**Email (optional, off until you have a domain).** Sending transfers by email needs a sending domain you own, verified
-with an email provider. Until then the send form gives one personal link per recipient to copy or send from your own
-mail app, and download notifications stay in the app. To switch email on: create a [Resend](https://resend.com)
-account, add and verify your domain (DNS records), create an API key with _sending access_ only, then set
-`RESEND_API_KEY` and `MAIL_FROM` (e.g. `Rokela PDF Pro <transfers@yourdomain.com>`) and redeploy. Set both or neither.
+**Email (optional, off until a provider is configured).** The mailer supports Cloudflare Email Sending and Resend.
+The app queues private download links, expiry reminders and download digests through the same worker. Without
+provider configuration, it creates personal links for manual sharing and does not send email.
+
+For **Cloudflare Email Sending**:
+
+1. In Cloudflare, open **Compute → Email Service → Email Sending → Onboard Domain** and onboard the sending domain.
+   Wait for its DNS checks to pass. General-recipient sending requires Workers Paid; Email Routing alone is insufficient.
+2. Create an API token with **Email Sending: Edit**, scoped to the account owning that domain. Use a scoped API token,
+   not the global API key or R2 storage credentials.
+3. After the app version supporting Cloudflare is deployed, add all four variables together on the **main app service**:
+   ```env
+   MAIL_PROVIDER=cloudflare
+   CLOUDFLARE_ACCOUNT_ID=your_32_character_account_id
+   CLOUDFLARE_EMAIL_API_TOKEN=your_private_scoped_api_token
+   MAIL_FROM=Rokela PDF <transfers@rokelapdf.com>
+   ```
+   `MAIL_FROM` must use a domain onboarded for Email Sending. Substitute your actual verified domain and account.
+   Keep the token in Railway secrets, never in source control or chat. Deploy after saving the complete configuration.
+4. Submit a transfer from a verified sender account to an address you control and check Cloudflare's email activity.
+   Existing links that were created for manual sharing are not retroactively emailed; use the transfer's resend action
+   or submit a new transfer. Confirm receipt before opening sending to customers.
+
+Cloudflare is called through its HTTPS REST API, so the app stays on Railway and needs no additional Worker.
+The adapter checks Cloudflare's recipient result, including bounces and suppressions, rather than HTTP status alone.
+Cloudflare does not document provider idempotency for this endpoint; if acceptance succeeds but the response is lost,
+worker retries may produce duplicate messages. `X-Rokela-Job-ID` correlates attempts; it is not a deduplication guarantee.
+
+For **Resend**, verify a sending domain, create a sending-only API key, and set `MAIL_PROVIDER=resend`, `RESEND_API_KEY`
+and `MAIL_FROM` together. Existing installations with only `RESEND_API_KEY` and `MAIL_FROM` continue to work.
+If credentials for both providers are present, explicitly select `MAIL_PROVIDER`. Incomplete configuration fails at startup.
+
+References: [Cloudflare domain onboarding](https://developers.cloudflare.com/email-service/get-started/send-emails/),
+[REST API](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/).
 
 The app refuses to start in production if any of these is missing or weak (e.g. local storage, short secret,
 non-HTTPS origins, no ClamAV without the explicit opt-out).

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '@/lib/server/config';
 
-const env = (o: Record<string, string>) => o as unknown as NodeJS.ProcessEnv;
+const env = (o: Record<string, string | undefined>) => o as unknown as NodeJS.ProcessEnv;
 const PROD = {
   APP_ENV: 'production',
   DATABASE_URL: 'postgres://u:p@db/x',
@@ -45,6 +45,7 @@ describe('email delivery configuration', () => {
   it('is off by default and needs both the API key and a sender address', () => {
     expect(loadConfig(env(PROD)).mail).toBeUndefined();
     expect(loadConfig(env({ ...PROD, RESEND_API_KEY: 're_x', MAIL_FROM: 'Rokela PDF Pro <transfers@rokela.example>' })).mail).toEqual({
+      provider: 'resend',
       apiKey: 're_x',
       from: 'Rokela PDF Pro <transfers@rokela.example>',
     });
@@ -95,5 +96,29 @@ describe('office converter configuration', () => {
     expect(loadConfig(env({ DATABASE_URL: 'postgres://x', CONVERTER_URL: 'http://127.0.0.1:8080', CONVERTER_TOKEN: TOKEN })).converter?.url).toBe(
       'http://127.0.0.1:8080',
     );
+  });
+});
+
+describe('Cloudflare email configuration', () => {
+  const cf = {
+    ...PROD,
+    MAIL_PROVIDER: 'cloudflare',
+    CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+    CLOUDFLARE_EMAIL_API_TOKEN: 'cf_secret',
+    MAIL_FROM: 'Rokela <transfers@rokela.example>',
+  };
+  it('selects Cloudflare without a Resend key and retains explicit provider selection', () => {
+    expect(loadConfig(env({ ...PROD, CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32) })).mail).toBeUndefined();
+    expect(loadConfig(env(cf)).mail).toEqual({ provider: 'cloudflare', accountId: 'a'.repeat(32), apiToken: 'cf_secret', from: cf.MAIL_FROM });
+    expect(loadConfig(env({ ...cf, RESEND_API_KEY: 'legacy' })).mail?.provider).toBe('cloudflare');
+    expect(loadConfig(env({ ...cf, MAIL_PROVIDER: undefined })).mail?.provider).toBe('cloudflare');
+  });
+  it('rejects incomplete, ambiguous or invalid provider configuration before serving', () => {
+    expect(() => loadConfig(env({ ...cf, CLOUDFLARE_ACCOUNT_ID: undefined }))).toThrow(/CLOUDFLARE_ACCOUNT_ID is required/);
+    expect(() => loadConfig(env({ ...cf, CLOUDFLARE_EMAIL_API_TOKEN: undefined }))).toThrow(/CLOUDFLARE_EMAIL_API_TOKEN is required/);
+    expect(() => loadConfig(env({ ...cf, CLOUDFLARE_ACCOUNT_ID: '../../x' }))).toThrow(/32-character/);
+    expect(() => loadConfig(env({ ...cf, MAIL_FROM: undefined }))).toThrow(/MAIL_FROM is required/);
+    expect(() => loadConfig(env({ ...cf, MAIL_PROVIDER: 'unknown' }))).toThrow(/MAIL_PROVIDER/);
+    expect(() => loadConfig(env({ ...cf, MAIL_PROVIDER: undefined, RESEND_API_KEY: 'legacy' }))).toThrow(/MAIL_PROVIDER is required/);
   });
 });

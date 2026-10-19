@@ -25,8 +25,10 @@ No payment credentials or automatic charges are introduced.
 
 ## Email follow-ups
 
-Configure `RESEND_API_KEY` and `MAIL_FROM` with a verified sender domain as described
-in `deploy.md`. Until then, email delivery cannot be enabled. Sending can optionally
+Configure Cloudflare Email Sending or Resend with a verified sender domain as described
+in `deploy.md`. Cloudflare uses `MAIL_PROVIDER=cloudflare`, `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_EMAIL_API_TOKEN` and `MAIL_FROM`. Until a complete provider configuration
+is present, automatic email delivery stays disabled. Sending can optionally
 schedule a reminder 24 hours before expiry; a reminder is skipped when the link has
 already been downloaded, revoked or expired. Download notifications aggregate into
 a daily email digest. Immediate in-app notifications remain available. Scheduled
