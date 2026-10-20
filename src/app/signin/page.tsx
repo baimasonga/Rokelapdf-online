@@ -7,6 +7,7 @@ import { Brand } from '@/components/header';
 import { Form, useNotice } from '@/components/ui';
 import { useAuth } from '@/lib/client/auth';
 import { safeNext } from '@/lib/client/next-path';
+import { authErrorMessage } from '@/lib/client/auth-errors';
 
 type Mode = 'signin' | 'signup' | 'forgot' | 'update';
 
@@ -35,8 +36,8 @@ function SignIn() {
       </div>
     );
   const origin = window.location.origin;
-  const fail = (e: { message: string } | null) => {
-    if (e) throw new Error(e.message);
+  const fail = (e: { code?: string; status?: number; message?: string } | null) => {
+    if (e) throw new Error(authErrorMessage(e));
   };
 
   if (sent)

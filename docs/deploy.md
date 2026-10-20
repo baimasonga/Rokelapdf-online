@@ -209,3 +209,39 @@ DATABASE_URL=postgres://… npm run migrate && npm run dev
 
 Without `SUPABASE_URL`, development expects a local Supabase (`supabase start`, http://127.0.0.1:54321). Files are
 stored on disk and served by a separate local content origin on port 3001.
+
+## Signup confirmation delivery is configured in Supabase
+
+Cloudflare `MAIL_PROVIDER` settings above send application transfer/reminder/digest
+mail. Signup confirmations, recovery and email changes are sent by Supabase Auth.
+Configuring a Cloudflare app sender/template does not change Supabase's sender or
+confirmation template. A message from `noreply@mail.app.supabase.io` with the default
+confirmation text indicates that default path was used for that message.
+
+For public trials, configure Supabase Authentication's custom SMTP settings with a
+verified sender, host, port and SMTP credentials. An HTTP API token is not an SMTP
+password. Alternatively, retaining a REST-only provider requires a properly signed
+Supabase Send Email Hook bridge. This repository currently has no such bridge; do
+not point the hook at the file-sharing API or disable email confirmation to bypass it.
+
+Edit the signup-confirmation template under Supabase Authentication → Email
+Templates, preserving `{{ .ConfirmationURL }}`. Configure the Site URL and allowed
+redirect URLs for the actual deployed domain. Existing app sessions and Cloudflare
+file-sharing delivery do not need replacing to configure this separate email path.
+
+For an intermittent signup limit, inspect Supabase Auth logs around the exact
+attempt and distinguish `over_email_send_rate_limit`, `over_request_rate_limit`,
+`email_address_not_authorized` and link-expiry errors. The default sender has
+project-wide limits and recipient restrictions; a later successful attempt does
+not establish that public-user delivery is configured. The UI now gives separate,
+safe guidance for these codes and does not promise a specific retry time.
+
+Verify with controlled addresses after configuration: actual sender/branding,
+confirmation-link completion, reset delivery and resend behavior. Avoid repeatedly
+creating accounts to test limits while trial users are registering. No live sender
+or Supabase project setting has been changed by this documentation/UI correction.
+
+References: [Supabase custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp),
+[Auth rate limits](https://supabase.com/docs/guides/auth/rate-limits),
+[email templates](https://supabase.com/docs/guides/auth/auth-email-templates),
+[Send Email Hook](https://supabase.com/docs/guides/auth/auth-hooks/send-email-hook).
