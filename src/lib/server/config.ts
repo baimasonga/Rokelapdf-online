@@ -1,9 +1,11 @@
+import { warriorConfig, type WarriorConfig } from './warrior-config';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateHostname } from './sharing';
 import { assertIdent } from './db/schema';
 
 export interface AppConfig {
+  warrior?: WarriorConfig;
   env: 'development' | 'test' | 'production';
   databaseUrl: string;
   /** CA certificate of the database server (Supabase); enables verified TLS. */
@@ -170,6 +172,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     jobIntervalSeconds: int(env, 'JOB_INTERVAL_SECONDS', 1, 3600, 5),
     maintenanceIntervalSeconds: int(env, 'MAINTENANCE_INTERVAL_SECONDS', 5, 86400, 60),
     rateLimitPerMinute: int(env, 'RATE_LIMIT_PER_MINUTE', 1, 1_000_000, 60),
+    warrior: warriorConfig(env),
     trustProxy: env['TRUST_PROXY'] === '1',
   };
 }

@@ -1,8 +1,9 @@
+import { WarriorMonitor } from './warrior';
 import 'server-only';
 import { resolveTxt } from 'node:dns/promises';
 import pg from 'pg';
 import { loadConfig, type AppConfig } from './config';
-import { systemClock, type Clock } from './kernel';
+import { DomainError, systemClock, type Clock } from './kernel';
 import { SupabaseTokenVerifier, type TokenVerifier } from './auth';
 import { WorkspaceService } from './workspaces';
 import { RateLimiter } from './rate-limit';
@@ -26,6 +27,7 @@ export interface Container {
   sharing: SharingService;
   rateLimiter: RateLimiter;
   conversions: ConversionService;
+  warrior: WarriorMonitor | undefined;
   localStore: LocalObjectStore | undefined;
   close(): Promise<void>;
 }
@@ -74,8 +76,40 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
   }
   const mailer =
     o.mailer ?? (config.mail ? (config.mail.provider === 'cloudflare' ? new CloudflareMailer(config.mail) : new ResendMailer(config.mail)) : undefined);
+  const monitorPool =
+    config.warrior && !o.pool
+      ? new pg.Pool({
+          ...connectionConfig(config.databaseUrl, config.databaseCaPem),
+          max: 2,
+          connectionTimeoutMillis: 1000,
+          query_timeout: 1000,
+          statement_timeout: 1000,
+          lock_timeout: 250,
+          options: `-c search_path=${assertIdent(config.dbSchema)}`,
+        })
+      : undefined;
+  const warrior = config.warrior ? new WarriorMonitor(monitorPool ?? pool, clock, config.warrior) : undefined;
   const basic = new BasicContentScanner();
-  const scanner = o.scanner ?? (config.clamd ? new ChainedScanner([basic, new ClamdScanner(config.clamd)]) : basic);
+  const actualScanner = o.scanner ?? (config.clamd ? new ChainedScanner([basic, new ClamdScanner(config.clamd)]) : basic);
+  const scanner: FileScanner =
+    warrior && config.warrior
+      ? {
+          name: actualScanner.name,
+          async scan(input) {
+            try {
+              const result = await actualScanner.scan(input);
+              await warrior.capture(config.warrior!.scannerComponentId, { type: 'component.heartbeat', attributes: { status: 'healthy' } });
+              if (result.verdict === 'rejected' && result.reason?.startsWith('malware:'))
+                await warrior.capture(config.warrior!.scannerComponentId, { type: 'malware.detected', attributes: { verdict: 'malicious' } });
+              return result;
+            } catch (error) {
+              await warrior.capture(config.warrior!.scannerComponentId, { type: 'component.heartbeat', attributes: { status: 'unavailable' } });
+              await warrior.scannerUnavailable(config.warrior!.scannerComponentId);
+              throw error;
+            }
+          },
+        }
+      : actualScanner;
   const sharing = new SharingService({
     store: new PgSharingStore(pool, clock),
     objects,
@@ -103,8 +137,38 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     ...(mailer ? { mailer } : {}),
   });
   const rateLimiter = new RateLimiter(pool, clock);
+  const actualConverter = o.converter ?? (config.converter ? new HttpConverter(config.converter) : undefined);
+  const converter: Converter | undefined =
+    actualConverter && warrior && config.warrior
+      ? {
+          async convert(target, from, bytes) {
+            const started = +clock.now();
+            try {
+              const out = await actualConverter.convert(target, from, bytes);
+              await warrior.capture(config.warrior!.converterComponentId, { type: 'component.heartbeat', attributes: { status: 'healthy' } });
+              return out;
+            } catch (error) {
+              const inputRefusal = error instanceof DomainError && ['unprocessable', 'invalid_request', 'too_large'].includes(error.code);
+              await warrior.capture(config.warrior!.converterComponentId, {
+                type: 'component.heartbeat',
+                attributes: { status: inputRefusal ? 'healthy' : 'unavailable' },
+              });
+              await warrior.capture(config.warrior!.converterComponentId, {
+                type: 'conversion.failed',
+                attributes: {
+                  source_type: from === 'pdf' ? 'pdf' : 'office',
+                  target_type: target === 'pdf' ? 'pdf' : 'office',
+                  reason: inputRefusal ? 'unsupported' : 'worker_unavailable',
+                  duration_ms: Math.max(0, Math.min(86400000, +clock.now() - started)),
+                },
+              });
+              throw error;
+            }
+          },
+        }
+      : actualConverter;
   const conversions = new ConversionService({
-    converter: o.converter ?? (config.converter ? new HttpConverter(config.converter) : undefined),
+    converter,
     hit: (key, limit, windowSeconds) => rateLimiter.hit(key, limit, windowSeconds),
     ...(o.conversionLimits ? { limits: o.conversionLimits } : {}),
   });
@@ -117,8 +181,12 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     sharing,
     rateLimiter,
     conversions,
+    warrior,
     localStore,
-    close: async () => void (await ownPool?.end()),
+    close: async () => {
+      await monitorPool?.end();
+      await ownPool?.end();
+    },
   };
 }
 

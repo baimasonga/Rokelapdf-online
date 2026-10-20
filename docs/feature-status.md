@@ -1,5 +1,21 @@
 # Feature status and configuration
 
+## Warrior monitoring — 20 October 2026
+
+The opt-in server adapter and operator Monitoring tab are implemented; configuration
+and rollback are in [warrior-monitoring.md](warrior-monitoring.md). Production binding
+is pending: the public PDF hostname alone does not configure its Railway service or
+issue a fresh-MFA Warrior credential. Authentication and workspace subscription
+behavior are preserved.
+
+Local acceptance passed the production Next build and Chromium release workflow,
+the full least-privilege suite (212 tests, 2 skipped), eight focused adapter checks
+and seven security mutations. An explicitly enabled cross-repository PostgreSQL
+test passed source failure, collector outage/restart, scoped ingestion, concurrent
+incident deduplication, fresh recovery, two portal intents and audit verification.
+These use synthetic fixtures and injected providers; they do not establish a live
+PDF connection, real email delivery or physical desktop release acceptance.
+
 The roadmap in `plan.md` remains the product baseline. This release completes the
 workspace UI for short-link metadata, filters, bulk actions, CSV export, custom-domain
 selection, password and account restrictions, branding, domain ownership verification,

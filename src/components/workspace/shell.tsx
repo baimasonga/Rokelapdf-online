@@ -20,6 +20,7 @@ import { Notifications } from './notifications';
 import { Members } from './members';
 import { WorkspaceSettings } from './settings';
 import { WorkspaceActivity } from './activity';
+import { MonitoringStatus } from './monitoring';
 import { AbuseReview } from './abuse';
 
 const TABS: Array<[Tab, string, LucideIcon, string]> = [
@@ -34,6 +35,7 @@ const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['signatures', 'Request signatures', FilePen, 'Send a fixed PDF for signing and collect the signed copy.'],
   ['settings', 'Settings', House, 'Branding, custom domains and workspace limits.'],
   ['activity', 'Activity', FileText, 'Audit history and workspace data exports.'],
+  ['monitoring', 'Monitoring', House, 'Warrior delivery status and backlog.'],
   ['abuse', 'Abuse review', Share2, 'Platform operator review of reported links.'],
 ];
 const isTab = (t: string | null): t is Tab => TABS.some(([k]) => k === t);
@@ -105,6 +107,7 @@ export function WorkspaceApp() {
     settings: WorkspaceSettings,
     activity: WorkspaceActivity,
     abuse: AbuseReview,
+    monitoring: MonitoringStatus,
   }[nav.tab];
 
   const current = TABS.find(([t]) => t === nav.tab)!;
@@ -175,7 +178,9 @@ export function WorkspaceApp() {
             {TABS.slice(6)
               .filter(
                 ([t]) =>
-                  (t !== 'members' || workspace.kind === 'team') && (t !== 'abuse' || me.user.is_operator) && (t !== 'activity' || workspace.role !== 'member'),
+                  (t !== 'members' || workspace.kind === 'team') &&
+                  (!['abuse', 'monitoring'].includes(t) || me.user.is_operator) &&
+                  (t !== 'activity' || workspace.role !== 'member'),
               )
               .map(navItem)}
             <button type="button" onClick={() => setCreating(true)}>

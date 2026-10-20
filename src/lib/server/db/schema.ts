@@ -59,6 +59,8 @@ const ALL: Priv[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 
 /** Every table needs an explicit policy: an unlisted table makes grants fail, forcing a deliberate decision. */
 export const TABLE_PRIVILEGES: Record<string, Priv[]> = {
+  warrior_outbox: ALL,
+  warrior_monitor_state: RIU,
   schema_migrations: R,
   users: RIU,
   organizations: RI,

@@ -15,7 +15,8 @@ export type Tab =
   | 'signatures'
   | 'settings'
   | 'activity'
-  | 'abuse';
+  | 'abuse'
+  | 'monitoring';
 export interface Workspace {
   id: string;
   name: string;

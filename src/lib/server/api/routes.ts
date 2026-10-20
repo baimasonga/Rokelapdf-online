@@ -393,6 +393,10 @@ export function buildRouter(): Router {
   });
   r.add('POST', '/api/v1/public/abuse-reports', 'public', async (x) => json(await sh(x).reportAbuse(parse(s.abuseBody, await x.body())), 202), 10);
 
+  r.add('GET', '/api/v1/admin/monitoring', 'operator', async (x) => {
+    parse(s.emptyBody, Object.fromEntries(x.query));
+    return x.c.warrior ? { enabled: true, ...(await x.c.warrior.status()) } : { enabled: false };
+  });
   // ---- operators --------------------------------------------------------------------------------------
   r.add('GET', '/api/v1/admin/sharing/abuse-reports', 'operator', async (x) => ({
     items: await sh(x).listAbuseReports(parse(s.abuseQuery, Object.fromEntries(x.query)).status),

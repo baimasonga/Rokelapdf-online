@@ -17,6 +17,7 @@ export function startBackground(c: Container) {
           const r = await c.sharing.processJobs({ limit: 20 });
           if (r.done + r.failed < 20) break;
         }
+        await c.warrior?.flush().catch(() => log('warrior monitor delivery unavailable; durable queue retained'));
       } catch (e) {
         log('sharing jobs failed; pending work stays queued', e);
       }
@@ -26,6 +27,10 @@ export function startBackground(c: Container) {
       try {
         await c.sharing.runRetention();
         await c.rateLimiter.purge(new Date(c.clock.now().getTime() - 3_600_000));
+        if (c.warrior && c.config.warrior) {
+          await c.pool.query('SELECT 1');
+          await c.warrior.capture(c.config.warrior.apiComponentId, { type: 'component.heartbeat', attributes: { status: 'healthy' } });
+        }
       } catch (e) {
         log('maintenance failed; will retry', e);
       }
