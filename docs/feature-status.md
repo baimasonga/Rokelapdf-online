@@ -1,5 +1,19 @@
 # Feature status and configuration
 
+## Cloudflare authentication email — 20 October 2026
+
+Implemented the opt-in, signed Supabase Send Email Hook at `/api/auth/send-email`.
+Signup, recovery, invitation, magic-link, reauthentication and secure email-change
+messages use Cloudflare with the Rokela logo, navy/coral colors and Quantix Sierra
+Leone ownership/contact information. Unsigned, stale, oversized or invalid requests
+fail before sending; provider failures are generic non-success responses.
+
+Activation and controlled-address acceptance are pending PDF Railway and Supabase
+administrative configuration. No real email was sent or auth setting changed.
+Full local check passed (231 tests, 2 skipped), production build passed, compiled
+route refused unsigned requests, and desktop/mobile email previews were verified.
+See [configuration, threat model, evidence and rollback](auth-email-hook.md).
+
 ## Warrior monitoring — 20 October 2026
 
 The opt-in server adapter and operator Monitoring tab are implemented; configuration

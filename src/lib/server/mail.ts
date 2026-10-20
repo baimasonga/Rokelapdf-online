@@ -55,12 +55,14 @@ export class ResendMailer implements Mailer {
 export class CloudflareMailer implements Mailer {
   readonly #token: string;
   readonly #accountId: string;
+  readonly #timeoutMs: number;
   readonly #from: string;
   readonly #fetch: typeof fetch;
-  constructor(opts: { apiToken: string; accountId: string; from: string; fetch?: typeof fetch }) {
+  constructor(opts: { apiToken: string; accountId: string; from: string; timeoutMs?: number; fetch?: typeof fetch }) {
     if (!/^[a-f0-9]{32}$/i.test(opts.accountId)) throw new Error('invalid Cloudflare account ID');
     this.#token = opts.apiToken;
     this.#accountId = opts.accountId;
+    this.#timeoutMs = opts.timeoutMs ?? 15_000;
     this.#from = opts.from;
     this.#fetch = opts.fetch ?? fetch;
   }
@@ -79,7 +81,7 @@ export class CloudflareMailer implements Mailer {
         ...(m.replyTo ? { reply_to: m.replyTo } : {}),
         headers: { 'X-Rokela-Job-ID': m.id },
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(this.#timeoutMs),
       redirect: 'error',
     });
     if (!res.ok) throw Object.assign(new Error(`Cloudflare email provider responded ${res.status}`), { code: `cloudflare_email_http_${res.status}` });

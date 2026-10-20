@@ -221,11 +221,13 @@ confirmation text indicates that default path was used for that message.
 For public trials, configure Supabase Authentication's custom SMTP settings with a
 verified sender, host, port and SMTP credentials. An HTTP API token is not an SMTP
 password. Alternatively, retaining a REST-only provider requires a properly signed
-Supabase Send Email Hook bridge. This repository currently has no such bridge; do
-not point the hook at the file-sharing API or disable email confirmation to bypass it.
+Supabase Send Email Hook bridge. The opt-in Cloudflare bridge is implemented at
+`/api/auth/send-email`; follow [activation and rollback](auth-email-hook.md). Do not
+point the hook at the file-sharing API or disable email confirmation to bypass it.
 
-Edit the signup-confirmation template under Supabase Authentication → Email
-Templates, preserving `{{ .ConfirmationURL }}`. Configure the Site URL and allowed
+For SMTP delivery, edit the signup-confirmation template under Supabase Authentication → Email
+Templates, preserving `{{ .ConfirmationURL }}`. The Cloudflare hook instead renders
+its branded templates in application code. Configure the Site URL and allowed
 redirect URLs for the actual deployed domain. Existing app sessions and Cloudflare
 file-sharing delivery do not need replacing to configure this separate email path.
 
