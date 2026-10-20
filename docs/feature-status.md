@@ -8,6 +8,9 @@ is pending: the public PDF hostname alone does not configure its Railway service
 issue a fresh-MFA Warrior credential. Authentication and workspace subscription
 behavior are preserved.
 
+CI now watches the actual default branch (`claude/zealous-newton-a8gzpy`) as well
+as `main`; the previous `main`-only filter skipped current release-branch pushes.
+
 Local acceptance passed the production Next build and Chromium release workflow,
 the full least-privilege suite (212 tests, 2 skipped), eight focused adapter checks
 and seven security mutations. An explicitly enabled cross-repository PostgreSQL
