@@ -119,6 +119,7 @@ export async function makeEnv(
   const { pool, adminPool } = await schemaPool();
   const config = loadConfig({
     APP_ENV: 'test',
+    TRIAL_MODE: 'false',
     DATABASE_URL: dbUrl(),
     PUBLIC_ORIGIN: ORIGIN,
     RATE_LIMIT_PER_MINUTE: '100000',

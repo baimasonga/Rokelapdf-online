@@ -80,8 +80,9 @@ const CEILING: Record<string, number> = {
  * value granted by any valid license, never below the free baseline and never above the hard ceiling. Only
  * server-resolved entitlements reach this function; client-supplied plan state never does.
  */
-export function resolveLimits(entitlementSets: ReadonlyArray<Record<string, unknown>>): SharingLimits {
+export function resolveLimits(entitlementSets: ReadonlyArray<Record<string, unknown>>, trialMode = false): SharingLimits {
   const out: SharingLimits = { ...FREE_LIMITS };
+  if (trialMode) out.uploadRequests = true;
   for (const ent of entitlementSets) {
     for (const [field, key] of Object.entries(LIMIT_ENTITLEMENTS) as Array<[keyof SharingLimits, string]>) {
       const v = ent[key];

@@ -7,8 +7,8 @@ import { ownerDownload, useLoad, usePollWhile, useWs } from './context';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function Requests() {
-  const { nav } = useWs();
-  return nav.id ? <RequestDetail id={nav.id} /> : <RequestList />;
+  const { nav, P } = useWs();
+  return nav.id ? <RequestDetail key={`${P}:${nav.id}`} id={nav.id} /> : <RequestList key={P} />;
 }
 
 function RequestForm() {
@@ -70,17 +70,25 @@ function RequestList() {
   const { P, go } = useWs();
   const { data, error } = useLoad<any>(() => api(`${P}/upload-requests`), [P]);
   // The server enforces the plan; this only explains it before the user fills in the form.
-  const { data: overview } = useLoad<any>(() => api(`${P}/overview`), [P]);
+  const { data: overview, error: overviewError, reload: reloadOverview } = useLoad<any>(() => api(`${P}/overview`), [P]);
   return (
     <>
-      {overview &&
-        (overview.limits.upload_requests ? (
-          <RequestForm />
-        ) : (
-          <Panel title="Request files">
-            <p>Upload requests are not included in this workspace&apos;s plan. Existing requests stay available below.</p>
-          </Panel>
-        ))}
+      {overviewError ? (
+        <Panel title="Request files">
+          <p role="alert">Could not load upload-request access. Please try again.</p>
+          <Button onClick={reloadOverview}>Retry</Button>
+        </Panel>
+      ) : !overview ? (
+        <Panel title="Request files">
+          <Muted>Loading upload-request access…</Muted>
+        </Panel>
+      ) : overview.limits.upload_requests ? (
+        <RequestForm />
+      ) : (
+        <Panel title="Request files">
+          <p>Upload requests are not included in this workspace&apos;s plan. Existing requests stay available below.</p>
+        </Panel>
+      )}
       <Panel title="Upload requests">
         {error ? (
           <p>{error.message}</p>

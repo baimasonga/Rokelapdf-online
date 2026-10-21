@@ -58,6 +58,7 @@ import { newPublicCode, newSalt, newSubmissionSecret, tokenHash, type GrantClaim
 export type SharePerm = 'share:read' | 'share:create' | 'share:manage';
 
 export interface SharingConfig {
+  trialMode: boolean;
   /** Origin of the portal and public share pages (`/s/`, `/r/`, `/d/`). */
   publicOrigin: string;
   /** Default origin for public short links (`/l/`). May equal `publicOrigin`. */
@@ -77,6 +78,7 @@ export interface SharingConfig {
 }
 
 export const DEFAULT_SHARING_CONFIG: Omit<SharingConfig, 'publicOrigin' | 'shortOrigin'> = {
+  trialMode: false,
   grantTtlSeconds: 900,
   downloadUrlTtlSeconds: 60,
   uploadUrlTtlSeconds: 900,
@@ -177,7 +179,7 @@ export class SharingService {
   }
 
   async limits(orgId: string): Promise<SharingLimits> {
-    return resolveLimits(await this.#d.entitlements(orgId));
+    return resolveLimits(await this.#d.entitlements(orgId), this.#c.trialMode);
   }
 
   /** Authorize, then run `fn` in a transaction holding the account lock, after metering one API mutation. */

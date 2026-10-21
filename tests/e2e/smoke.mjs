@@ -107,6 +107,7 @@ async function main() {
   const env = {
     ...process.env,
     APP_ENV: 'development',
+    TRIAL_MODE: 'true',
     NODE_ENV: 'production',
     DATABASE_URL: DB,
     SUPABASE_URL: `http://127.0.0.1:${AUTH_PORT}`,
@@ -698,10 +699,45 @@ async function main() {
     await r.getByText('The sender revoked this link.').waitFor();
     ok('revoked link shows a clear state to the recipient');
 
-    step('Request files from someone (plan feature)');
+    step('Free-trial upload requests and recoverable access-loading errors');
+    await p.getByRole('button', { name: 'Settings', exact: true }).click();
+    await p.getByText('Free trial', { exact: true }).waitFor();
+    let failOverview = true;
+    const overviewPattern = '**/api/v1/workspaces/*/sharing/overview';
+    await p.route(overviewPattern, (route) => {
+      if (failOverview) {
+        failOverview = false;
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ code: 'internal', message: 'Synthetic temporary failure' }),
+        });
+      }
+      return route.continue();
+    });
     await p.getByRole('button', { name: 'Upload requests' }).click();
-    await p.getByText(/Upload requests are not included/).waitFor();
-    ok('free plan explains that upload requests are not included');
+    await p.getByRole('alert').filter({ hasText: 'Could not load upload-request access' }).waitFor();
+    await p.getByRole('button', { name: 'Retry', exact: true }).click();
+    await p.getByRole('button', { name: 'Create upload request' }).waitFor();
+    await p.unroute(overviewPattern);
+    ok('trial access needs no paid plan and temporary access failures can be retried');
+    await p.getByLabel('Title').fill('Your ID for onboarding');
+    await p.getByLabel(/Files you need/).fill('ID scan');
+    await p.getByRole('button', { name: 'Create upload request' }).click();
+    const reqUrl = await p.getByLabel('Upload request URL').inputValue();
+    await r.goto(reqUrl);
+    await r.getByLabel('Your name').fill('Aminata');
+    await r.getByRole('button', { name: 'Start', exact: true }).click();
+    await r.getByLabel('Upload ID scan').setInputFiles({ name: 'id.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await r.getByText(/id\.pdf · .* · (received, being checked|available)/).waitFor();
+    await shot(r, 'upload-request');
+    await r.getByRole('button', { name: 'Send files', exact: true }).click();
+    await r.getByRole('heading', { name: 'Files sent' }).waitFor();
+    await p.reload();
+    await p.getByText('Aminata').waitFor();
+    await shot(p, 'request-detail');
+    ok('submission received by the requester');
+
     const orgId = new URL(p.url()).searchParams.get('ws');
     const tool = (...args) =>
       execFileSync(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'tools/admin.ts', ...args], { env: { ...process.env, DB_SCHEMA: 'rokela' } }).toString();
@@ -719,24 +755,8 @@ async function main() {
       '--reason',
       'e2e upgrade',
     );
+    // Refresh the account context after promoting this fixture user to operator.
     await p.reload();
-    await p.getByRole('button', { name: 'Upload requests' }).click();
-    await p.getByLabel('Title').fill('Your ID for onboarding');
-    await p.getByLabel(/Files you need/).fill('ID scan');
-    await p.getByRole('button', { name: 'Create upload request' }).click();
-    const reqUrl = await p.getByLabel('Upload request URL').inputValue();
-    await r.goto(reqUrl);
-    await r.getByLabel('Your name').fill('Aminata');
-    await r.getByRole('button', { name: 'Start', exact: true }).click();
-    await r.getByLabel('Upload ID scan').setInputFiles({ name: 'id.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
-    await r.getByText(/id\.pdf · .* · (received, being checked|available)/).waitFor();
-    await shot(r, 'upload-request');
-    await r.getByRole('button', { name: 'Send files', exact: true }).click();
-    await r.getByRole('heading', { name: 'Files sent' }).waitFor();
-    await p.reload();
-    await p.getByText('Aminata').waitFor();
-    await shot(p, 'request-detail');
-    ok('submission received by the requester');
 
     step('Short-link management, workspace settings and audit exports');
     await p.getByRole('button', { name: 'Short links', exact: true }).click();

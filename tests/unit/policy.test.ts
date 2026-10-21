@@ -22,6 +22,10 @@ import {
 const policy = { reservedHosts: ['rokela.example'], blockedHosts: ['evil.test'] };
 
 describe('commercial limits', () => {
+  it('enables upload requests during the trial without lifting quota limits or changing the free baseline', () => {
+    expect(resolveLimits([], true)).toEqual({ ...FREE_LIMITS, uploadRequests: true });
+    expect(resolveLimits([]).uploadRequests).toBe(false);
+  });
   it('never falls below the free baseline and takes the most generous valid license', () => {
     expect(resolveLimits([])).toEqual(FREE_LIMITS);
     const l = resolveLimits([

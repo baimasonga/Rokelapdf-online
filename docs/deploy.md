@@ -1,5 +1,20 @@
 # Deploying: Supabase + Cloudflare R2 + Railway
 
+## Current free trial
+
+`TRIAL_MODE` defaults to `true` during the user trial. Every registered workspace
+can create upload requests (and collect signatures through them) without an
+operator-managed paid plan. Workspaces without a paid plan display **Free trial**.
+Existing storage, file-size, retention, email and API limits still apply; trial
+mode does not disable authentication, workspace isolation or malware checks.
+Other optional entitlements, such as custom domains, remain separately controlled.
+
+Set `TRIAL_MODE=false` and redeploy to end this temporary upload-request access.
+Paid workspace grants remain unchanged. Trial mode does not write permanent plan
+grants, and existing requests are not deleted when the trial ends. Keep this flag
+consistent between Railway and any Cloudflare backup. No new plan-selection UI or
+billing flow is introduced by the trial.
+
 Nothing here is created automatically: you create the three accounts' resources, then Railway deploys from GitHub.
 Status: the configuration is tested locally (production build, production CSP, PostgreSQL, browser end-to-end test);
 the R2 and Supabase connections are exercised for the first time on your first deploy — use the checklist in §5.

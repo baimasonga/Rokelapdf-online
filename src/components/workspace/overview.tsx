@@ -94,7 +94,7 @@ export function Overview() {
         <section className="ws-card" aria-labelledby="plan">
           <div className="ws-card-head">
             <h2 id="plan">Your plan</h2>
-            <span className="plan-pill">{o ? o.subscription.plan : '…'}</span>
+            <span className="plan-pill">{o ? (o.subscription.plan === 'trial' ? 'Free trial' : o.subscription.plan) : '…'}</span>
           </div>
           {o ? (
             <>

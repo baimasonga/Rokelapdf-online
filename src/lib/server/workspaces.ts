@@ -29,10 +29,12 @@ export interface Workspace {
 export class WorkspaceService {
   readonly #pool: PgPool;
   readonly #clock: Clock;
+  readonly #trialMode: boolean;
 
-  constructor(pool: PgPool, clock: Clock) {
+  constructor(pool: PgPool, clock: Clock, trialMode = false) {
     this.#pool = pool;
     this.#clock = clock;
+    this.#trialMode = trialMode;
   }
 
   async #tx<T>(fn: (q: Queryable, audit: AuditEventInput[]) => Promise<T>): Promise<T> {
@@ -112,7 +114,8 @@ export class WorkspaceService {
     const result = await this.#pool.query('SELECT plan, updated_at FROM org_plans WHERE org_id = $1', [orgId]);
     const row = result.rows[0];
     return {
-      plan: row?.plan ?? 'free',
+      plan: (!row || row.plan === 'free') && this.#trialMode ? 'trial' : (row?.plan ?? 'free'),
+      trialActive: this.#trialMode,
       scope: 'workspace',
       billingMode: 'operator_managed',
       services: ['pdf', 'file_transfer', 'link_shortener'],

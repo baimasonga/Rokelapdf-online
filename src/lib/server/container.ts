@@ -60,7 +60,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
   const ownPool = o.pool ? undefined : poolFor(config);
   const pool: PgPool = o.pool ?? ownPool!;
   const verifier = o.verifier ?? new SupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl, publishableKey: config.supabasePublishableKey });
-  const workspaces = new WorkspaceService(pool, clock);
+  const workspaces = new WorkspaceService(pool, clock, config.trialMode);
   let localStore: LocalObjectStore | undefined;
   let objects = o.objects;
   if (!objects) {
@@ -118,6 +118,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     clock,
     config: {
       ...DEFAULT_SHARING_CONFIG,
+      trialMode: config.trialMode,
       eventRetentionDays: config.eventRetentionDays,
       ...(config.env === 'production' ? {} : { partBytes: 5 * 1024 * 1024 }),
       ...o.sharing,

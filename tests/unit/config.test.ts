@@ -18,6 +18,11 @@ const PROD = {
 };
 
 describe('configuration fails closed in production', () => {
+  it('enables the current trial by default, supports an explicit end, and rejects mistyped flags', () => {
+    expect(loadConfig(env(PROD)).trialMode).toBe(true);
+    expect(loadConfig(env({ ...PROD, TRIAL_MODE: 'false' })).trialMode).toBe(false);
+    expect(() => loadConfig(env({ ...PROD, TRIAL_MODE: 'yes' }))).toThrow(/TRIAL_MODE/);
+  });
   it('accepts a complete production configuration', () => {
     expect(loadConfig(env(PROD))).toMatchObject({ env: 'production', storage: { kind: 's3', bucket: 'rokela-pdf' }, clamd: { port: 3310 } });
   });

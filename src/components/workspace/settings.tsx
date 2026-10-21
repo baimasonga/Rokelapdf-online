@@ -28,15 +28,16 @@ export function WorkspaceSettings() {
     <>
       <Panel title="One plan for all your tools">
         <p>
-          <strong>{data.subscription.plan}</strong> · This workspace
+          <strong>{data.subscription.plan === 'trial' ? 'Free trial' : data.subscription.plan}</strong> · This workspace
         </p>
         <p>
           PDF tools, file transfers and link shortening are included under this single workspace plan, with the limits shown below. There are no separate
           product subscriptions.
         </p>
         <p className="muted">
-          Plan changes are currently managed by the platform operator. Browser PDF tools remain free; server conversions require sign-in and have service
-          limits.
+          {data.subscription.trial_active
+            ? 'The free trial is active. Registered users can create upload requests without selecting a paid plan. Storage, file-size and usage limits still apply.'
+            : 'Plan changes are currently managed by the platform operator. Browser PDF tools remain free; server conversions require sign-in and have service limits.'}
         </p>
       </Panel>
       <Panel title="Workspace branding">

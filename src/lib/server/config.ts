@@ -5,6 +5,8 @@ import { validateHostname } from './sharing';
 import { assertIdent } from './db/schema';
 
 export interface AppConfig {
+  /** Temporary trial access; quotas and workspace authorization still apply. */
+  trialMode: boolean;
   warrior?: WarriorConfig;
   env: 'development' | 'test' | 'production';
   databaseUrl: string;
@@ -61,6 +63,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mode = (env['APP_ENV'] ?? env['NODE_ENV'] ?? 'development') as AppConfig['env'];
   if (!['development', 'test', 'production'].includes(mode)) throw new Error('invalid APP_ENV');
   const prod = mode === 'production';
+  const trial = env['TRIAL_MODE'] ?? 'true';
+  if (!['true', 'false'].includes(trial)) throw new Error('TRIAL_MODE must be true or false');
   const need = (name: string) => {
     const v = env[name];
     if (!v) throw new Error(`${name} is required`);
@@ -153,6 +157,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     .map((h) => validateHostname(h));
 
   return {
+    trialMode: trial === 'true',
     env: mode,
     databaseUrl,
     databaseCaPem: env['DATABASE_CA_PEM'] || undefined,
