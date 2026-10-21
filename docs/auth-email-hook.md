@@ -69,3 +69,29 @@ and Supabase administrative access, so activation is not established by source t
 References: [Supabase Send Email Hook](https://supabase.com/docs/guides/auth/auth-hooks/send-email-hook),
 [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks),
 [Cloudflare Email Sending](https://developers.cloudflare.com/email-service/get-started/send-emails/).
+
+## Recovery and canonical-domain troubleshooting
+
+Set Railway `PUBLIC_ORIGIN` and Supabase Authentication's Site URL to the same
+canonical HTTPS origin (for Rokela production, `https://www.rokelapdf.com`). Add
+`https://www.rokelapdf.com/signin?mode=update` and the intended signup destinations
+(such as `https://www.rokelapdf.com/app`) to Supabase's allowed redirect URLs.
+Redeploy after changing Railway variables. In production, `/signin` on another
+hostname redirects to `PUBLIC_ORIGIN` before a new PKCE flow starts. Sharing and
+custom short-link domains are unaffected. Existing reset links may need replacing:
+PKCE verifier storage cannot be moved between browser profiles or origins.
+
+Request a fresh reset link on the canonical domain and open it in the same browser
+profile. The password form now requires a session; invalid callbacks show a retry
+screen instead. Callback errors never display the provider's raw description.
+The hook still rejects untrusted redirect origins. A signed HTTP 400 is logged with
+only `auth email rejected` and a safe reason (`redirect_origin`, `payload_schema`
+or `invalid_action_data`), without the payload, email address or token URL.
+Supabase can translate that HTTP 400 into `Invalid payload sent to hook`.
+
+The dashboard's project-wide email quota applies independently of the Cloudflare
+hook. Review Authentication → Rate Limits → email sending: a limit of 2/hour can
+block both signup and recovery. Set a suitable permitted production quota and
+check provider limits; do not disable confirmations or weaken redirect validation.
+This repository change cannot update the live Supabase quota, Site URL, redirect
+allowlist or Railway variables. Those changes require project administration.

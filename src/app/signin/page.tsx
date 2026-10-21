@@ -15,17 +15,21 @@ function SignIn() {
   const params = useSearchParams();
   const router = useRouter();
   const notice = useNotice();
-  const { supabase, session, ready, recovering, configError } = useAuth();
-  const [mode, setMode] = useState<Mode>((params.get('mode') as Mode) || 'signin');
+  const { supabase, session, ready, recovering, configError, callbackError } = useAuth();
+  const [mode, setMode] = useState<Mode>(() => {
+    const requested = params.get('mode');
+    return requested === 'signup' || requested === 'forgot' || requested === 'update' ? requested : 'signin';
+  });
   const [sent, setSent] = useState<string>();
+  const [retrying, setRetrying] = useState(false);
   const next = safeNext(params.get('next'));
 
   useEffect(() => {
     if (recovering) setMode('update');
   }, [recovering]);
   useEffect(() => {
-    if (ready && session && mode !== 'update' && !recovering) router.replace(next);
-  }, [ready, session, mode, recovering, next, router]);
+    if (ready && session && mode !== 'update' && !recovering && !callbackError) router.replace(next);
+  }, [ready, session, mode, recovering, next, router, callbackError]);
 
   if (!ready) return <p className="muted center">Loading…</p>;
   if (configError || !supabase)
@@ -39,6 +43,39 @@ function SignIn() {
   const fail = (e: { code?: string; status?: number; message?: string } | null) => {
     if (e) throw new Error(authErrorMessage(e));
   };
+
+  if (!retrying && (callbackError || (mode === 'update' && !session)))
+    return (
+      <div className="auth-card">
+        <h1>Request a new account link</h1>
+        <p role="alert">
+          {callbackError ?? 'Your password-reset session is missing. Request a new reset link and open it in the same browser where you requested it.'}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setRetrying(true);
+            setMode('forgot');
+            window.history.replaceState(null, '', '/signin?mode=forgot');
+          }}
+        >
+          Request a new reset link
+        </button>
+        <p>
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              setRetrying(true);
+              setMode('signin');
+              window.history.replaceState(null, '', '/signin');
+            }}
+          >
+            Back to log in
+          </button>
+        </p>
+      </div>
+    );
 
   if (sent)
     return (
@@ -69,7 +106,7 @@ function SignIn() {
             signin: 'Sign in to your workspace.',
             signup: 'Save documents, share them securely and collect files.',
             forgot: 'We will email you a link to choose a new password.',
-            update: 'Use at least 10 characters.',
+            update: 'Use at least 10 characters, including uppercase and lowercase letters and a number.',
           }[mode]
         }
       </p>
@@ -91,7 +128,13 @@ function SignIn() {
         <Form
           fields={[
             { name: 'email', label: 'Email', type: 'email', autoComplete: 'email' },
-            { name: 'password', label: 'Password', type: 'password', autoComplete: 'new-password', hint: 'At least 10 characters.' },
+            {
+              name: 'password',
+              label: 'Password',
+              type: 'password',
+              autoComplete: 'new-password',
+              hint: 'At least 10 characters, including uppercase and lowercase letters and a number.',
+            },
           ]}
           submit="Create account"
           onSubmit={async (v) => {

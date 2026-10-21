@@ -1,12 +1,13 @@
 // A minimal stand-in for Supabase Auth (GoTrue) for local end-to-end tests only: sign-up (auto-confirmed),
 // password sign-in, refresh, sign-out and GET /auth/v1/user. Never used outside tests.
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 
-export function startFakeSupabase(port) {
+export function startFakeSupabase(port, { onRecovery } = {}) {
   const users = new Map(); // email -> { id, email, password, created_at }
   const tokens = new Map(); // access token -> email
   const refresh = new Map(); // refresh token -> email
+  const recovery = new Map(); // one-use code -> email + PKCE challenge
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
   const session = (u) => {
     const exp = Math.floor(Date.now() / 1000) + 3600;
@@ -41,7 +42,7 @@ export function startFakeSupabase(port) {
     if (req.method === 'OPTIONS') return send(204);
     const url = new URL(req.url, 'http://x');
     let body = {};
-    if (req.method === 'POST') {
+    if (req.method === 'POST' || req.method === 'PUT') {
       const chunks = [];
       for await (const c of req) chunks.push(c);
       body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString() || '{}') : {};
@@ -55,6 +56,18 @@ export function startFakeSupabase(port) {
       return send(200, session(u));
     }
     if (url.pathname === '/auth/v1/token' && req.method === 'POST') {
+      if (url.searchParams.get('grant_type') === 'pkce') {
+        const pending = recovery.get(body.auth_code);
+        if (
+          !pending ||
+          createHash('sha256')
+            .update(body.code_verifier ?? '')
+            .digest('base64url') !== pending.challenge
+        )
+          return send(400, { code: 'bad_code_verifier', msg: 'Invalid recovery code or verifier' });
+        recovery.delete(body.auth_code);
+        return send(200, session(users.get(pending.email)));
+      }
       if (url.searchParams.get('grant_type') === 'password') {
         const u = users.get(String(body.email).toLowerCase());
         if (!u || u.password !== body.password) return send(400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
@@ -67,6 +80,24 @@ export function startFakeSupabase(port) {
     if (url.pathname === '/auth/v1/user' && req.method === 'GET') {
       const email = tokens.get(bearer);
       return email ? send(200, view(users.get(email))) : send(401, { code: 'bad_jwt', msg: 'invalid JWT' });
+    }
+    if (url.pathname === '/auth/v1/recover' && req.method === 'POST') {
+      const email = String(body.email).toLowerCase();
+      if (users.has(email) && body.code_challenge) {
+        const code = randomBytes(24).toString('hex');
+        recovery.set(code, { email, challenge: body.code_challenge });
+        const link = new URL(url.searchParams.get('redirect_to'));
+        link.searchParams.set('code', code);
+        onRecovery?.(link.href);
+      }
+      return send(200, {});
+    }
+    if (url.pathname === '/auth/v1/user' && req.method === 'PUT') {
+      const email = tokens.get(bearer);
+      if (!email) return send(401, { code: 'bad_jwt', msg: 'invalid JWT' });
+      const user = users.get(email);
+      user.password = body.password;
+      return send(200, view(user));
     }
     if (url.pathname === '/auth/v1/logout') {
       tokens.delete(bearer);

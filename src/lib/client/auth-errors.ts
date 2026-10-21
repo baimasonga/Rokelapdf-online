@@ -12,7 +12,14 @@ export function authErrorMessage(error: { code?: string; status?: number; messag
     case 'invalid_credentials':
       return 'The email or password is incorrect.';
     case 'weak_password':
-      return 'Choose a stronger password with at least 10 characters.';
+      return 'Use at least 10 characters, including an uppercase letter, a lowercase letter and a number.';
+    case 'otp_expired':
+    case 'flow_state_expired':
+    case 'flow_state_not_found':
+    case 'bad_code_verifier':
+    case 'pkce_verifier_not_found':
+    case 'auth_session_missing':
+      return 'This account link is invalid or expired. Request a new link and open it in the same browser where you requested it.';
     case 'signup_disabled':
       return 'New account registration is temporarily unavailable. Please contact support.';
     case 'user_already_exists':

@@ -1,5 +1,12 @@
 import { expect, it } from 'vitest';
 import { authErrorMessage } from '../../src/lib/client/auth-errors';
+it('explains expired and unexchangeable links without exposing provider details', () => {
+  for (const code of ['otp_expired', 'flow_state_expired', 'flow_state_not_found', 'bad_code_verifier', 'pkce_verifier_not_found', 'auth_session_missing']) {
+    const message = authErrorMessage({ code, message: 'private-provider-detail' });
+    expect(message).toContain('same browser');
+    expect(message).not.toContain('private-provider-detail');
+  }
+});
 it('distinguishes email-sending limits, request limits and unconfigured delivery', () => {
   expect(authErrorMessage({ code: 'over_email_send_rate_limit' })).toContain('emails are temporarily limited');
   expect(authErrorMessage({ code: 'over_request_rate_limit' })).toContain('signup attempts');

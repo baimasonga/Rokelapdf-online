@@ -13,6 +13,7 @@ interface AuthState {
   /** Set after a password-recovery link was opened. */
   recovering: boolean;
   configError: string | undefined;
+  callbackError: string | undefined;
   signOut(): Promise<void>;
 }
 const Ctx = createContext<AuthState | undefined>(undefined);
@@ -34,6 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [configError, setConfigError] = useState<string>();
+  const [callbackError, setCallbackError] = useState<string>();
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -49,6 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (event === 'SIGNED_OUT') setRecovering(false);
         });
         unsub = () => data.subscription.unsubscribe();
+        // Supabase can return a callback error while retaining an older session.
+        // Do not mistake that session for a successful recovery link.
+        const { error } = await sb.auth.initialize();
+        if (cancelled) return;
+        if (error)
+          setCallbackError(
+            'This account link is invalid, expired, or could not be verified in this browser. Request a new link and open it in the same browser where you requested it.',
+          );
         setSession((await sb.auth.getSession()).data.session);
         setReady(true);
       })
@@ -69,12 +79,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       recovering,
       configError,
+      callbackError,
       signOut: async () => {
         await supabase?.auth.signOut();
         setSession(null);
       },
     }),
-    [ready, supabase, session, recovering, configError],
+    [ready, supabase, session, recovering, configError, callbackError],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

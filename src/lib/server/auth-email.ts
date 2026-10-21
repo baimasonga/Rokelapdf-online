@@ -143,7 +143,15 @@ export async function handleAuthEmail(req: Request, options?: AuthEmailOptions):
     const id = req.headers.get('webhook-id')!;
     if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) throw Error('invalid id');
     messages = authEmailMessages(verified, options, id);
-  } catch {
+  } catch (error) {
+    // Diagnose rejected signed requests without logging recipients, codes or URLs.
+    const reason =
+      error instanceof z.ZodError
+        ? 'payload_schema'
+        : error instanceof Error && error.message === 'invalid redirect'
+          ? 'redirect_origin'
+          : 'invalid_action_data';
+    console.warn(JSON.stringify({ msg: 'auth email rejected', reason }));
     return response(400, 'Unsupported or invalid auth email');
   }
   try {

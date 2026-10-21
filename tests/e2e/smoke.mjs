@@ -96,7 +96,12 @@ async function main() {
     stdio: 'inherit',
     env: { ...process.env, DB_SCHEMA: 'rokela' },
   });
-  const auth = await startFakeSupabase(AUTH_PORT);
+  let recoveryLink;
+  const auth = await startFakeSupabase(AUTH_PORT, {
+    onRecovery: (url) => {
+      recoveryLink = url;
+    },
+  });
   const converterToken = process.env.E2E_CONVERTER_TOKEN ?? 'e2e-converter-token-'.padEnd(48, 'x');
   const converter = process.env.E2E_CONVERTER_URL ? undefined : await startFakeConverter(3102, converterToken);
   const env = {
@@ -163,6 +168,46 @@ async function main() {
     check((await p.locator('.tiles a.tile[href^="/tools/"]').count()) >= 20, 'home page lists every tool');
     ok('landing page renders');
     await shot(p, 'home');
+
+    step('Password recovery requires a valid session');
+    await p.goto(`${ORIGIN}/signin?mode=update`);
+    await p.getByRole('heading', { name: 'Request a new account link' }).waitFor();
+    check((await p.getByRole('button', { name: 'Save password' }).count()) === 0, 'missing session never shows a password-save form');
+    await p.getByRole('button', { name: 'Request a new reset link' }).click();
+    await p.getByRole('button', { name: 'Send reset link' }).waitFor();
+    check(p.url().endsWith('/signin?mode=forgot'), 'recovery retry clears callback parameters and opens the request form');
+    await p.goto(`${ORIGIN}/signin?mode=update#error=access_denied&error_code=otp_expired&error_description=private-provider-detail`);
+    await p.getByRole('heading', { name: 'Request a new account link' }).waitFor();
+    check(!(await p.locator('body').innerText()).includes('private-provider-detail'), 'expired recovery links show safe guidance without provider details');
+
+    step('Password recovery exchanges a PKCE code before changing the password');
+    await fetch(`http://127.0.0.1:${AUTH_PORT}/auth/v1/signup`, {
+      method: 'POST',
+      body: JSON.stringify({ email: 'recovery@example.invalid', password: 'Old-password-123' }),
+    });
+    const recoveryContext = await browser.newContext();
+    const recoveryPage = await recoveryContext.newPage();
+    watch(recoveryPage, 'recovery');
+    await recoveryPage.goto(`${ORIGIN}/signin?mode=forgot`);
+    await recoveryPage.getByLabel('Email', { exact: true }).fill('recovery@example.invalid');
+    await recoveryPage.getByRole('button', { name: 'Send reset link' }).click();
+    await recoveryPage.getByRole('heading', { name: 'Check your email' }).waitFor();
+    check(!!recoveryLink, 'recovery request created a PKCE callback');
+    // Another browser lacks the verifier and must not get a password-save form.
+    await p.goto(recoveryLink);
+    await p.getByRole('heading', { name: 'Request a new account link' }).waitFor();
+    check((await p.getByRole('button', { name: 'Save password' }).count()) === 0, 'cross-browser recovery cannot save a password');
+    await recoveryPage.goto(recoveryLink);
+    await recoveryPage.getByRole('heading', { name: 'Choose a new password' }).waitFor();
+    await recoveryPage.getByLabel(/^New password/).fill('New-password-456');
+    await recoveryPage.getByRole('button', { name: 'Save password' }).click();
+    await recoveryPage.waitForURL(`${ORIGIN}/app`);
+    const login = await fetch(`http://127.0.0.1:${AUTH_PORT}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      body: JSON.stringify({ email: 'recovery@example.invalid', password: 'New-password-456' }),
+    });
+    check(login.ok, 'new password works after a verified recovery session');
+    await recoveryContext.close();
 
     step('Browser tools (no account, nothing uploaded)');
     const visitor = await browser.newContext({ acceptDownloads: true });
