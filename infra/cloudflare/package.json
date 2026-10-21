@@ -1,0 +1,18 @@
+{
+  "name": "rokela-cloudflare-backup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/index.mjs",
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir .output",
+    "deploy:staging": "wrangler deploy",
+    "image:build": "docker build --platform linux/amd64 -f ../../Dockerfile.cloudflare -t rokela-backup:local ../.."
+  },
+  "devDependencies": {
+    "wrangler": "4.151.3"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7"
+  }
+}

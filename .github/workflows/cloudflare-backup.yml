@@ -1,0 +1,51 @@
+name: Cloudflare backup staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, claude/zealous-newton-a8gzpy]
+    paths:
+      - '.github/workflows/cloudflare-backup.yml'
+      - 'Dockerfile.cloudflare'
+      - '.dockerignore'
+      - 'infra/cloudflare/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-backup-staging
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check deployment credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_BACKUP_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_BACKUP_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Configure CLOUDFLARE_BACKUP_DEPLOY_TOKEN in repository secrets'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Configure CLOUDFLARE_BACKUP_ACCOUNT_ID in repository variables'; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/cloudflare/package-lock.json
+      - run: npm ci
+      - name: Validate backup integration
+        run: npm run typecheck && npx vitest run tests/unit/cloudflare-backup.test.ts
+      - run: npm ci
+        working-directory: infra/cloudflare
+      - name: Deploy inactive staging backup
+        working-directory: infra/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_BACKUP_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_BACKUP_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: npm run deploy:staging

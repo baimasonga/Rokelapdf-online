@@ -1,0 +1,12 @@
+.git
+.next
+node_modules
+**/node_modules
+**/.env*
+**/.dev.vars*
+**/.wrangler
+**/.output
+converter/.venv
+**/__pycache__
+e2e-artifacts
+coverage

@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rokela-pdf-backup-staging",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-21",
+  "workers_dev": true,
+  "preview_urls": false,
+  "triggers": { "crons": ["* * * * *"] },
+  "containers": [
+    {
+      "class_name": "RokelaApp",
+      "image": "../../Dockerfile.cloudflare",
+      "image_build_context": "../..",
+      "max_instances": 1,
+      "instance_type": "standard-1",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROKELA_APP",
+        "class_name": "RokelaApp",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RokelaApp"],
+    },
+  ],
+  "vars": {
+    "PUBLIC_ORIGIN": "https://www.rokelapdf.com",
+    "SHORT_ORIGIN": "https://www.rokelapdf.com",
+    "SUPABASE_URL": "https://htnozuqylgnvevlpskkc.supabase.co",
+    "STORAGE": "r2",
+    "DB_POOL_MAX": "3",
+    "ENABLE_BACKUP": "false",
+  },
+}
