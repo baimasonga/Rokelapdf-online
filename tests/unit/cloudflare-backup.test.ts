@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { containerRequest, runtimeEnvironment } from '../../infra/cloudflare/src/runtime.mjs';
+import { containerFailure, containerRequest, runtimeEnvironment } from '../../infra/cloudflare/src/runtime.mjs';
 
 describe('independent Cloudflare container backup', () => {
+  it('reports failure categories without exposing error messages or credentials', () => {
+    const secret = 'synthetic-private-password';
+    const diagnostic = containerFailure(new Error(`port timeout postgres://user:${secret}@database.example`));
+    expect(diagnostic).toEqual({ error_type: 'Error', category: 'timeout' });
+    expect(JSON.stringify(diagnostic)).not.toContain(secret);
+    expect(containerFailure({ name: secret + '!', message: secret })).toEqual({ error_type: 'UnknownError', category: 'unknown' });
+    expect(containerFailure(null)).toEqual({ error_type: 'UnknownError', category: 'unknown' });
+  });
   it('passes application secrets explicitly and keeps deployment credentials out of the container', () => {
     const settings = runtimeEnvironment({
       DATABASE_URL: 'postgres://synthetic',

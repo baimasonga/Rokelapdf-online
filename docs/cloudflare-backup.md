@@ -115,6 +115,15 @@ primary and backup versions coexist. Pin the same approved Git commit on both.
 
 ## Verify and switch
 
+If the staging URL returns `Backup application unavailable`, inspect the Worker's
+**Observability → Logs** after refreshing `/api/v1/health`. Logging is enabled in
+the Wrangler configuration. Look for `backup_startup_failed`,
+`backup_container_stopped` (including the exit code), and the container's
+`container startup` / `container stopping` phase records. Worker diagnostics
+classify errors without recording raw exception messages, URLs or credentials.
+Container allocation may take up to two minutes before the separate seven-minute
+application-port wait. A successful deployment does not establish runtime health.
+
 1. Verify database access, R2 upload/download, queued quarantine processing and
    antivirus rejection on Cloudflare. Run `npm run check:services` using the same
    backup settings from a secure test environment, including real Office conversion.

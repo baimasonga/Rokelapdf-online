@@ -1,5 +1,5 @@
 import { Container, getContainer } from '@cloudflare/containers';
-import { containerRequest, runtimeEnvironment } from './runtime.mjs';
+import { containerFailure, containerRequest, runtimeEnvironment } from './runtime.mjs';
 
 export class RokelaApp extends Container {
   defaultPort = 3000;
@@ -14,9 +14,22 @@ export class RokelaApp extends Container {
   // Cloudflare may still evict/restart the container; no uptime guarantee is implied.
   onActivityExpired() {}
 
+  onStart() {
+    console.log(JSON.stringify({ event: 'backup_container_started' }));
+  }
+
+  onStop({ exitCode, reason }) {
+    console.error(JSON.stringify({ event: 'backup_container_stopped', exit_code: exitCode, reason }));
+  }
+
   async fetch(request) {
     // Loading antivirus definitions takes longer than the SDK's default port wait.
-    await this.startAndWaitForPorts({ ports: [3000], cancellationOptions: { portReadyTimeoutMS: 420_000 } });
+    try {
+      await this.startAndWaitForPorts({ ports: [3000], cancellationOptions: { instanceGetTimeoutMS: 120_000, portReadyTimeoutMS: 420_000 } });
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'backup_startup_failed', ...containerFailure(error) }));
+      throw error;
+    }
     return super.fetch(request);
   }
 }
@@ -35,7 +48,8 @@ export default {
       const headers = new Headers(response.headers);
       headers.set('cache-control', 'private, no-store');
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-    } catch {
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'backup_request_failed', ...containerFailure(error) }));
       return new Response('Backup application unavailable.', { status: 503, headers: { 'cache-control': 'no-store' } });
     }
   },

@@ -52,6 +52,7 @@ def converter_ready():
 def main():
     children = []
     stopping = False
+    phase = "bootstrap"
 
     def stop(*_args):
         nonlocal stopping
@@ -61,25 +62,33 @@ def main():
     signal.signal(signal.SIGINT, stop)
 
     def start(name, command, env, cwd="/app"):
+        nonlocal phase
+        phase = f"starting {name}"
+        print(json.dumps({"msg": "container startup", "phase": phase}), flush=True)
         child = subprocess.Popen(command, env=env, cwd=cwd, start_new_session=True)
         children.append((name, child))
 
     def check_children():
         for name, child in children:
             if child.poll() is not None:
-                raise RuntimeError(f"{name} exited")
+                raise RuntimeError(f"{name} exited with code {child.returncode}")
 
     try:
         common, converter, app = service_environments(os.environ)
         # Refresh before clamd starts so an older image can recover. If the mirror
         # is unavailable, clamd may use its bundled definitions only if still fresh.
         try:
-            subprocess.run(["freshclam", "--stdout"], env=common, timeout=90, check=False)
+            phase = "refreshing signatures"
+            print(json.dumps({"msg": "container startup", "phase": phase}), flush=True)
+            result = subprocess.run(["freshclam", "--stdout"], env=common, timeout=90, check=False)
+            print(json.dumps({"msg": "signature refresh finished", "exit_code": result.returncode}), flush=True)
         except subprocess.TimeoutExpired:
             print('{"msg":"signature refresh timed out; checking bundled definitions"}', flush=True)
         start("signature updater", ["freshclam", "--daemon", "--foreground=true"], common)
         start("scanner", ["clamd", "--foreground=true"], common)
         start("converter", ["/opt/converter/venv/bin/python", "-m", "rokela_convert.server"], converter, "/opt/converter")
+        phase = "waiting for scanner and converter"
+        print(json.dumps({"msg": "container startup", "phase": phase}), flush=True)
         deadline = time.monotonic() + 300
         while not stopping:
             check_children()
@@ -93,13 +102,14 @@ def main():
             time.sleep(1)
         if not stopping:
             start("app", ["node", "server.js"], app)
+            phase = "running"
         while not stopping:
             check_children()
             time.sleep(1)
         return 0
     except Exception as error:
         # Only supervisor-generated messages are exposed; never log env/child output.
-        print(json.dumps({"msg": "container stopping", "reason": str(error) if isinstance(error, RuntimeError) else type(error).__name__}), flush=True)
+        print(json.dumps({"msg": "container stopping", "phase": phase, "reason": str(error) if isinstance(error, RuntimeError) else type(error).__name__}), flush=True)
         return 1
     finally:
         for _name, child in reversed(children):

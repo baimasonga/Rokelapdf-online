@@ -36,6 +36,19 @@ export function runtimeEnvironment(bindings) {
   return env;
 }
 
+// Classify errors without logging messages, URLs, request bodies or credentials.
+export function containerFailure(error) {
+  const message = typeof error?.message === 'string' ? error.message : '';
+  const name = ['Error', 'TypeError', 'RangeError', 'TimeoutError', 'AbortError', 'ContainerStartError'].includes(error?.name) ? error.name : 'UnknownError';
+  let category = 'unknown';
+  if (/memory|\boom\b/i.test(message)) category = 'memory';
+  else if (/timeout|timed out/i.test(message)) category = 'timeout';
+  else if (/exited|exit code/i.test(message)) category = 'container_exit';
+  else if (/capacity|quota/i.test(message)) category = 'capacity';
+  else if (/port|connection refused/i.test(message)) category = 'app_port';
+  return { error_type: name, category };
+}
+
 export function containerRequest(request, canonicalOrigin) {
   const canonical = new URL(canonicalOrigin);
   if (canonical.protocol !== 'https:' || canonical.username || canonical.password || canonical.pathname !== '/' || canonical.search || canonical.hash)
