@@ -60,12 +60,18 @@ function PageCanvas({ doc, index, scale, rotation, w, h }: { doc: PDFDocumentPro
         canvas.dataset['rendered'] = '1';
       } catch (e) {
         // A cancelled render (zoom, rotate, unmount) is expected; anything else is reported.
-        if ((e as Error)?.name !== 'RenderingCancelledException') {
+        if (!cancelled && (e as Error)?.name !== 'RenderingCancelledException') {
           canvas.dataset['renderError'] = String((e as Error)?.message ?? e).slice(0, 200);
           console.error('page render failed', e);
         }
       }
-    })();
+    })().catch((error) => {
+      // getPage can reject when the document is replaced before rendering begins.
+      if (!cancelled && ref.current) {
+        ref.current.dataset['renderError'] = String(error?.message ?? error).slice(0, 200);
+        console.error('page render failed', error);
+      }
+    });
     return () => {
       cancelled = true;
       task?.cancel();

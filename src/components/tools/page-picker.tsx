@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import { Check } from 'lucide-react';
 import { closePdf, openPdf } from '@/components/editor/pdfjs';
 
@@ -11,22 +11,38 @@ export function Thumb({ doc, index }: { doc: PDFDocumentProxy; index: number }) 
     const el = ref.current;
     if (!el) return;
     let done = false;
+    let cancelled = false;
+    let task: RenderTask | undefined;
     const io = new IntersectionObserver(
-      async ([e]) => {
-        if (!e?.isIntersecting || done) return;
+      ([e]) => {
+        if (!e?.isIntersecting || done || cancelled) return;
         done = true;
         io.disconnect();
-        const page = await doc.getPage(index + 1);
-        const base = page.getViewport({ scale: 1 });
-        const vp = page.getViewport({ scale: (190 / Math.max(base.width, base.height)) * Math.min(window.devicePixelRatio || 1, 2) });
-        el.width = Math.floor(vp.width);
-        el.height = Math.floor(vp.height);
-        await page.render({ canvas: el, viewport: vp }).promise.catch(() => undefined);
+        void (async () => {
+          const page = await doc.getPage(index + 1);
+          if (cancelled) return;
+          const base = page.getViewport({ scale: 1 });
+          const vp = page.getViewport({ scale: (190 / Math.max(base.width, base.height)) * Math.min(window.devicePixelRatio || 1, 2) });
+          el.width = Math.floor(vp.width);
+          el.height = Math.floor(vp.height);
+          task = page.render({ canvas: el, viewport: vp });
+          await task.promise;
+        })().catch((error) => {
+          // Navigation can destroy the document while getPage is still pending.
+          if (!cancelled && error?.name !== 'RenderingCancelledException') {
+            el.dataset['renderError'] = String(error?.message ?? error).slice(0, 200);
+            console.error('thumbnail render failed', error);
+          }
+        });
       },
       { rootMargin: '300px' },
     );
     io.observe(el);
-    return () => io.disconnect();
+    return () => {
+      cancelled = true;
+      io.disconnect();
+      task?.cancel();
+    };
   }, [doc, index]);
   return <canvas ref={ref} className="picker-canvas" aria-hidden="true" />;
 }

@@ -10,6 +10,13 @@ on:
       - '.dockerignore'
       - 'infra/cloudflare/**'
       - 'converter/**'
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.ts'
+      - 'tsconfig.json'
+      - 'tools/copy-pdfjs.mjs'
 
 permissions:
   contents: read

@@ -96,7 +96,7 @@ The **Cloudflare backup staging** GitHub workflow provides an independent
 release path after these files are committed and pushed. Set the repository
 secret `CLOUDFLARE_BACKUP_DEPLOY_TOKEN` and variable `CLOUDFLARE_BACKUP_ACCOUNT_ID`,
 then run the workflow on the reviewed commit. It also runs automatically when
-Cloudflare deployment files change on the release branch. It deploys an **inactive** backup,
+app source, dependencies or Cloudflare deployment files change on the release branch. It deploys an **inactive** backup,
 without waiting for a Railway build. The token needs the Cloudflare permissions
 required for Workers, Durable Objects, Containers and container image publishing;
 an email-only token is insufficient. Runtime app secrets are configured separately

@@ -140,6 +140,7 @@ async function main() {
     page.on('pageerror', (e) => problems.push(`${who} page error: ${e.message}`));
     page.on('console', (m) => {
       if (m.type() === 'error' && /Content Security Policy|Refused to/.test(m.text())) problems.push(`${who} CSP: ${m.text()}`);
+      else if (m.type() === 'error' && /^(thumbnail render failed|page render failed)/.test(m.text())) problems.push(`${who} render error: ${m.text()}`);
       else if (m.type() === 'error') console.log(`  (${who} console: ${m.text().slice(0, 200)})`);
     });
   };
