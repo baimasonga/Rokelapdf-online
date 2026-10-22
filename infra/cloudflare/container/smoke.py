@@ -13,6 +13,7 @@ import signal
 import socket
 import struct
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -38,7 +39,17 @@ def scan(data):
 def main():
     assert os.getuid() != 0, "test must use the production non-root user"
     common, converter, _app = supervise.service_environments({})
+    # Exercise updater initialization without contacting an external mirror.
+    # /run is mounted empty in CI, matching Cloudflare's ephemeral runtime.
+    updater_config = Path(tempfile.mkdtemp(prefix="rokela-updater-")) / "freshclam.conf"
+    updater_config.write_text(
+        Path("/etc/clamav/freshclam.conf").read_text().replace(
+            "DatabaseMirror database.clamav.net", "PrivateMirror http://127.0.0.1:9"
+        )
+    )
     commands = [
+        (["freshclam", "--daemon", "--foreground=true", "--stdout",
+          f"--config-file={updater_config}"], common, "/app"),
         (["clamd", "--foreground=true"], common, "/app"),
         (["/opt/converter/venv/bin/python", "-m", "rokela_convert.server"], converter, "/opt/converter"),
     ]
@@ -56,6 +67,7 @@ def main():
                 pass
             assert time.monotonic() < deadline, "engines did not become ready"
             time.sleep(1)
+        print("PASS: signature updater initialized with an empty /run", flush=True)
         assert scan(b"synthetic clean document") == b"stream: OK"
         # Standard harmless antivirus test string, never uploaded outside the container.
         eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
@@ -95,6 +107,8 @@ def main():
             except ProcessLookupError:
                 pass
             child.wait()
+        updater_config.unlink(missing_ok=True)
+        updater_config.parent.rmdir()
 
 
 if __name__ == "__main__":

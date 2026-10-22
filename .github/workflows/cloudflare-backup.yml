@@ -56,7 +56,7 @@ jobs:
       - name: Build and exercise private scanner and converter
         run: |
           docker build --platform linux/amd64 -f Dockerfile.cloudflare -t rokela-backup:ci .
-          docker run --rm --memory=6g --cpus=1 --entrypoint python3 \
+          docker run --rm --memory=6g --cpus=1 --tmpfs /run --entrypoint python3 \
             --mount "type=bind,src=$PWD/infra/cloudflare/container/smoke.py,dst=/tmp/smoke.py,readonly" \
             rokela-backup:ci /tmp/smoke.py
       - name: Deploy inactive staging backup
