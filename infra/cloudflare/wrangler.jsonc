@@ -35,6 +35,6 @@
     "SUPABASE_URL": "https://htnozuqylgnvevlpskkc.supabase.co",
     "STORAGE": "r2",
     "DB_POOL_MAX": "3",
-    "ENABLE_BACKUP": "false",
+    "ENABLE_BACKUP": "true",
   },
 }
