@@ -7,14 +7,46 @@ RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; npm ci
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1 ROKELA_STANDALONE=1
-RUN npm run build
+RUN npm run build \
+ && mkdir -p /release/.next \
+ && cp -a .next/standalone/. /release/ \
+ && cp -a .next/static /release/.next/static \
+ && cp -a public /release/public
 
-FROM node:22-bookworm-slim AS runtime
+FROM clamav/clamav:stable AS signatures
+
+FROM node:22-bookworm-slim AS services
+# Keep the scanner and converter private inside the app container. Only Next exposes a port.
+COPY converter/requirements.txt /opt/converter/requirements.txt
+COPY --chmod=755 converter/rokela_convert /opt/converter/rokela_convert
+COPY --chmod=644 infra/cloudflare/container/clamd.conf infra/cloudflare/container/freshclam.conf infra/cloudflare/container/supervise.py /opt/rokela/
+# Consolidate the large installation into one layer; this also bounds disk usage
+# on VFS-based build hosts. Stage configs away from Debian's package-owned paths.
+RUN --mount=type=secret,id=proxy_ca \
+    set -eu; \
+    if [ -f /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi; \
+    apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates clamav-daemon clamav-freshclam python3 python3-venv \
+      libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui \
+      fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core fonts-noto-core \
+ && python3 -m venv /opt/converter/venv \
+ && /opt/converter/venv/bin/pip install --no-cache-dir -r /opt/converter/requirements.txt \
+ && cp /opt/rokela/clamd.conf /etc/clamav/clamd.conf \
+ && cp /opt/rokela/freshclam.conf /etc/clamav/freshclam.conf \
+ && chmod 644 /etc/clamav/clamd.conf /etc/clamav/freshclam.conf \
+ && mkdir -p /run/clamav \
+ && chown node:node /run/clamav /var/lib/clamav \
+ && chmod 755 /etc/clamav /opt/converter /opt/converter/rokela_convert \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=signatures --chown=node:node /var/lib/clamav /var/lib/clamav
+# COPY --chmod also sets the newly-created destination directory's mode.
+RUN chmod 755 /opt/rokela
+
+FROM services AS runtime
 WORKDIR /app
 ENV NODE_ENV=production APP_ENV=production HOSTNAME=0.0.0.0 PORT=3000 NEXT_TELEMETRY_DISABLED=1
-COPY --from=build --chown=node:node /app/.next/standalone ./
-COPY --from=build --chown=node:node /app/.next/static ./.next/static
-COPY --from=build --chown=node:node /app/public ./public
+COPY --from=build --chown=node:node /release/ ./
 USER node
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["python3", "/opt/rokela/supervise.py"]

@@ -8,6 +8,9 @@ describe('independent Cloudflare container backup', () => {
       CLOUDFLARE_API_TOKEN: 'deployment-only',
       MAIL_API_TOKEN: 'mail-only',
       ENABLE_BACKUP: 'true',
+      CLAMD_HOST: 'old.railway.internal',
+      CONVERTER_URL: 'http://old.railway.internal',
+      CONVERTER_TOKEN: 'obsolete-token',
     });
     expect(settings).toMatchObject({
       DATABASE_URL: 'postgres://synthetic',
@@ -19,6 +22,9 @@ describe('independent Cloudflare container backup', () => {
     expect(settings).not.toHaveProperty('CLOUDFLARE_API_TOKEN');
     expect(settings).not.toHaveProperty('ENABLE_BACKUP');
     expect(settings).not.toHaveProperty('MALWARE_SCAN_DISABLED');
+    expect(settings).not.toHaveProperty('CLAMD_HOST');
+    expect(settings).not.toHaveProperty('CONVERTER_URL');
+    expect(settings).not.toHaveProperty('CONVERTER_TOKEN');
   });
   it('preserves the canonical account domain and streams requests without fetching Railway', async () => {
     const request = new Request('https://backup.workers.dev/api/convert?target=pdf', {

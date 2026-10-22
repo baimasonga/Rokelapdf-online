@@ -9,6 +9,7 @@ on:
       - 'Dockerfile.cloudflare'
       - '.dockerignore'
       - 'infra/cloudflare/**'
+      - 'converter/**'
 
 permissions:
   contents: read
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   stage:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Check deployment credentials
         env:
@@ -39,9 +40,18 @@ jobs:
             infra/cloudflare/package-lock.json
       - run: npm ci
       - name: Validate backup integration
-        run: npm run typecheck && npx vitest run tests/unit/cloudflare-backup.test.ts
+        run: |
+          npm run typecheck
+          npx vitest run tests/unit/cloudflare-backup.test.ts tests/unit/config.test.ts
+          python3 infra/cloudflare/container/test_supervise.py
       - run: npm ci
         working-directory: infra/cloudflare
+      - name: Build and exercise private scanner and converter
+        run: |
+          docker build --platform linux/amd64 -f Dockerfile.cloudflare -t rokela-backup:ci .
+          docker run --rm --memory=6g --cpus=1 --entrypoint python3 \
+            --mount "type=bind,src=$PWD/infra/cloudflare/container/smoke.py,dst=/tmp/smoke.py,readonly" \
+            rokela-backup:ci /tmp/smoke.py
       - name: Deploy inactive staging backup
         working-directory: infra/cloudflare
         env:

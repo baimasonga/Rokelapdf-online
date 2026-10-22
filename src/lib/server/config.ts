@@ -124,7 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     } else mail = { provider, apiKey: need('RESEND_API_KEY'), from };
   }
 
-  // Both or neither, like mail. In production the converter must be reached over HTTPS or Railway's private network.
+  // HTTP is limited to Railway's private network or the co-located container service.
   let converter: AppConfig['converter'];
   if (env['CONVERTER_URL'] || env['CONVERTER_TOKEN']) {
     const raw = need('CONVERTER_URL').trim();
@@ -143,8 +143,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       throw invalidOrigin();
     }
     const privateNet = u.protocol === 'http:' && u.hostname.endsWith('.railway.internal');
+    const loopback = u.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(u.hostname);
     if (u.username || u.password || u.pathname !== '/' || u.search || u.hash || !['http:', 'https:'].includes(u.protocol)) throw invalidOrigin();
-    if (prod && u.protocol !== 'https:' && !privateNet) throw new Error('CONVERTER_URL must be HTTPS or a *.railway.internal address in production');
+    if (prod && u.protocol !== 'https:' && !privateNet && !loopback)
+      throw new Error('CONVERTER_URL must be HTTPS, loopback or a *.railway.internal address in production');
     const token = need('CONVERTER_TOKEN');
     if (token.length < 32) throw new Error('CONVERTER_TOKEN must be at least 32 characters');
     converter = { url: u.origin, token };

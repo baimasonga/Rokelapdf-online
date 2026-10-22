@@ -13,6 +13,12 @@ export class RokelaApp extends Container {
   // Retention and queued jobs must continue between visitor requests.
   // Cloudflare may still evict/restart the container; no uptime guarantee is implied.
   onActivityExpired() {}
+
+  async fetch(request) {
+    // Loading antivirus definitions takes longer than the SDK's default port wait.
+    await this.startAndWaitForPorts({ ports: [3000], cancellationOptions: { portReadyTimeoutMS: 420_000 } });
+    return super.fetch(request);
+  }
 }
 
 export default {

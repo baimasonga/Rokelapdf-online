@@ -90,10 +90,12 @@ describe('office converter configuration', () => {
       expect(() => at(invalid)).toThrow(/CONVERTER_URL must be an origin, e.g./);
     }
   });
-  it('in production allows plain HTTP only on the Railway private network', () => {
+  it('in production allows plain HTTP only on loopback or the Railway private network', () => {
     const at = (url: string) => loadConfig(env({ ...PROD, CONVERTER_URL: url, CONVERTER_TOKEN: TOKEN })).converter?.url;
     expect(at('http://converter.railway.internal:8080')).toBe('http://converter.railway.internal:8080');
-    expect(() => at('http://convert.rokela.example')).toThrow(/HTTPS or a \*\.railway\.internal/);
+    expect(at('http://127.0.0.1:8080')).toBe('http://127.0.0.1:8080');
+    expect(at('http://[::1]:8080')).toBe('http://[::1]:8080');
+    for (const host of ['convert.rokela.example', '127.0.0.1.evil.example', 'localhost', '10.0.0.1']) expect(() => at(`http://${host}`)).toThrow(/HTTPS/);
     expect(() => at('http://railway.internal.evil.example')).toThrow(/HTTPS/);
     expect(() => at('https://u:p@convert.rokela.example')).toThrow(/origin/);
     expect(() => at('https://convert.rokela.example/path')).toThrow(/origin/);

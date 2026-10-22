@@ -14,10 +14,15 @@ its supported peer range. A static Pages upload would lose the server features.
 ## What is prepared
 
 - `Dockerfile.cloudflare`: Linux amd64, Node 22, non-root runtime, standalone Next
-  output with browser PDF/OCR assets. `ROKELA_STANDALONE=1` only changes the backup
+  output with browser PDF/OCR assets, ClamAV and the LibreOffice/Python converter. `ROKELA_STANDALONE=1` only changes the backup
   build; the existing Railway build stays the same.
 - `infra/cloudflare/wrangler.jsonc`: a separate staging Worker, one container,
   SQLite Durable Object binding and a one-minute health-check Cron Trigger.
+- ClamAV and the converter listen on loopback only; no public scanner/converter
+  endpoints, Railway private addresses or separately copied converter tokens are needed.
+  The supervisor generates a token per container start, waits for both dependencies,
+  and stops all processes if any service exits. Freshclam refreshes signatures at
+  startup and every two hours; ClamAV refuses definitions older than seven days at startup.
 - A fixed container instance runs the same durable database job queue. Claims are
   fenced in PostgreSQL, so the existing Railway instance can remain active.
 - Only named app settings enter the container. The Cloudflare deployment token is
@@ -38,21 +43,27 @@ Use a Cloudflare account with Workers Paid and Containers enabled, and authentic
 Wrangler using that account. Configure the existing app values through Worker
 secret settings; do not put values in Git, Docker build arguments or chat:
 
-| Setting                                                                 | Requirement                                                                                                                                                    |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                          | Existing least-privilege app connection, reachable from Cloudflare; use the correct Supabase pooler/region and verify TLS.                                     |
-| `DATABASE_CA_PEM`                                                       | Existing verified CA if the database requires it.                                                                                                              |
-| `SUPABASE_PUBLISHABLE_KEY`                                              | Same Supabase project as the primary.                                                                                                                          |
-| `SHARING_SECRET`                                                        | Exactly the same signing secret as the primary, so existing links remain valid.                                                                                |
-| `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`  | Existing private bucket and credentials, with CORS for the canonical origin.                                                                                   |
-| `CLAMD_HOST`, optional `CLAMD_PORT`                                     | An independent, reachable scanner. A Railway private hostname is not reachable here. No antivirus opt-out is configured by this backup.                        |
-| `CONVERTER_URL`, `CONVERTER_TOKEN`                                      | Required for Office feature parity. Use an authenticated HTTPS converter outside Railway for full independence. A `*.railway.internal` endpoint will not work. |
-| `MAIL_PROVIDER`, `MAIL_FROM`, `CLOUDFLARE_ACCOUNT_ID`, `MAIL_API_TOKEN` | Existing verified Cloudflare email provider settings if mail is enabled.                                                                                       |
-| `AUTH_EMAIL_HOOK_SECRET`                                                | Same Supabase signing secret if the email hook is enabled.                                                                                                     |
+| Setting                                                                 | Requirement                                                                                                                                    |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                          | Existing least-privilege app connection, reachable from Cloudflare; use the correct Supabase pooler/region and verify TLS.                     |
+| `DATABASE_CA_PEM`                                                       | Existing verified CA if the database requires it.                                                                                              |
+| `SUPABASE_PUBLISHABLE_KEY`                                              | Same Supabase project as the primary.                                                                                                          |
+| `SHARING_SECRET`                                                        | Exactly the same signing secret as the primary, so existing links remain valid.                                                                |
+| `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`  | Existing private bucket and credentials, with CORS for the canonical origin.                                                                   |
+| Scanner and converter                                                   | Bundled in the image. The supervisor sets loopback addresses and a temporary shared converter token automatically; do not copy Railway values. |
+| `MAIL_PROVIDER`, `MAIL_FROM`, `CLOUDFLARE_ACCOUNT_ID`, `MAIL_API_TOKEN` | Existing verified Cloudflare email provider settings if mail is enabled.                                                                       |
+| `AUTH_EMAIL_HOOK_SECRET`                                                | Same Supabase signing secret if the email hook is enabled.                                                                                     |
 
-Do not declare full failover readiness while scanning is unavailable or Office
-conversion still depends on Railway. Independent scanner/converter provisioning
-is a separate service deployment; this app image contains neither engine.
+The container uses `standard-2` (1 vCPU, 6 GiB RAM) to accommodate the app,
+ClamAV and one conversion at a time (3 GiB process address-space limit). This
+increases active runtime cost from the previous `standard-1`; inactive staging
+does not start the container. Cold startup may take several minutes while
+signatures load. ClamAV definition updates require outbound HTTPS to the ClamAV
+mirrors. A persistent definition-update failure must be investigated before
+activation; outdated definitions fail closed. Disk is ephemeral, so updates
+are downloaded again after replacement. Rebuild periodically for OS and engine
+security updates. This shared container provides host redundancy, but does not
+isolate converter resource consumption from the app; monitor memory and queues.
 
 Keep `PUBLIC_ORIGIN` and `SHORT_ORIGIN` set to `https://www.rokelapdf.com` for an
 eventual same-domain failover. Keep the same Supabase Site URL, redirect allowlist,
@@ -92,7 +103,7 @@ an email-only token is insufficient. Runtime app secrets are configured separate
 on the Worker and are not passed through the GitHub build.
 
 Enter the required secrets in Worker settings (or through `wrangler secret put`),
-and leave `ENABLE_BACKUP=false` until they and independent services are complete.
+and leave `ENABLE_BACKUP=false` until the secrets and service checks are complete.
 Then set it to `true`, redeploy, and request `/api/v1/health` on the staging Worker.
 Check both app readiness and the database, not merely whether the Worker responds.
 
@@ -120,7 +131,7 @@ primary and backup versions coexist. Pin the same approved Git commit on both.
    destructively. Review pending jobs and provider activity after the switch.
 
 No account, domain, paid resource or live traffic is created by committing these
-files. Deployment credentials and independent scanner/converter readiness are
+files. Deployment credentials and scanner/converter readiness checks are
 required before this can be called a working production backup.
 
 References: [Cloudflare Containers](https://developers.cloudflare.com/containers/get-started/),
