@@ -926,7 +926,17 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   const signInHref = (mode: 'signin' | 'signup') => `/signin?${mode === 'signup' ? 'mode=signup&' : ''}next=${encodeURIComponent(`/tools/${slug}`)}`;
 
   // 0. Office conversion needs an account (it uses our server), and the converter must be switched on.
-  if (tool.server && !files.length && (convertOn === false || (authReady && !session))) {
+  if (tool.server && (!authReady || convertOn === undefined)) {
+    return (
+      <div className="tool-run">
+        <div className="bigdrop gate" role="status">
+          <Loader2 size={22} className="spin" aria-hidden="true" />
+          <span>Checking your account…</span>
+        </div>
+      </div>
+    );
+  }
+  if (tool.server && (convertOn === false || !session)) {
     return (
       <div className="tool-run">
         <div className="bigdrop gate">

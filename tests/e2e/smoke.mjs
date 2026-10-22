@@ -487,7 +487,23 @@ async function main() {
       'PDF to Word returns an editable document with the text',
     );
     await shot(p, 'pdf-to-word');
-    await p.goto(`${ORIGIN}/tools/word-to-pdf`);
+    // Delay configuration deterministically: the tool must not accept a file
+    // while AuthProvider is still initializing its saved session/token provider.
+    let releaseConfig;
+    const configGate = new Promise((resolve) => (releaseConfig = resolve));
+    const holdConfig = async (route) => {
+      await configGate;
+      await route.continue();
+    };
+    await p.route('**/api/v1/config', holdConfig);
+    try {
+      await p.goto(`${ORIGIN}/tools/word-to-pdf`);
+      await p.getByRole('status').filter({ hasText: 'Checking your account…' }).waitFor();
+      check((await p.getByTestId('tool-input').count()) === 0, 'server conversion waits for the saved session before accepting files');
+    } finally {
+      releaseConfig();
+      await p.unrouteAll({ behavior: 'wait' });
+    }
     await p.getByTestId('tool-input').setInputFiles({
       name: 'letter.docx',
       mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
