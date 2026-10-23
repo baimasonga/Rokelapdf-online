@@ -30,7 +30,7 @@ describe('workspace activity and exports', () => {
   it('does not expose audit data to ordinary team members', async () => {
     env = await sharingEnv();
     const a = await env.user('a@example.test');
-    const b = await env.user('b@example.test');
+    const b = await env.user('b@example.test', { verified: true });
     const team = await env.call('POST', '/api/v1/workspaces', { token: a.token, body: { name: 'Team' } });
     await env.call('POST', `/api/v1/workspaces/${team.body.id}/members`, { token: a.token, body: { email: 'b@example.test', role: 'member' } });
     expect((await env.call('GET', `/api/v1/workspaces/${team.body.id}/audit`, { token: b.token })).status).toBe(403);

@@ -50,6 +50,14 @@ export class WorkspaceService {
   async sync(p: UserPrincipal): Promise<void> {
     await this.#tx(async (q, audit) => {
       const now = this.#clock.now();
+      // Supabase holds each email on one account at a time, so a mirror row with this email but another id is stale
+      // (the account was deleted and re-created, or emails moved between accounts). Release the address so the
+      // upsert below cannot fail on the unique email index and lock this user out of every request.
+      await q.query(`UPDATE users SET email = 'released+' || id || '@invalid', email_verified = false, updated_at = $3 WHERE email = $2 AND id <> $1`, [
+        p.userId,
+        p.email,
+        now,
+      ]);
       const r = await q.query(
         `INSERT INTO users (id, email, email_verified, created_at, updated_at) VALUES ($1,$2,$3,$4,$4)
          ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, email_verified = EXCLUDED.email_verified, updated_at = EXCLUDED.updated_at
@@ -201,8 +209,8 @@ export class WorkspaceService {
     return this.#tx(async (q, audit) => {
       const org = (await q.query('SELECT kind FROM organizations WHERE id = $1', [orgId])).rows[0];
       if (!org || org.kind === 'personal') throw new DomainError('forbidden', 'personal workspaces cannot have members');
-      const u = (await q.query('SELECT id FROM users WHERE email = $1', [email.trim().toLowerCase()])).rows[0];
-      if (!u) throw new DomainError('not_found', 'no account with that email has signed in yet');
+      const u = (await q.query('SELECT id FROM users WHERE email = $1 AND email_verified', [email.trim().toLowerCase()])).rows[0];
+      if (!u) throw new DomainError('not_found', 'no account with that confirmed email has signed in yet');
       const ins = await q.query('INSERT INTO memberships (org_id, user_id, role, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [
         orgId,
         u.id,

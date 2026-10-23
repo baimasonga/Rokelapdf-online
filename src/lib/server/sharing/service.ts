@@ -129,6 +129,10 @@ const invalid = (m: string) => new DomainError('invalid_request', m);
 const quota = (what: string) => new DomainError('quota_exceeded', `${what} limit reached for this plan`);
 const unavailable = (state: string) => new DomainError('link_unavailable', 'this link is no longer available', { state });
 
+// Unfinished uploads one upload request may hold at a time: a count, and room for this many full submissions.
+const MAX_PENDING_REQUEST_UPLOADS = 10;
+const PENDING_REQUEST_SUBMISSIONS = 2;
+
 const NOTICES = [
   'View-only access cannot prevent screenshots, photos of the screen or other copying.',
   'Revoking a link stops future access through it; it cannot remove copies already downloaded.',
@@ -1398,15 +1402,19 @@ export class SharingService {
   async #checkPassword(key: string, hash: string | null, supplied: string | undefined, onFail: () => Promise<void>) {
     if (!hash) return;
     const now = this.#now();
-    const a = await this.#d.store.findAttempt(key);
-    if (a?.lockedUntil && a.lockedUntil > now) throw new DomainError('rate_limited', 'too many incorrect passwords; try again later');
-    if (!supplied) throw new DomainError('password_required', 'a password is required');
+    const locked = () => new DomainError('rate_limited', 'too many incorrect passwords; try again later');
+    if (!supplied) {
+      const a = await this.#d.store.findAttempt(key);
+      if (a?.lockedUntil && a.lockedUntil > now) throw locked();
+      throw new DomainError('password_required', 'a password is required');
+    }
+    // Counted before checking, so parallel guesses cannot exceed the limit; a correct password clears the count.
+    if (!(await this.#d.store.reserveAttempt(key, now, this.#c.passwordMaxFailures, this.#c.passwordLockMinutes * 60_000))) throw locked();
     if (supplied.length > 128 || !(await this.#d.passwords.verify(supplied, hash))) {
-      await this.#d.store.recordAttemptFailure(key, now, this.#c.passwordMaxFailures, this.#c.passwordLockMinutes * 60_000);
       await onFail();
       throw new DomainError('password_required', 'incorrect password');
     }
-    if (a) await this.#d.store.clearAttempt(key);
+    await this.#d.store.clearAttempt(key);
   }
 
   async #recordEvent(
@@ -2223,8 +2231,8 @@ export class SharingService {
     const publicHost = new URL(this.#c.publicOrigin).hostname;
     if (h && h !== defaultHost && h !== publicHost) {
       // A verified custom domain has its own namespace; any other host serves the default namespace.
-      const d = await this.#d.store.findUnique('domain', 'hostname', h);
-      if (d?.status === 'verified') domainKey = d.id;
+      const d = await this.#d.store.verifiedDomain(h);
+      if (d) domainKey = d.id;
     }
     const s = await this.#d.store.findUnique('shortLink', 'lookupKey', `p|${domainKey}|${c}`);
     if (!s || s.kind !== 'public') throw notFound();
@@ -2266,8 +2274,8 @@ export class SharingService {
 
   async unlockShortLink(host: string | undefined, code: string, input: { password?: string | undefined; domain?: string | undefined }, ctx: PublicContext) {
     if (input.domain) {
-      const domain = await this.#d.store.findUnique('domain', 'hostname', input.domain.toLowerCase());
-      if (!domain || domain.status !== 'verified') throw notFound();
+      const domain = await this.#d.store.verifiedDomain(input.domain.toLowerCase());
+      if (!domain) throw notFound();
       host = domain.hostname;
     }
     const s = await this.#shortRow(host, code);
@@ -2629,6 +2637,12 @@ export class SharingService {
         if (existing.filter((f) => f.requirementKey === reqm.key).length >= reqm.maxFiles)
           throw new DomainError('conflict', 'enough files were uploaded for this requirement');
         if (existing.reduce((n, f) => n + f.size, 0) + input.size > r.maxTotalBytes) throw quota('submission size');
+        // An unfinished upload reserves its declared size against the workspace's storage until it completes or
+        // expires. Anyone holding the request link can start one, so bound what a request can reserve at once;
+        // otherwise empty uploads could fill the owner's storage. Serialized by the account lock.
+        const pending = await tx.pendingSubmissionUploads(r.orgId, r.id);
+        if (pending.count >= MAX_PENDING_REQUEST_UPLOADS || pending.bytes + input.size > r.maxTotalBytes * PENDING_REQUEST_SUBMISSIONS)
+          throw new DomainError('rate_limited', 'Too many uploads are in progress for this request. Try again in a few minutes.');
         const fileId = newId('sfl');
         blob.targetType = 'submission_file';
         blob.targetId = fileId;
@@ -2849,6 +2863,8 @@ export class SharingService {
     try {
       return await this.#mutate(p, orgId, 'share:manage', async (tx, { now, limits }) => {
         if (!limits.customDomains) throw new DomainError('forbidden', 'custom domains are not included in this plan');
+        const holder = await tx.verifiedDomain(hostname);
+        if (holder && holder.orgId !== orgId) throw new DomainError('conflict', 'this hostname is already verified by another workspace');
         const row = {
           id: newId('dom'),
           orgId,
@@ -2864,7 +2880,7 @@ export class SharingService {
         return this.#domainView(row);
       });
     } catch (e) {
-      if (e instanceof Error && e.message === 'duplicate:domain') throw new DomainError('conflict', 'this hostname is already registered');
+      if (e instanceof Error && e.message === 'duplicate:domain') throw new DomainError('conflict', 'this workspace already added this hostname');
       throw e;
     }
   }
@@ -2888,6 +2904,15 @@ export class SharingService {
         found = false;
       }
     }
+    try {
+      return await this.#verifyDomainRecord(p, orgId, id, found);
+    } catch (e) {
+      if (e instanceof Error && e.message === 'duplicate:domain') throw new DomainError('conflict', 'this hostname is already verified by another workspace');
+      throw e;
+    }
+  }
+
+  #verifyDomainRecord(p: UserPrincipal, orgId: string, id: string, found: boolean) {
     return this.#mutate(p, orgId, 'share:manage', async (tx, { now }) => {
       const cur = await tx.getForUpdate('domain', orgId, id);
       if (!cur) throw notFound();

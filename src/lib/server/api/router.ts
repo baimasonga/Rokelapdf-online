@@ -119,10 +119,16 @@ async function readJson(req: Request): Promise<unknown> {
   }
 }
 
-export function clientIp(req: Request, trustProxy: boolean): string {
-  // Behind Railway's proxy the left-most X-Forwarded-For entry is the client; otherwise do not trust the header.
-  const xff = trustProxy ? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() : undefined;
-  return (xff || req.headers.get('x-real-ip') || 'unknown').slice(0, 64);
+export function clientIp(req: Request, trustedProxies: number): string {
+  // Each trusted proxy appends the address it received the request from, so the client is the entry that many places
+  // from the right. Entries further left were supplied by the client and are never used. Without a trusted proxy no
+  // forwarding header is believed and every caller shares one bucket.
+  if (trustedProxies < 1) return 'unknown';
+  const hops = (req.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return (hops[hops.length - trustedProxies] ?? 'unknown').slice(0, 64);
 }
 
 export function parse<S extends z.ZodTypeAny>(schema: S, data: unknown): z.infer<S> {

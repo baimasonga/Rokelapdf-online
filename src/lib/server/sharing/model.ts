@@ -398,7 +398,6 @@ export const UNIQUE_LOOKUPS = {
   uploadRequest: ['tokenHash'],
   submission: ['secretHash'],
   shortLink: ['lookupKey'],
-  domain: ['hostname'],
   abuse: [],
 } as const satisfies Partial<Record<Kind, readonly string[]>>;
 export type UniqueKind = keyof typeof UNIQUE_LOOKUPS;
@@ -410,10 +409,24 @@ export const UNIQUE_TOGETHER: Partial<Record<Kind, readonly string[][]>> = {
   uploadRequest: [['tokenHash']],
   submission: [['secretHash']],
   shortLink: [['lookupKey']],
-  domain: [['hostname']],
+  domain: [['orgId', 'hostname']],
   version: [['documentId', 'number']],
   review: [['versionId', 'reviewerUserId']],
 };
+
+/**
+ * Uniqueness among the rows matching `when` only (PostgreSQL partial unique indexes). A hostname may be pending in
+ * several workspaces, so nobody can block its owner by claiming it first, but only one workspace can verify it.
+ */
+export const UNIQUE_WHEN: Partial<Record<Kind, ReadonlyArray<{ cols: readonly string[]; when: Readonly<Record<string, unknown>> }>>> = {
+  domain: [{ cols: ['hostname'], when: { status: 'verified' } }],
+};
+
+/** True when two rows of `kind` may not coexist. */
+function collides(kind: Kind, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  if ((UNIQUE_TOGETHER[kind] ?? []).some((cols) => cols.every((c) => a[c] === b[c]))) return true;
+  return (UNIQUE_WHEN[kind] ?? []).some((u) => Object.entries(u.when).every(([k, v]) => a[k] === v && b[k] === v) && u.cols.every((c) => a[c] === b[c]));
+}
 
 export interface ListOptions {
   limit?: number;
@@ -455,6 +468,8 @@ export interface SharingRepo {
   /** As `get`, plus an exclusive row lock until the transaction ends (PostgreSQL). */
   getForUpdate<K extends Kind>(kind: K, orgId: string, id: string): Promise<Rows[K] | undefined>;
   findUnique<K extends UniqueKind>(kind: K, field: UniqueField<K>, value: string): Promise<Rows[K] | undefined>;
+  /** The workspace domain that has verified this hostname, if any (at most one; see UNIQUE_WHEN). */
+  verifiedDomain(hostname: string): Promise<DomainRow | undefined>;
   update<K extends Kind>(kind: K, orgId: string, id: string, patch: Partial<Rows[K]>): Promise<void>;
   /** Deletes one row (only kinds whose policy allows deletion: jobs, domains). */
   remove(kind: 'job' | 'domain', orgId: string, id: string): Promise<void>;
@@ -465,6 +480,8 @@ export interface SharingRepo {
   lockAccount(orgId: string, now: Date): Promise<void>;
   /** Bytes held or reserved by blobs that are not yet deleted. */
   storageBytes(orgId: string): Promise<number>;
+  /** Unfinished submission uploads for one upload request: how many, and the storage they reserve. */
+  pendingSubmissionUploads(orgId: string, requestId: string): Promise<{ count: number; bytes: number }>;
   /** Atomically adds to a monthly usage counter and returns the new total. */
   addUsage(orgId: string, period: string, metric: UsageMetric, amount: number): Promise<number>;
   usage(orgId: string, period: string): Promise<Record<UsageMetric, number>>;
@@ -486,7 +503,12 @@ export interface SharingRepo {
   listStats(orgId: string, subjectType: StatRow['subjectType'], subjectId: string, sinceDay: string): Promise<StatRow[]>;
 
   findAttempt(key: string): Promise<AttemptState | undefined>;
-  recordAttemptFailure(key: string, now: Date, max: number, lockMs: number): Promise<AttemptState>;
+  /**
+   * Atomically counts one password attempt before it is checked, so concurrent guesses cannot all slip in before the
+   * lock. False (and nothing counted) while the key is locked; the attempt that reaches `max` sets the lock, which a
+   * correct password then clears with `clearAttempt`.
+   */
+  reserveAttempt(key: string, now: Date, max: number, lockMs: number): Promise<boolean>;
   clearAttempt(key: string): Promise<void>;
 
   purgeEvents(before: Date, limit: number): Promise<number>;
@@ -541,9 +563,7 @@ class MemoryRepo implements SharingRepo {
     const t = this._tbl(kind);
     const r = row as unknown as Record<string, unknown>;
     if (t.has(r['id'] as string)) throw new Error(`duplicate:${kind}`);
-    for (const cols of UNIQUE_TOGETHER[kind] ?? []) {
-      for (const existing of t.values()) if (cols.every((c) => existing[c] === r[c])) throw new Error(`duplicate:${kind}`);
-    }
+    for (const existing of t.values()) if (collides(kind, existing, r)) throw new Error(`duplicate:${kind}`);
     t.set(r['id'] as string, clone(r));
   }
   async get<K extends Kind>(kind: K, orgId: string, id: string): Promise<Rows[K] | undefined> {
@@ -557,6 +577,10 @@ class MemoryRepo implements SharingRepo {
     for (const r of this._tbl(kind).values()) if (r[field as string] === value) return clone(r) as unknown as Rows[K];
     return undefined;
   }
+  async verifiedDomain(hostname: string) {
+    for (const r of this._tbl('domain').values()) if (r['hostname'] === hostname && r['status'] === 'verified') return clone(r) as unknown as DomainRow;
+    return undefined;
+  }
   async update<K extends Kind>(kind: K, orgId: string, id: string, patch: Partial<Rows[K]>) {
     const r = this._tbl(kind).get(id);
     if (!r || r['orgId'] !== orgId) return;
@@ -566,9 +590,7 @@ class MemoryRepo implements SharingRepo {
       id,
       orgId,
     };
-    for (const cols of UNIQUE_TOGETHER[kind] ?? []) {
-      for (const [otherId, existing] of this._tbl(kind)) if (otherId !== id && cols.every((c) => existing[c] === next[c])) throw new Error(`duplicate:${kind}`);
-    }
+    for (const [otherId, existing] of this._tbl(kind)) if (otherId !== id && collides(kind, existing, next)) throw new Error(`duplicate:${kind}`);
     this._tbl(kind).set(id, next);
   }
   async remove(kind: 'job' | 'domain', orgId: string, id: string) {
@@ -593,6 +615,18 @@ class MemoryRepo implements SharingRepo {
     for (const b of this._tbl('blob').values())
       if (b['orgId'] === orgId && b['status'] !== 'deleted') n += (b['size'] as number | null) ?? (b['declaredSize'] as number);
     return n;
+  }
+  async pendingSubmissionUploads(orgId: string, requestId: string) {
+    let count = 0;
+    let bytes = 0;
+    for (const f of this._tbl('submissionFile').values()) {
+      if (f['orgId'] !== orgId || f['requestId'] !== requestId || f['status'] !== 'current') continue;
+      const b = this._tbl('blob').get(f['blobId'] as string);
+      if (b?.['status'] !== 'uploading') continue;
+      count++;
+      bytes += b['declaredSize'] as number;
+    }
+    return { count, bytes };
   }
   async addUsage(orgId: string, period: string, metric: UsageMetric, amount: number) {
     const k = `${orgId}|${period}|${metric}`;
@@ -689,11 +723,13 @@ class MemoryRepo implements SharingRepo {
     const a = this.s.attempts.get(key);
     return a ? { count: a.count, lockedUntil: a.lockedUntil } : undefined;
   }
-  async recordAttemptFailure(key: string, now: Date, max: number, lockMs: number) {
-    const count = (this.s.attempts.get(key)?.count ?? 0) + 1;
+  async reserveAttempt(key: string, now: Date, max: number, lockMs: number) {
+    const cur = this.s.attempts.get(key);
+    if (cur?.lockedUntil && cur.lockedUntil > now) return false;
+    const count = (cur?.count ?? 0) + 1;
     const lockedUntil = count >= max ? new Date(now.getTime() + lockMs) : null;
     this.s.attempts.set(key, { count, lockedUntil, updatedAt: now });
-    return { count, lockedUntil };
+    return true;
   }
   async clearAttempt(key: string) {
     this.s.attempts.delete(key);

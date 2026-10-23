@@ -88,6 +88,8 @@ export function buildRouter(): Router {
   r.add('GET', '/api/v1/workspaces/:orgId/members', 'user', async (x) => ({ items: await x.c.workspaces.members(me(x), org(x)) }));
   r.add('POST', '/api/v1/workspaces/:orgId/members', 'user', async (x) => {
     const b = parse(memberBody, await x.body());
+    // The answer says whether an email has an account, so bound how fast anyone can probe addresses.
+    if (!(await x.c.rateLimiter.hit(`member-add:${me(x).userId}`, 30, 3600))) throw new DomainError('rate_limited', 'Too many members added. Try again later.');
     return created(await x.c.workspaces.addMember(me(x), org(x), b.email, b.role));
   });
 

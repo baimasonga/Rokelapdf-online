@@ -26,7 +26,7 @@ describe('accounts and workspaces', () => {
   it('team workspaces: owners add members; roles cannot be escalated; personal spaces stay single-user', async () => {
     env = await makeEnv();
     const owner = await env.user('owner@example.test', { verified: true });
-    const member = await env.user('member@example.test');
+    const member = await env.user('member@example.test', { verified: true });
     const outsider = await env.user('outsider@example.test');
     const team = await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'Kamara & Co' } });
     expect(team.status).toBe(201);
@@ -37,6 +37,8 @@ describe('accounts and workspaces', () => {
     expect((await add(member.token, 'outsider@example.test', 'member')).status).toBe(403);
     expect((await add(outsider.token, 'outsider@example.test', 'owner')).status).toBe(404);
     expect((await add(owner.token, 'nobody@example.test', 'member')).status).toBe(404);
+    // Only accounts with a confirmed email can be added.
+    expect((await add(owner.token, 'outsider@example.test', 'member')).status).toBe(404);
     expect(
       (await env.call('POST', `/api/v1/workspaces/${owner.orgId}/members`, { token: owner.token, body: { email: 'member@example.test', role: 'member' } }))
         .status,
@@ -50,6 +52,20 @@ describe('accounts and workspaces', () => {
     expect((await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'x', admin: true } })).status).toBe(400);
     const audit = await env.audit(team.body.id);
     expect(audit.map((e) => e.action)).toEqual(['org.created', 'member.added']);
+  });
+
+  it('a re-created account with a known email is not locked out by the stale mirror row', async () => {
+    env = await makeEnv();
+    const first = await env.user('reuse@example.test', { verified: true });
+    // Supabase deletes the account and the same address signs up again with a new user id.
+    const token = 'test-token-recreated-account-000000';
+    const userId = crypto.randomUUID();
+    env.verifier.users.set(token, { userId, email: 'reuse@example.test', emailVerified: true });
+    const me = await env.call('GET', '/api/v1/me', { token });
+    expect(me.status).toBe(200);
+    expect(me.body.user).toMatchObject({ id: userId, email: 'reuse@example.test' });
+    const old = await env.admin.query('SELECT email, email_verified FROM users WHERE id = $1', [first.userId]);
+    expect(old.rows[0]).toEqual({ email: `released+${first.userId}@invalid`, email_verified: false });
   });
 
   it('operator routes need the operator flag, which only deployment tooling sets', async () => {

@@ -153,6 +153,14 @@ def _kill(proc: subprocess.Popen) -> None:
         pass
 
 
+def _discard(stream, size: int) -> None:
+    while size > 0:
+        chunk = stream.read(min(size, 1024 * 1024))
+        if not chunk:
+            return
+        size -= len(chunk)
+
+
 def make_handler(settings: Settings, slots: threading.BoundedSemaphore):
     class Handler(BaseHTTPRequestHandler):
         server_version = "rokela-converter"
@@ -214,21 +222,23 @@ def make_handler(settings: Settings, slots: threading.BoundedSemaphore):
                 if size_in <= 0 or size_in > settings.max_bytes:
                     status = 413
                     return self._error(413, "too_large", f"Files up to {settings.max_bytes // MB} MB can be converted.")
-                data = self.rfile.read(size_in)
-                if len(data) != size_in:
-                    status = 400
-                    return self._error(400, "invalid_request", "The upload was incomplete.")
-                if not looks_like(ext, data[:1024]):
-                    status = 400
-                    return self._error(400, "unsupported", "The file does not match its type.")
+                # Take a slot before reading the body, so waiting requests never hold their files in memory.
                 if not slots.acquire(timeout=settings.queue_wait):
                     status = 429
+                    _discard(self.rfile, size_in)  # so the client reads the answer instead of a reset connection
                     return self._error(429, "busy", "The converter is busy. Try again in a minute.")
                 try:
+                    data = self.rfile.read(size_in)
+                    if len(data) != size_in:
+                        status = 400
+                        return self._error(400, "invalid_request", "The upload was incomplete.")
+                    if not looks_like(ext, data[:1024]):
+                        status = 400
+                        return self._error(400, "unsupported", "The file does not match its type.")
                     code, result = run_job(settings, target, ext, data, request_id)
+                    del data
                 finally:
                     slots.release()
-                del data
                 if code == 0:
                     status, size_out = 200, len(result)
                     return self._send(200, result, OUTPUT_TYPES[target])  # type: ignore[arg-type]

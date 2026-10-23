@@ -445,6 +445,10 @@ class PgSharingRepo implements SharingRepo {
     return this.#one(kind, `${SELECT[kind]} WHERE ${snake(field as string)} = $1`, [value]);
   }
 
+  verifiedDomain(hostname: string) {
+    return this.#one('domain', `${SELECT.domain} WHERE hostname = $1 AND status = 'verified'`, [hostname]);
+  }
+
   async update<K extends Kind>(kind: K, orgId: string, id: string, patch: Partial<Rows[K]>) {
     const spec = SPECS[kind];
     const fields = fieldsOf(kind, patch).filter((f) => f !== 'id' && f !== 'orgId');
@@ -487,6 +491,16 @@ class PgSharingRepo implements SharingRepo {
       orgId,
     ]);
     return Number(r.rows[0]!.n);
+  }
+
+  async pendingSubmissionUploads(orgId: string, requestId: string) {
+    const r = await this.#db.query(
+      `SELECT count(*) AS n, COALESCE(SUM(b.declared_size), 0) AS bytes
+       FROM upload_submission_files f JOIN share_blobs b ON b.id = f.blob_id AND b.org_id = f.org_id
+       WHERE f.org_id = $1 AND f.request_id = $2 AND f.status = 'current' AND b.status = 'uploading'`,
+      [orgId, requestId],
+    );
+    return { count: Number(r.rows[0]!.n), bytes: Number(r.rows[0]!.bytes) };
   }
 
   async addUsage(orgId: string, period: string, metric: UsageMetric, amount: number) {
@@ -631,19 +645,21 @@ class PgSharingRepo implements SharingRepo {
     return row ? { count: Number(row.count), lockedUntil: row.locked_until as Date | null } : undefined;
   }
 
-  async recordAttemptFailure(key: string, now: Date, max: number, lockMs: number): Promise<AttemptState> {
-    const lock = new Date(now.getTime() + lockMs);
+  async reserveAttempt(key: string, now: Date, max: number, lockMs: number): Promise<boolean> {
+    // One statement: the conflict path locks the row and re-reads it, so concurrent attempts are counted in turn and
+    // none is admitted once another has set the lock (the WHERE leaves a locked row unchanged and returns nothing).
     const r = await this.#db.query(
-      `INSERT INTO share_attempts (key, count, locked_until, updated_at)
+      `INSERT INTO share_attempts AS a (key, count, locked_until, updated_at)
        VALUES ($1, 1, CASE WHEN 1 >= $2 THEN $3::timestamptz END, $4)
        ON CONFLICT (key) DO UPDATE SET
-         count = share_attempts.count + 1,
-         locked_until = CASE WHEN share_attempts.count + 1 >= $2 THEN $3::timestamptz END,
+         count = a.count + 1,
+         locked_until = CASE WHEN a.count + 1 >= $2 THEN $3::timestamptz END,
          updated_at = $4
-       RETURNING count, locked_until`,
-      [key, max, lock, now],
+       WHERE a.locked_until IS NULL OR a.locked_until <= $4
+       RETURNING count`,
+      [key, max, new Date(now.getTime() + lockMs), now],
     );
-    return { count: Number(r.rows[0]!.count), lockedUntil: r.rows[0]!.locked_until as Date | null };
+    return (r.rowCount ?? 0) > 0;
   }
 
   async clearAttempt(key: string) {

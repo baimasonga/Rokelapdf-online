@@ -1056,3 +1056,65 @@ describe('sharing: review, approval and branding', () => {
     ).toBe(409);
   });
 });
+
+describe('sharing: quota and claim abuse', () => {
+  it('a pending claim on a hostname does not block its real owner', async () => {
+    let txt: string[][] = [];
+    env = await sharingEnv({ resolveTxt: async () => txt });
+    const squatter = await env.user('squat@example.test', { verified: true });
+    const owner = await env.user('owner@kamara.example', { verified: true });
+    await env.plan(squatter.orgId, BUSINESS);
+    await env.plan(owner.orgId, BUSINESS);
+    const add = (u: { token: string; orgId: string }) =>
+      env.call('POST', `${sp(u.orgId)}/domains`, { token: u.token, body: { hostname: 'links.kamara.example' } });
+    const squat = await add(squatter);
+    expect(squat.status).toBe(201);
+    const mine = await add(owner);
+    expect(mine.status).toBe(201);
+    expect((await add(owner)).status).toBe(409);
+    txt = [[mine.body.verification.value]];
+    const verify = (u: { token: string; orgId: string }, id: string) => env.call('POST', `${sp(u.orgId)}/domains/${id}/verify`, { token: u.token, body: {} });
+    expect((await verify(owner, mine.body.id)).body.verified).toBe(true);
+    // The squatter's challenge is not in DNS, and even a matching record could not take a verified hostname.
+    expect((await verify(squatter, squat.body.id)).body.verified).toBe(false);
+    txt = [[squat.body.verification.value]];
+    expect((await verify(squatter, squat.body.id)).status).toBe(409);
+    // Once verified, nobody else can start a claim on it.
+    const late = await env.user('late@example.test', { verified: true });
+    await env.plan(late.orgId, BUSINESS);
+    expect((await add(late)).status).toBe(409);
+  });
+
+  it('limits how much storage unfinished anonymous uploads can reserve on one request', async () => {
+    env = await sharingEnv();
+    const owner = await env.user('cap@example.test', { verified: true });
+    await env.plan(owner.orgId, BUSINESS);
+    const P = sp(owner.orgId);
+    const req = await env.call('POST', `${P}/upload-requests`, {
+      token: owner.token,
+      body: {
+        title: 'Receipts',
+        requirements: [{ key: 'doc', label: 'Receipt', accept: ['pdf'], required: true, max_files: 20 }],
+        deadline: new Date(env.clock.now().getTime() + 7 * DAY).toISOString(),
+        max_file_bytes: 1_000_000,
+        max_total_bytes: 3_000_000,
+      },
+    });
+    expect(req.status).toBe(201);
+    const R = `/api/v1/public/upload-requests/${tokenOf(req.body.url)}`;
+    const opened = await env.call('POST', `${R}/open`, { body: {} });
+    const begin = async () => {
+      const secret = (await env.call('POST', `${R}/submissions`, { body: { grant: opened.body.grant, name: 'Anon' } })).body.submission_secret;
+      return env.call('POST', `${R}/uploads`, {
+        headers: { 'x-submission-secret': secret },
+        body: { requirement_key: 'doc', name: 'r.pdf', size: 1_000_000 },
+      });
+    };
+    // Room for two full submissions (6 MB) of declared-but-unsent bytes, then refusals instead of reservations.
+    const codes = [];
+    for (let i = 0; i < 8; i++) codes.push((await begin()).status);
+    expect(codes).toEqual([201, 201, 201, 201, 201, 201, 429, 429]);
+    const reserved = await env.admin.query("SELECT count(*)::int AS n FROM share_blobs WHERE org_id = $1 AND status = 'uploading'", [owner.orgId]);
+    expect(reserved.rows[0].n).toBe(6);
+  });
+});
