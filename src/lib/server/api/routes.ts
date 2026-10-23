@@ -94,6 +94,17 @@ export function buildRouter(): Router {
       throw new DomainError('rate_limited', 'Too many invitations sent. Try again later.');
     return created(await x.c.workspaces.invite(me(x), org(x), b.email, b.role));
   });
+  const memberParams = z.object({ orgId: z.string().regex(/^org_[0-9a-f]{24}$/), userId: z.string().regex(/^[0-9a-f-]{36}$/) }).strict();
+  r.add('PATCH', '/api/v1/workspaces/:orgId/members/:userId', 'user', async (x) => {
+    const p = parse(memberParams, x.params);
+    const b = parse(z.object({ role: z.enum(ROLES) }).strict(), await x.body());
+    return x.c.workspaces.changeRole(me(x), p.orgId, p.userId, b.role);
+  });
+  r.add('POST', '/api/v1/workspaces/:orgId/members/:userId/remove', 'user', async (x) => {
+    const p = parse(memberParams, x.params);
+    parse(s.emptyBody, await x.body());
+    return x.c.workspaces.removeMember(me(x), p.orgId, p.userId);
+  });
   r.add('GET', '/api/v1/workspaces/:orgId/invitations', 'user', async (x) => ({ items: await x.c.workspaces.invitations(me(x), org(x)) }));
   r.add('POST', '/api/v1/workspaces/:orgId/invitations/:id/cancel', 'user', async (x) => {
     const p = parse(s.idParams, x.params);

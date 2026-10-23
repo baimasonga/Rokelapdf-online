@@ -99,6 +99,10 @@ Owners and admins invite people by email; nobody joins a team until they accept,
 with that address confirmed. Invitations expire after 7 days and can be cancelled. The invite
 form answers the same whether or not the address has an account.
 
+Owners and admins change roles and remove members ranked at or below them; only an owner
+changes or removes an owner, and a team always keeps at least one owner. Anyone can leave a
+team. Files and links a removed member created stay in the workspace.
+
 ## Organization SSO: preparation only
 
 SSO remains disabled until an identity provider and a Supabase plan supporting SAML

@@ -112,6 +112,68 @@ describe('accounts and workspaces', () => {
     ]);
   });
 
+  it('managers change roles and remove members within their rank; a team always keeps an owner', async () => {
+    env = await makeEnv();
+    const owner = await env.user('own@example.test', { verified: true });
+    const admin = await env.user('adm@example.test', { verified: true });
+    const member = await env.user('mem@example.test', { verified: true });
+    const team = await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'Team' } });
+    const W = `/api/v1/workspaces/${team.body.id}`;
+    await joinTeam(env, owner.token, team.body.id, admin, 'adm@example.test', 'admin');
+    await joinTeam(env, owner.token, team.body.id, member, 'mem@example.test');
+    const setRole = (token: string, userId: string, role: string) => env.call('PATCH', `${W}/members/${userId}`, { token, body: { role } });
+    const remove = (token: string, userId: string) => env.call('POST', `${W}/members/${userId}/remove`, { token, body: {} });
+    const roles = async () =>
+      Object.fromEntries(
+        (await env.call('GET', `${W}/members`, { token: owner.token })).body.items.map((m: { email: string; role: string }) => [m.email, m.role]),
+      );
+
+    // Members cannot manage anyone; admins cannot touch or create owners.
+    expect((await setRole(member.token, admin.userId, 'member')).status).toBe(403);
+    expect((await remove(member.token, admin.userId)).status).toBe(403);
+    expect((await setRole(admin.token, owner.userId, 'member')).status).toBe(403);
+    expect((await remove(admin.token, owner.userId)).status).toBe(403);
+    expect((await setRole(admin.token, member.userId, 'owner')).status).toBe(403);
+    expect((await setRole(admin.token, member.userId, 'admin')).body).toEqual({ user_id: member.userId, role: 'admin' });
+    expect((await setRole(admin.token, member.userId, 'member')).status).toBe(200);
+    expect((await setRole(owner.token, member.userId, 'superuser')).status).toBe(400);
+    expect((await setRole(owner.token, crypto.randomUUID(), 'member')).status).toBe(404);
+    const stranger = await env.user('stranger@example.test', { verified: true });
+    expect((await setRole(stranger.token, member.userId, 'admin')).status).toBe(404);
+
+    // The last owner can be neither demoted nor removed, and cannot leave; a second owner unlocks it.
+    expect((await setRole(owner.token, owner.userId, 'admin')).status).toBe(409);
+    expect((await remove(owner.token, owner.userId)).status).toBe(409);
+    expect((await setRole(owner.token, admin.userId, 'owner')).status).toBe(200);
+    expect((await setRole(owner.token, owner.userId, 'admin')).status).toBe(200);
+    expect(await roles()).toEqual({ 'own@example.test': 'admin', 'adm@example.test': 'owner', 'mem@example.test': 'member' });
+    // Two owners demoting each other at once still leave one owner.
+    await setRole(admin.token, owner.userId, 'owner');
+    const both = await Promise.all([setRole(owner.token, admin.userId, 'admin'), setRole(admin.token, owner.userId, 'admin')]);
+    // One wins; the other is refused (by then its target is no longer an owner, or is the last one).
+    expect(both.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(both.every((r) => [200, 403, 409].includes(r.status))).toBe(true);
+    expect(Object.values(await roles()).filter((r) => r === 'owner')).toHaveLength(1);
+
+    // Removal takes effect on the very next request; members may also leave by themselves.
+    const owners = Object.entries(await roles()).find(([, r]) => r === 'owner')![0];
+    const top = owners === 'own@example.test' ? owner : admin;
+    expect((await remove(top.token, member.userId)).body).toEqual({ removed: true });
+    expect((await env.call('GET', `${W}/members`, { token: member.token })).status).toBe(404);
+    expect((await env.call('GET', `${W}/members`, { token: owner.token === top.token ? admin.token : owner.token })).status).toBe(200);
+    const other = top === owner ? admin : owner;
+    expect((await remove(other.token, other.userId)).body).toEqual({ removed: true });
+    expect((await env.call('GET', '/api/v1/me', { token: other.token })).body.workspaces.map((w: { kind: string }) => w.kind)).toEqual(['personal']);
+    // Personal workspaces have no members to manage.
+    const personal = `/api/v1/workspaces/${owner.orgId}/members/${owner.userId}`;
+    expect((await env.call('POST', `${personal}/remove`, { token: owner.token, body: {} })).status).toBe(403);
+    expect((await env.call('PATCH', personal, { token: owner.token, body: { role: 'admin' } })).status).toBe(403);
+
+    const audit = (await env.audit(team.body.id)).map((e) => e.action);
+    expect(audit.filter((a) => a === 'member.role_changed')).toHaveLength(6);
+    expect(audit.slice(-2)).toEqual(['member.removed', 'member.left']);
+  });
+
   it('an invitation lapses when its sender can no longer grant the role', async () => {
     env = await makeEnv();
     const owner = await env.user('o@example.test', { verified: true });

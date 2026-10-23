@@ -236,6 +236,75 @@ export class WorkspaceService {
   }
 
   /**
+   * Changes a member's role. Managers act on members ranked at or below them and grant at most their own role; only
+   * an owner changes an owner, and a team always keeps at least one owner.
+   */
+  async changeRole(p: UserPrincipal, orgId: string, userId: string, role: Role): Promise<{ userId: string; role: Role }> {
+    return this.#tx(async (q, audit) => {
+      const { actor, target } = await this.#lockMembers(q, p, orgId, userId);
+      if (!canGrant(actor, target) || !canGrant(actor, role)) throw new DomainError('forbidden', 'cannot change a role above your own');
+      if (target === role) return { userId, role };
+      if (target === 'owner') await this.#keepAnOwner(q, orgId);
+      await q.query('UPDATE memberships SET role = $3 WHERE org_id = $1 AND user_id = $2', [orgId, userId, role]);
+      audit.push({
+        actor: { type: 'user', id: p.userId },
+        action: 'member.role_changed',
+        target: { type: 'user', id: userId },
+        orgId,
+        metadata: { from: target, to: role },
+      });
+      return { userId, role };
+    });
+  }
+
+  /**
+   * Removes a member, or lets a member leave. Same rank rules as `changeRole`; the last owner can do neither. Items
+   * they created stay with the workspace, and invitations they sent stop working (see `respond`).
+   */
+  async removeMember(p: UserPrincipal, orgId: string, userId: string): Promise<{ removed: true }> {
+    return this.#tx(async (q, audit) => {
+      const self = userId === p.userId;
+      const { actor, target } = await this.#lockMembers(q, p, orgId, userId, self);
+      if (!self && !canGrant(actor, target)) throw new DomainError('forbidden', 'cannot remove a member above your own role');
+      if (target === 'owner') await this.#keepAnOwner(q, orgId);
+      await q.query('DELETE FROM memberships WHERE org_id = $1 AND user_id = $2', [orgId, userId]);
+      audit.push({
+        actor: { type: 'user', id: p.userId },
+        action: self ? 'member.left' : 'member.removed',
+        target: { type: 'user', id: userId },
+        orgId,
+        metadata: { role: target },
+      });
+      return { removed: true as const };
+    });
+  }
+
+  /**
+   * Locks the team's memberships (so concurrent changes cannot remove the last owner) and returns the actor's and the
+   * target's roles. Non-members get 404; members without the permission 403 (unless acting on themselves).
+   */
+  async #lockMembers(q: Queryable, p: UserPrincipal, orgId: string, userId: string, self = false): Promise<{ actor: Role; target: Role }> {
+    const rows = (await q.query('SELECT user_id, role FROM memberships WHERE org_id = $1 ORDER BY user_id FOR UPDATE', [orgId])).rows as Array<{
+      user_id: string;
+      role: Role;
+    }>;
+    const actor = rows.find((r) => r.user_id === p.userId)?.role;
+    if (!actor) throw new DomainError('not_found', 'not found');
+    const org = (await q.query('SELECT kind FROM organizations WHERE id = $1', [orgId])).rows[0];
+    if (org?.kind !== 'team') throw new DomainError('forbidden', 'personal workspaces cannot have members');
+    if (!self && !GRANTS[actor].includes('org:manage_members')) throw new DomainError('forbidden', 'insufficient permissions');
+    const target = rows.find((r) => r.user_id === userId)?.role;
+    if (!target) throw new DomainError('not_found', 'not a member of this workspace');
+    return { actor, target };
+  }
+
+  /** Throws unless another owner remains (call with the memberships locked, before demoting or removing an owner). */
+  async #keepAnOwner(q: Queryable, orgId: string) {
+    const owners = Number((await q.query("SELECT count(*) AS n FROM memberships WHERE org_id = $1 AND role = 'owner'", [orgId])).rows[0].n);
+    if (owners < 2) throw new DomainError('conflict', 'A team needs at least one owner. Make someone else an owner first.');
+  }
+
+  /**
    * Invites an address to a team. Nobody joins until they accept, signed in with that address confirmed; the answer
    * is the same whether or not the address has an account. An actor may invite at most their own role.
    */

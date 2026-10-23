@@ -98,7 +98,7 @@ export function WorkspaceApp() {
       </main>
     );
   if (!me || !workspace) return <p className="muted center">Loading…</p>;
-  const ctx = { me: me.user, workspace, P: sharingPath(workspace.id), nav, go };
+  const ctx = { me: me.user, workspace, P: sharingPath(workspace.id), nav, go, refresh: loadMe };
   const View = {
     overview: Overview,
     documents: Documents,
