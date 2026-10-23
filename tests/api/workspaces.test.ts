@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeEnv, type TestEnv } from '../support/env';
+import { FakeMailer, joinTeam, makeEnv, type TestEnv } from '../support/env';
 
 let env: TestEnv;
 afterEach(async () => env?.close());
@@ -23,35 +23,110 @@ describe('accounts and workspaces', () => {
     expect(me.body.user).toMatchObject({ email: 'first@example.test', email_verified: false });
   });
 
-  it('team workspaces: owners add members; roles cannot be escalated; personal spaces stay single-user', async () => {
-    env = await makeEnv();
+  it('team workspaces: members join only by accepting; roles cannot be escalated; personal spaces stay single-user', async () => {
+    const mailer = new FakeMailer();
+    env = await makeEnv({ mailer });
     const owner = await env.user('owner@example.test', { verified: true });
     const member = await env.user('member@example.test', { verified: true });
     const outsider = await env.user('outsider@example.test');
     const team = await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'Kamara & Co' } });
     expect(team.status).toBe(201);
-    const add = (token: string, email: string, role: string) =>
-      env.call('POST', `/api/v1/workspaces/${team.body.id}/members`, { token, body: { email, role } });
-    expect((await add(owner.token, 'member@example.test', 'member')).status).toBe(201);
-    expect((await add(owner.token, 'member@example.test', 'member')).status).toBe(409);
-    expect((await add(member.token, 'outsider@example.test', 'member')).status).toBe(403);
-    expect((await add(outsider.token, 'outsider@example.test', 'owner')).status).toBe(404);
-    expect((await add(owner.token, 'nobody@example.test', 'member')).status).toBe(404);
-    // Only accounts with a confirmed email can be added.
-    expect((await add(owner.token, 'outsider@example.test', 'member')).status).toBe(404);
+    const W = `/api/v1/workspaces/${team.body.id}`;
+    const invite = (token: string, email: string, role: string) => env.call('POST', `${W}/members`, { token, body: { email, role } });
+    const memberEmails = async () =>
+      (await env.call('GET', `${W}/members`, { token: owner.token })).body.items.map((m: { email: string; role: string }) => [m.email, m.role]);
+
+    // An invitation changes nothing until it is accepted, and answers the same with or without an account.
+    const inv = await invite(owner.token, 'Member@Example.test', 'member');
+    expect(inv.status).toBe(201);
+    expect(inv.body).toMatchObject({ email: 'member@example.test', role: 'member', status: 'pending' });
+    expect((await invite(owner.token, 'nobody@example.test', 'member')).status).toBe(201);
+    expect((await invite(owner.token, 'member@example.test', 'member')).status).toBe(409);
+    expect(await memberEmails()).toEqual([['owner@example.test', 'owner']]);
+    expect((await env.call('GET', `${W}/members`, { token: member.token })).status).toBe(404);
+    expect((await env.call('GET', `${W}/invitations`, { token: owner.token })).body.items.map((i: { email: string }) => i.email)).toEqual([
+      'member@example.test',
+      'nobody@example.test',
+    ]);
+
+    // The email goes out from the job worker.
+    await env.c.sharing.processJobs({ limit: 10 });
+    expect(mailer.sent.map((m) => m.to).sort()).toEqual(['member@example.test', 'nobody@example.test']);
+    expect(mailer.sent[0]!.subject).toContain('Kamara & Co');
+    expect(mailer.sent[0]!.html).toContain('Kamara &amp; Co');
+
+    // Only the addressee, signed in with that address confirmed, sees and answers it.
+    const mine = await env.call('GET', '/api/v1/me', { token: member.token });
+    expect(mine.body.invitations).toEqual([
+      expect.objectContaining({ id: inv.body.id, workspace_name: 'Kamara & Co', invited_by: 'owner@example.test', role: 'member' }),
+    ]);
+    expect((await env.call('GET', '/api/v1/me', { token: outsider.token })).body.invitations).toEqual([]);
+    expect((await env.call('POST', `/api/v1/invitations/${inv.body.id}/accept`, { token: outsider.token, body: {} })).status).toBe(403);
+    expect((await env.call('POST', `/api/v1/invitations/${inv.body.id}/accept`, { token: owner.token, body: {} })).status).toBe(404);
+    env.clock.advance(1000);
+    const accepted = await env.call('POST', `/api/v1/invitations/${inv.body.id}/accept`, { token: member.token, body: {} });
+    expect(accepted.body.workspace).toEqual({ id: team.body.id, name: 'Kamara & Co', kind: 'team', role: 'member' });
+    expect((await env.call('POST', `/api/v1/invitations/${inv.body.id}/accept`, { token: member.token, body: {} })).status).toBe(404);
+    expect(await memberEmails()).toEqual([
+      ['owner@example.test', 'owner'],
+      ['member@example.test', 'member'],
+    ]);
+    expect((await invite(owner.token, 'member@example.test', 'member')).status).toBe(409);
+
+    // Roles: members cannot invite, nobody grants above their own role, and non-members get 404.
+    expect((await invite(member.token, 'outsider@example.test', 'member')).status).toBe(403);
+    expect((await invite(outsider.token, 'outsider@example.test', 'owner')).status).toBe(404);
     expect(
       (await env.call('POST', `/api/v1/workspaces/${owner.orgId}/members`, { token: owner.token, body: { email: 'member@example.test', role: 'member' } }))
         .status,
     ).toBe(403);
-    const members = await env.call('GET', `/api/v1/workspaces/${team.body.id}/members`, { token: member.token });
-    expect(members.body.items.map((m: { email: string; role: string }) => [m.email, m.role])).toEqual([
-      ['owner@example.test', 'owner'],
-      ['member@example.test', 'member'],
+
+    // Declining, cancelling and expiry all end an invitation.
+    const declineMe = await env.user('decline@example.test', { verified: true });
+    const d = await invite(owner.token, 'decline@example.test', 'admin');
+    expect((await env.call('POST', `/api/v1/invitations/${d.body.id}/decline`, { token: declineMe.token, body: {} })).body).toEqual({ declined: true });
+    expect((await env.call('POST', `/api/v1/invitations/${d.body.id}/accept`, { token: declineMe.token, body: {} })).status).toBe(404);
+    const nobody = (await env.call('GET', `${W}/invitations`, { token: owner.token })).body.items.find(
+      (i: { email: string }) => i.email === 'nobody@example.test',
+    );
+    expect((await env.call('POST', `${W}/invitations/${nobody.id}/cancel`, { token: member.token, body: {} })).status).toBe(403);
+    expect((await env.call('POST', `${W}/invitations/${nobody.id}/cancel`, { token: owner.token, body: {} })).body).toEqual({ cancelled: true });
+    const later = await invite(owner.token, 'later@example.test', 'member');
+    env.clock.advance(8 * 86_400_000);
+    const lateUser = await env.user('later@example.test', { verified: true });
+    expect((await env.call('GET', '/api/v1/me', { token: lateUser.token })).body.invitations).toEqual([]);
+    expect((await env.call('POST', `/api/v1/invitations/${later.body.id}/accept`, { token: lateUser.token, body: {} })).status).toBe(404);
+    expect((await invite(owner.token, 'later@example.test', 'member')).status).toBe(201);
+
+    const audit = (await env.audit(team.body.id)).map((e) => e.action);
+    expect(audit).toEqual([
+      'org.created',
+      'member.invited',
+      'member.invited',
+      'member.added',
+      'member.invited',
+      'member.invitation_declined',
+      'member.invitation_cancelled',
+      'member.invited',
+      'member.invited',
     ]);
-    expect((await env.call('GET', `/api/v1/workspaces/${team.body.id}/members`, { token: outsider.token })).status).toBe(404);
-    expect((await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'x', admin: true } })).status).toBe(400);
-    const audit = await env.audit(team.body.id);
-    expect(audit.map((e) => e.action)).toEqual(['org.created', 'member.added']);
+  });
+
+  it('an invitation lapses when its sender can no longer grant the role', async () => {
+    env = await makeEnv();
+    const owner = await env.user('o@example.test', { verified: true });
+    const admin = await env.user('admin@example.test', { verified: true });
+    const guest = await env.user('guest@example.test', { verified: true });
+    const team = await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'Team' } });
+    await joinTeam(env, owner.token, team.body.id, admin, 'admin@example.test', 'admin');
+    const inv = await env.call('POST', `/api/v1/workspaces/${team.body.id}/members`, {
+      token: admin.token,
+      body: { email: 'guest@example.test', role: 'admin' },
+    });
+    expect(inv.status).toBe(201);
+    await env.admin.query("UPDATE memberships SET role = 'member' WHERE user_id = $1", [admin.userId]);
+    expect((await env.call('POST', `/api/v1/invitations/${inv.body.id}/accept`, { token: guest.token, body: {} })).status).toBe(404);
+    expect((await env.call('GET', `/api/v1/workspaces/${team.body.id}/members`, { token: guest.token })).status).toBe(404);
   });
 
   it('a re-created account with a known email is not locked out by the stale mirror row', async () => {

@@ -299,7 +299,7 @@ export interface NotificationRow {
 export interface JobRow {
   id: string;
   orgId: string;
-  kind: 'scan' | 'delete_blob' | 'notify_email' | 'share_email';
+  kind: 'scan' | 'delete_blob' | 'notify_email' | 'share_email' | 'member_invite';
   subjectId: string;
   payload: Record<string, string>;
   runAfter: Date;
@@ -319,6 +319,8 @@ export interface DomainRow {
   createdAt: Date;
   verifiedAt: Date | null;
   checkedAt: Date | null;
+  /** First daily re-check that found the TXT record gone (verified domains only); cleared when it is back. */
+  missingSince: Date | null;
 }
 
 export interface BrandRow {
@@ -496,6 +498,8 @@ export interface SharingRepo {
   dueTransfers(now: Date, limit: number): Promise<TransferRow[]>;
   dueUploadRequests(now: Date, limit: number): Promise<UploadRequestRow[]>;
   staleUploads(now: Date, limit: number): Promise<BlobRow[]>;
+  /** Verified domains last checked before `checkedBefore` (or never), oldest first. */
+  domainsDueForCheck(checkedBefore: Date, limit: number): Promise<DomainRow[]>;
   listAbuse(status: AbuseRow['status'] | undefined, limit: number): Promise<AbuseRow[]>;
   getAbuseForUpdate(id: string): Promise<AbuseRow | undefined>;
 
@@ -682,6 +686,13 @@ class MemoryRepo implements SharingRepo {
       )
       .slice(0, limit)
       .map((t) => clone(t) as unknown as TransferRow);
+  }
+  async domainsDueForCheck(checkedBefore: Date, limit: number) {
+    return [...this._tbl('domain').values()]
+      .filter((d) => d['status'] === 'verified' && (!d['checkedAt'] || (d['checkedAt'] as Date) < checkedBefore))
+      .sort((a, b) => +((a['checkedAt'] as Date | null) ?? 0) - +((b['checkedAt'] as Date | null) ?? 0))
+      .slice(0, limit)
+      .map((d) => clone(d) as unknown as DomainRow);
   }
   async dueUploadRequests(now: Date, limit: number) {
     return [...this._tbl('uploadRequest').values()]

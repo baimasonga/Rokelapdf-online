@@ -61,6 +61,7 @@ export function buildRouter(): Router {
   r.add('GET', '/api/v1/me', 'user', async (x) => ({
     user: { id: me(x).userId, email: me(x).email, emailVerified: me(x).emailVerified, isOperator: await x.c.workspaces.isOperator(me(x).userId) },
     workspaces: await x.c.workspaces.list(me(x)),
+    invitations: await x.c.workspaces.myInvitations(me(x)),
   }));
   r.add('GET', '/api/v1/workspaces/:orgId/subscription', 'user', async (x) => x.c.workspaces.subscription(me(x), org(x)));
   r.add('GET', '/api/v1/workspaces/:orgId/audit', 'user', async (x) => {
@@ -88,9 +89,25 @@ export function buildRouter(): Router {
   r.add('GET', '/api/v1/workspaces/:orgId/members', 'user', async (x) => ({ items: await x.c.workspaces.members(me(x), org(x)) }));
   r.add('POST', '/api/v1/workspaces/:orgId/members', 'user', async (x) => {
     const b = parse(memberBody, await x.body());
-    // The answer says whether an email has an account, so bound how fast anyone can probe addresses.
-    if (!(await x.c.rateLimiter.hit(`member-add:${me(x).userId}`, 30, 3600))) throw new DomainError('rate_limited', 'Too many members added. Try again later.');
-    return created(await x.c.workspaces.addMember(me(x), org(x), b.email, b.role));
+    // Each invitation sends an email, so bound how many one person can send.
+    if (!(await x.c.rateLimiter.hit(`member-invite:${me(x).userId}`, 30, 3600)))
+      throw new DomainError('rate_limited', 'Too many invitations sent. Try again later.');
+    return created(await x.c.workspaces.invite(me(x), org(x), b.email, b.role));
+  });
+  r.add('GET', '/api/v1/workspaces/:orgId/invitations', 'user', async (x) => ({ items: await x.c.workspaces.invitations(me(x), org(x)) }));
+  r.add('POST', '/api/v1/workspaces/:orgId/invitations/:id/cancel', 'user', async (x) => {
+    const p = parse(s.idParams, x.params);
+    parse(s.emptyBody, await x.body());
+    return x.c.workspaces.cancelInvitation(me(x), p.orgId, p.id);
+  });
+  const invitationId = (x: Ctx) => parse(z.object({ id: z.string().regex(/^inv_[0-9a-f]{24}$/) }).strict(), x.params).id;
+  r.add('POST', '/api/v1/invitations/:id/accept', 'user', async (x) => {
+    parse(s.emptyBody, await x.body());
+    return x.c.workspaces.respond(me(x), invitationId(x), true);
+  });
+  r.add('POST', '/api/v1/invitations/:id/decline', 'user', async (x) => {
+    parse(s.emptyBody, await x.body());
+    return x.c.workspaces.respond(me(x), invitationId(x), false);
   });
 
   // ---- Office conversions (forwarded to the private converter; nothing is stored) ----------------------

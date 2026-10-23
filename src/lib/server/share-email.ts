@@ -36,3 +36,21 @@ ${input.password ? `<p style="font-size:14px;line-height:22px;color:#53647c">Thi
 <tr><td style="padding:20px 28px;border-top:1px solid #dce4ef;font-size:12px;line-height:19px;color:#53647c">You received this because ${e(input.from)} ${request ? 'requested files using your address' : 'shared files with your address'}. If unexpected, ignore this email or <a href="${e(input.origin)}/report" style="color:#173f78">report it</a>.<br><br>${e(COMPANY.copyright)}<br>${e(COMPANY.location)} · <a href="mailto:${e(COMPANY.email)}" style="color:#173f78">${e(COMPANY.email)}</a><br><a href="${e(input.origin)}/privacy" style="color:#173f78">Privacy</a> · <a href="${e(input.origin)}/terms" style="color:#173f78">Terms</a></td></tr>
 </table></td></tr></table></body></html>`;
 }
+
+/** Team invitation email, in the same layout as share emails. All user content is escaped. */
+export function inviteEmailHtml(input: { from: string; workspace: string; role: string; url: string; origin: string; expiresAt: Date }) {
+  const e = escape;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>You are invited to a team</title></head>
+<body style="margin:0;padding:0;background:#f3f6fb;color:#10213b;font-family:Arial,Helvetica,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 12px">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;background:#ffffff;border:1px solid #dce4ef;border-radius:16px">
+<tr><td style="padding:28px 28px 24px;background:#082451;border-radius:16px 16px 0 0"><a href="${e(input.origin)}" style="color:#ffffff;text-decoration:none;font-size:24px;font-weight:bold">Rokela <span style="color:#ff655b">PDF</span></a></td></tr>
+<tr><td style="padding:28px">
+<h1 style="margin:0 0 16px;font-size:26px;line-height:34px">You are invited to a team</h1>
+<p style="margin:0 0 24px;font-size:15px;line-height:24px;color:#53647c">${e(input.from)} invited you to join <strong style="color:#10213b">${e(input.workspace)}</strong> as ${e(input.role)}.</p>
+<table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#173f78" style="border-radius:8px"><a href="${e(input.url)}" style="display:inline-block;padding:16px 26px;border:1px solid #173f78;border-radius:8px;color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none">Sign in to answer</a></td></tr></table>
+<p style="margin:20px 0 0;font-size:14px;line-height:22px;color:#53647c">Sign in with this email address, or create a free account with it. You are not added to anything unless you accept. The invitation expires ${e(input.expiresAt.toUTCString())}.</p>
+</td></tr>
+<tr><td style="padding:20px 28px;border-top:1px solid #dce4ef;font-size:12px;line-height:19px;color:#53647c">If unexpected, ignore this email or <a href="${e(input.origin)}/report" style="color:#173f78">report it</a>.<br><br>${e(COMPANY.copyright)}<br>${e(COMPANY.location)} · <a href="mailto:${e(COMPANY.email)}" style="color:#173f78">${e(COMPANY.email)}</a></td></tr>
+</table></td></tr></table></body></html>`;
+}

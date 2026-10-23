@@ -113,6 +113,7 @@ export function sharingStoreContract(name: string, make: () => SharingHarness | 
         createdAt: T0,
         verifiedAt: null,
         checkedAt: null,
+        missingSince: null,
       });
       const domain = (id: string, org: string) => ({
         id,
@@ -123,6 +124,7 @@ export function sharingStoreContract(name: string, make: () => SharingHarness | 
         createdAt: T0,
         verifiedAt: null,
         checkedAt: null,
+        missingSince: null,
       });
       // Another workspace may add the same hostname while it is pending (no first-come squatting)…
       await h.store.insert('domain', domain('dom_b1', other.orgId));

@@ -65,6 +65,7 @@ export const TABLE_PRIVILEGES: Record<string, Priv[]> = {
   users: RIU,
   organizations: RI,
   memberships: RIU,
+  member_invitations: RIU,
   org_plans: R, // operators change plans through tooling with the owner connection
   audit_events: RI, // append-only
   rate_limits: ALL,

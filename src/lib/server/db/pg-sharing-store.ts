@@ -5,6 +5,7 @@ import {
   type AbuseRow,
   type AttemptState,
   type BlobRow,
+  type DomainRow,
   type JobRow,
   type Kind,
   type ListOptions,
@@ -361,6 +362,7 @@ const SPECS: Record<Kind, TableSpec> = {
       createdAt: 'd',
       verifiedAt: 'd',
       checkedAt: 'd',
+      missingSince: 'd',
     },
   },
   brand: {
@@ -589,6 +591,14 @@ class PgSharingRepo implements SharingRepo {
   async dueUploadRequests(now: Date, limit: number): Promise<UploadRequestRow[]> {
     const r = await this.#db.query(`${SELECT.uploadRequest} WHERE status <> 'purged' AND delete_after <= $1 ORDER BY delete_after, id LIMIT $2`, [now, limit]);
     return r.rows.map((x) => fromRow('uploadRequest', x));
+  }
+
+  async domainsDueForCheck(checkedBefore: Date, limit: number): Promise<DomainRow[]> {
+    const r = await this.#db.query(
+      `${SELECT.domain} WHERE status = 'verified' AND (checked_at IS NULL OR checked_at < $1) ORDER BY checked_at NULLS FIRST, id LIMIT $2`,
+      [checkedBefore, limit],
+    );
+    return r.rows.map((x) => fromRow('domain', x));
   }
 
   async staleUploads(now: Date, limit: number): Promise<BlobRow[]> {

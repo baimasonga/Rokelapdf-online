@@ -18,6 +18,7 @@ import { SignatureRequests } from './signatures';
 import { Requests } from './requests';
 import { Notifications } from './notifications';
 import { Members } from './members';
+import { ReceivedInvitations, type ReceivedInvitation } from './invitations';
 import { WorkspaceSettings } from './settings';
 import { WorkspaceActivity } from './activity';
 import { MonitoringStatus } from './monitoring';
@@ -45,7 +46,11 @@ export function WorkspaceApp() {
   const { ready, session } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
-  const [me, setMe] = useState<{ user: { id: string; email: string; email_verified: boolean; is_operator?: boolean }; workspaces: Workspace[] }>();
+  const [me, setMe] = useState<{
+    user: { id: string; email: string; email_verified: boolean; is_operator?: boolean };
+    workspaces: Workspace[];
+    invitations: ReceivedInvitation[];
+  }>();
   const [error, setError] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [linkTarget, setLinkTarget] = useState<LinkTarget>();
@@ -215,6 +220,13 @@ export function WorkspaceApp() {
             </div>
           </div>
           {!me.user.email_verified && <div className="notice-bar">Confirm your email address to share with named recipients and use all sharing options.</div>}
+          <ReceivedInvitations
+            items={me.invitations ?? []}
+            onAnswered={async (joined) => {
+              await loadMe();
+              if (joined) router.push(`/app?ws=${encodeURIComponent(joined)}`);
+            }}
+          />
           <View key={`${workspace.id}:${nav.tab}:${nav.id ?? ''}`} />
           <LegalFooter />
         </main>

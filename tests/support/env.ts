@@ -217,3 +217,11 @@ export async function makeEnv(
   };
   return env;
 }
+
+/** Invites `email` to a team and accepts as `invitee` (a signed-in user with that address confirmed). */
+export async function joinTeam(env: TestEnv, ownerToken: string, orgId: string, invitee: { token: string }, email: string, role = 'member') {
+  const inv = await env.call('POST', `/api/v1/workspaces/${orgId}/members`, { token: ownerToken, body: { email, role } });
+  expect(inv.status).toBe(201);
+  const ok = await env.call('POST', `/api/v1/invitations/${inv.body.id}/accept`, { token: invitee.token, body: {} });
+  expect(ok.status).toBe(200);
+}
