@@ -135,6 +135,8 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     entitlements: (orgId) => workspaces.entitlements(orgId),
     passwords: { hash: hashPassword, verify: verifyPassword },
     resolveTxt: o.resolveTxt ?? ((n) => resolveTxt(n)),
+    invitation: (id) => workspaces.invitationMail(id),
+    managers: (orgId) => workspaces.managers(orgId),
     ...(mailer ? { mailer } : {}),
   });
   const rateLimiter = new RateLimiter(pool, clock);

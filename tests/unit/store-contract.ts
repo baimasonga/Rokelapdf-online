@@ -113,19 +113,27 @@ export function sharingStoreContract(name: string, make: () => SharingHarness | 
         createdAt: T0,
         verifiedAt: null,
         checkedAt: null,
+        missingSince: null,
       });
-      await expect(
-        h.store.insert('domain', {
-          id: 'dom_b1',
-          orgId: other.orgId,
-          hostname: 'go.example.com',
-          verificationToken: f.hex(32),
-          status: 'pending',
-          createdAt: T0,
-          verifiedAt: null,
-          checkedAt: null,
-        }),
-      ).rejects.toThrow('duplicate:domain');
+      const domain = (id: string, org: string) => ({
+        id,
+        orgId: org,
+        hostname: 'go.example.com',
+        verificationToken: f.hex(32),
+        status: 'pending' as const,
+        createdAt: T0,
+        verifiedAt: null,
+        checkedAt: null,
+        missingSince: null,
+      });
+      // Another workspace may add the same hostname while it is pending (no first-come squatting)…
+      await h.store.insert('domain', domain('dom_b1', other.orgId));
+      // …but one workspace cannot add it twice, and only one workspace can hold it verified.
+      await expect(h.store.insert('domain', domain('dom_a2', orgId))).rejects.toThrow('duplicate:domain');
+      expect(await h.store.verifiedDomain('go.example.com')).toBeUndefined();
+      await h.store.update('domain', other.orgId, 'dom_b1', { status: 'verified', verifiedAt: T0 });
+      await expect(h.store.update('domain', orgId, 'dom_a1', { status: 'verified', verifiedAt: T0 })).rejects.toThrow('duplicate:domain');
+      expect((await h.store.verifiedDomain('go.example.com'))?.id).toBe('dom_b1');
     });
 
     it('counts storage for every blob that is not deleted (declared size until completion)', async () => {
@@ -299,13 +307,18 @@ export function sharingStoreContract(name: string, make: () => SharingHarness | 
       expect(await h.store.listStats(orgId, 'short', 'sln_1', '2000-01-01')).toHaveLength(2);
     });
 
-    it('counts password failures atomically with lockout, clears and purges them', async () => {
+    it('reserves password attempts atomically with lockout, clears and purges them', async () => {
       const h = await make();
-      await Promise.all(Array.from({ length: 5 }, () => h.store.recordAttemptFailure('share:x', T0, 5, 60_000)));
+      // Twenty parallel attempts: exactly five are admitted, the fifth sets the lock and the rest are refused.
+      const admitted = await Promise.all(Array.from({ length: 20 }, () => h.store.reserveAttempt('share:x', T0, 5, 60_000)));
+      expect(admitted.filter(Boolean)).toHaveLength(5);
       expect(await h.store.findAttempt('share:x')).toEqual({ count: 5, lockedUntil: at(60_000) });
+      // After the lock ends one more attempt is admitted, and it locks again.
+      expect(await h.store.reserveAttempt('share:x', at(60_000), 5, 60_000)).toBe(true);
+      expect(await h.store.reserveAttempt('share:x', at(60_001), 5, 60_000)).toBe(false);
       await h.store.clearAttempt('share:x');
       expect(await h.store.findAttempt('share:x')).toBeUndefined();
-      await h.store.recordAttemptFailure('share:y', T0, 5, 60_000);
+      await h.store.reserveAttempt('share:y', T0, 5, 60_000);
       expect(await h.store.purgeAttempts(at(1), 100)).toBe(1);
     });
 

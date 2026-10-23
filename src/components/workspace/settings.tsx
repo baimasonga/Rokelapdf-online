@@ -1,6 +1,7 @@
 'use client';
 import { Badge, Button, CopyField, Empty, Form, Muted, Panel, Table, useNotice } from '@/components/ui';
 import { api, enc } from '@/lib/client/api';
+import { when } from '@/lib/client/format';
 import { useLoad, useWs } from './context';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -94,6 +95,11 @@ export function WorkspaceSettings() {
             <section key={d.id} className="panel">
               <h3>{d.hostname}</h3>
               <Badge state={d.status} />
+              {d.missing_since && (
+                <div className="notice-bar">
+                  The TXT verification record is missing. Restore it before {when(d.lapses_at)}, or short links on this domain will stop working.
+                </div>
+              )}
               <CopyField label="TXT record name" value={d.verification.name} />
               <CopyField label="TXT record value" value={d.verification.value} />
               <p className="muted">{d.routing}</p>

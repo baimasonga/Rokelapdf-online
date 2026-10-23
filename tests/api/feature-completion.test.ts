@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { FakeMailer } from '../support/env';
+import { FakeMailer, joinTeam } from '../support/env';
 import { BUSINESS, DAY, UA, pdf, sharingEnv, sp, tokenOf, upload, type SharingEnv } from './support';
 let env: SharingEnv;
 afterEach(async () => env?.close());
@@ -30,9 +30,9 @@ describe('workspace activity and exports', () => {
   it('does not expose audit data to ordinary team members', async () => {
     env = await sharingEnv();
     const a = await env.user('a@example.test');
-    const b = await env.user('b@example.test');
+    const b = await env.user('b@example.test', { verified: true });
     const team = await env.call('POST', '/api/v1/workspaces', { token: a.token, body: { name: 'Team' } });
-    await env.call('POST', `/api/v1/workspaces/${team.body.id}/members`, { token: a.token, body: { email: 'b@example.test', role: 'member' } });
+    await joinTeam(env, a.token, team.body.id, b, 'b@example.test');
     expect((await env.call('GET', `/api/v1/workspaces/${team.body.id}/audit`, { token: b.token })).status).toBe(403);
     expect((await env.call('GET', `/api/v1/workspaces/${team.body.id}/export`, { token: b.token })).status).toBe(403);
   });

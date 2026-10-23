@@ -1,5 +1,5 @@
 import type { Mailer } from '../mail';
-import { shareEmailHtml } from '../share-email';
+import { inviteEmailHtml, shareEmailHtml } from '../share-email';
 import { randomBytes } from 'node:crypto';
 import { newId } from '../kernel';
 import { DomainError, type Clock, type UserPrincipal } from '../kernel';
@@ -8,6 +8,7 @@ import type {
   BlobRow,
   DestinationType,
   DocumentRow,
+  DomainRow,
   EventKind,
   EventRow,
   JobRow,
@@ -75,6 +76,9 @@ export interface SharingConfig {
   scanMaxAttempts: number;
   jobLeaseSeconds: number;
   partBytes: number;
+  /** How often verified custom domains are re-checked, and how long a missing record is tolerated. */
+  domainRecheckHours: number;
+  domainGraceDays: number;
 }
 
 export const DEFAULT_SHARING_CONFIG: Omit<SharingConfig, 'publicOrigin' | 'shortOrigin'> = {
@@ -91,6 +95,8 @@ export const DEFAULT_SHARING_CONFIG: Omit<SharingConfig, 'publicOrigin' | 'short
   scanMaxAttempts: 6,
   jobLeaseSeconds: 300,
   partBytes: 8 * 1024 * 1024,
+  domainRecheckHours: 24,
+  domainGraceDays: 14,
 };
 
 export interface SharingDeps {
@@ -115,6 +121,10 @@ export interface SharingDeps {
   mailer?: Mailer;
   /** DNS TXT lookup for custom-domain verification. DNS only: the platform never fetches tenant URLs. */
   resolveTxt?: (name: string) => Promise<string[][]>;
+  /** Users allowed to manage a workspace's sharing settings (owners and admins), for domain warnings. */
+  managers?: (orgId: string) => Promise<string[]>;
+  /** A pending team invitation, for its email (undefined once answered, cancelled or expired). */
+  invitation?: (id: string) => Promise<{ email: string; workspaceName: string; invitedBy: string; role: string; expiresAt: Date } | undefined>;
 }
 
 /** Request facts for public endpoints. Only coarse, non-identifying attributes are ever stored. */
@@ -128,6 +138,10 @@ const notFound = () => new DomainError('not_found', 'not found');
 const invalid = (m: string) => new DomainError('invalid_request', m);
 const quota = (what: string) => new DomainError('quota_exceeded', `${what} limit reached for this plan`);
 const unavailable = (state: string) => new DomainError('link_unavailable', 'this link is no longer available', { state });
+
+// Unfinished uploads one upload request may hold at a time: a count, and room for this many full submissions.
+const MAX_PENDING_REQUEST_UPLOADS = 10;
+const PENDING_REQUEST_SUBMISSIONS = 2;
 
 const NOTICES = [
   'View-only access cannot prevent screenshots, photos of the screen or other copying.',
@@ -1398,15 +1412,19 @@ export class SharingService {
   async #checkPassword(key: string, hash: string | null, supplied: string | undefined, onFail: () => Promise<void>) {
     if (!hash) return;
     const now = this.#now();
-    const a = await this.#d.store.findAttempt(key);
-    if (a?.lockedUntil && a.lockedUntil > now) throw new DomainError('rate_limited', 'too many incorrect passwords; try again later');
-    if (!supplied) throw new DomainError('password_required', 'a password is required');
+    const locked = () => new DomainError('rate_limited', 'too many incorrect passwords; try again later');
+    if (!supplied) {
+      const a = await this.#d.store.findAttempt(key);
+      if (a?.lockedUntil && a.lockedUntil > now) throw locked();
+      throw new DomainError('password_required', 'a password is required');
+    }
+    // Counted before checking, so parallel guesses cannot exceed the limit; a correct password clears the count.
+    if (!(await this.#d.store.reserveAttempt(key, now, this.#c.passwordMaxFailures, this.#c.passwordLockMinutes * 60_000))) throw locked();
     if (supplied.length > 128 || !(await this.#d.passwords.verify(supplied, hash))) {
-      await this.#d.store.recordAttemptFailure(key, now, this.#c.passwordMaxFailures, this.#c.passwordLockMinutes * 60_000);
       await onFail();
       throw new DomainError('password_required', 'incorrect password');
     }
-    if (a) await this.#d.store.clearAttempt(key);
+    await this.#d.store.clearAttempt(key);
   }
 
   async #recordEvent(
@@ -2223,8 +2241,8 @@ export class SharingService {
     const publicHost = new URL(this.#c.publicOrigin).hostname;
     if (h && h !== defaultHost && h !== publicHost) {
       // A verified custom domain has its own namespace; any other host serves the default namespace.
-      const d = await this.#d.store.findUnique('domain', 'hostname', h);
-      if (d?.status === 'verified') domainKey = d.id;
+      const d = await this.#d.store.verifiedDomain(h);
+      if (d) domainKey = d.id;
     }
     const s = await this.#d.store.findUnique('shortLink', 'lookupKey', `p|${domainKey}|${c}`);
     if (!s || s.kind !== 'public') throw notFound();
@@ -2266,8 +2284,8 @@ export class SharingService {
 
   async unlockShortLink(host: string | undefined, code: string, input: { password?: string | undefined; domain?: string | undefined }, ctx: PublicContext) {
     if (input.domain) {
-      const domain = await this.#d.store.findUnique('domain', 'hostname', input.domain.toLowerCase());
-      if (!domain || domain.status !== 'verified') throw notFound();
+      const domain = await this.#d.store.verifiedDomain(input.domain.toLowerCase());
+      if (!domain) throw notFound();
       host = domain.hostname;
     }
     const s = await this.#shortRow(host, code);
@@ -2629,6 +2647,12 @@ export class SharingService {
         if (existing.filter((f) => f.requirementKey === reqm.key).length >= reqm.maxFiles)
           throw new DomainError('conflict', 'enough files were uploaded for this requirement');
         if (existing.reduce((n, f) => n + f.size, 0) + input.size > r.maxTotalBytes) throw quota('submission size');
+        // An unfinished upload reserves its declared size against the workspace's storage until it completes or
+        // expires. Anyone holding the request link can start one, so bound what a request can reserve at once;
+        // otherwise empty uploads could fill the owner's storage. Serialized by the account lock.
+        const pending = await tx.pendingSubmissionUploads(r.orgId, r.id);
+        if (pending.count >= MAX_PENDING_REQUEST_UPLOADS || pending.bytes + input.size > r.maxTotalBytes * PENDING_REQUEST_SUBMISSIONS)
+          throw new DomainError('rate_limited', 'Too many uploads are in progress for this request. Try again in a few minutes.');
         const fileId = newId('sfl');
         blob.targetType = 'submission_file';
         blob.targetId = fileId;
@@ -2824,8 +2848,10 @@ export class SharingService {
     verificationToken: string;
     verifiedAt: Date | null;
     checkedAt: Date | null;
+    missingSince?: Date | null;
     createdAt: Date;
   }) {
+    const missingSince = d.missingSince ?? null;
     return {
       id: d.id,
       hostname: d.hostname,
@@ -2837,8 +2863,12 @@ export class SharingService {
       },
       verifiedAt: d.verifiedAt,
       checkedAt: d.checkedAt,
+      missingSince,
+      /** When a still-missing record makes the domain stop working. */
+      lapsesAt: missingSince ? new Date(missingSince.getTime() + this.#c.domainGraceDays * 86_400_000) : null,
       createdAt: d.createdAt,
-      routing: 'After verification, point a CNAME for the hostname at the platform short-link host; the operator provisions TLS for it at the edge.',
+      routing:
+        'After verification, point a CNAME for the hostname at the platform short-link host; the operator provisions TLS for it at the edge. Keep the TXT record in place: ownership is re-checked daily.',
     };
   }
 
@@ -2849,6 +2879,8 @@ export class SharingService {
     try {
       return await this.#mutate(p, orgId, 'share:manage', async (tx, { now, limits }) => {
         if (!limits.customDomains) throw new DomainError('forbidden', 'custom domains are not included in this plan');
+        const holder = await tx.verifiedDomain(hostname);
+        if (holder && holder.orgId !== orgId) throw new DomainError('conflict', 'this hostname is already verified by another workspace');
         const row = {
           id: newId('dom'),
           orgId,
@@ -2858,13 +2890,14 @@ export class SharingService {
           createdAt: now,
           verifiedAt: null,
           checkedAt: null,
+          missingSince: null,
         };
         await tx.insert('domain', row);
         await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.domain.added', { type: 'custom_domain', id: row.id }, { hostname });
         return this.#domainView(row);
       });
     } catch (e) {
-      if (e instanceof Error && e.message === 'duplicate:domain') throw new DomainError('conflict', 'this hostname is already registered');
+      if (e instanceof Error && e.message === 'duplicate:domain') throw new DomainError('conflict', 'this workspace already added this hostname');
       throw e;
     }
   }
@@ -2879,15 +2912,90 @@ export class SharingService {
     await this.#d.authorize(p, orgId, 'share:manage');
     const d = await this.#d.store.get('domain', orgId, id);
     if (!d) throw notFound();
-    let found = false;
-    if (this.#d.resolveTxt) {
-      try {
-        const records = await this.#d.resolveTxt(`_rokela-challenge.${d.hostname}`);
-        found = records.some((parts) => parts.join('') === `rokela-verify=${d.verificationToken}`);
-      } catch {
-        found = false;
-      }
+    const found = (await this.#challenge(d)) === 'found';
+    try {
+      return await this.#verifyDomainRecord(p, orgId, id, found);
+    } catch (e) {
+      if (e instanceof Error && e.message === 'duplicate:domain') throw new DomainError('conflict', 'this hostname is already verified by another workspace');
+      throw e;
     }
+  }
+
+  /**
+   * Looks up the domain's TXT challenge. 'missing' only on a definite answer (no such name or record, or no matching
+   * value); timeouts and resolver failures are 'unknown', so a DNS outage never counts against a domain.
+   */
+  async #challenge(d: DomainRow): Promise<'found' | 'missing' | 'unknown'> {
+    if (!this.#d.resolveTxt) return 'unknown';
+    try {
+      const records = await this.#d.resolveTxt(`_rokela-challenge.${d.hostname}`);
+      return records.some((parts) => parts.join('') === `rokela-verify=${d.verificationToken}`) ? 'found' : 'missing';
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      return code === 'ENOTFOUND' || code === 'ENODATA' ? 'missing' : 'unknown';
+    }
+  }
+
+  /**
+   * Daily re-check of verified domains. A missing record starts a grace period with a warning to the workspace's
+   * managers; if it is still missing when the period ends the domain returns to pending (its short links stop
+   * resolving on it, and the hostname can be verified again by whoever controls its DNS).
+   */
+  async #recheckDomains(now: Date, limit: number): Promise<{ checked: number; lapsed: number }> {
+    const out = { checked: 0, lapsed: 0 };
+    const due = await this.#d.store.domainsDueForCheck(new Date(now.getTime() - this.#c.domainRecheckHours * 3_600_000), limit);
+    const graceMs = this.#c.domainGraceDays * 86_400_000;
+    for (const d of due) {
+      const result = await this.#challenge(d);
+      out.checked++;
+      await this.#d.store.transaction(async (tx) => {
+        const cur = await tx.getForUpdate('domain', d.orgId, d.id);
+        if (!cur || cur.status !== 'verified') return;
+        if (result !== 'missing') {
+          await tx.update('domain', d.orgId, d.id, { checkedAt: now, ...(result === 'found' ? { missingSince: null } : {}) });
+          return;
+        }
+        if (!cur.missingSince) {
+          await tx.update('domain', d.orgId, d.id, { checkedAt: now, missingSince: now });
+          const until = new Date(now.getTime() + graceMs).toUTCString();
+          await this.#warnManagers(
+            tx,
+            cur,
+            'domain.record_missing',
+            `The DNS verification record for ${cur.hostname} is missing. Restore the TXT record before ${until}, or short links on this domain will stop working.`,
+          );
+          return;
+        }
+        if (now.getTime() - cur.missingSince.getTime() < graceMs) {
+          await tx.update('domain', d.orgId, d.id, { checkedAt: now });
+          return;
+        }
+        await tx.update('domain', d.orgId, d.id, { status: 'pending', verifiedAt: null, missingSince: null, checkedAt: now });
+        await tx.audit.append({
+          actor: { type: 'system' },
+          action: 'share.domain.lapsed',
+          target: { type: 'custom_domain', id: cur.id },
+          orgId: cur.orgId,
+          metadata: { hostname: cur.hostname, missing_since: cur.missingSince.toISOString() },
+        });
+        await this.#warnManagers(
+          tx,
+          cur,
+          'domain.lapsed',
+          `${cur.hostname} is no longer verified because its DNS verification record stayed missing. Short links on it stop working until you restore the record and check the domain again.`,
+        );
+        out.lapsed++;
+      });
+    }
+    return out;
+  }
+
+  async #warnManagers(tx: SharingTx, d: DomainRow, kind: string, message: string) {
+    for (const userId of (await this.#d.managers?.(d.orgId)) ?? [])
+      await this.#notify(tx, d.orgId, userId, kind, { type: 'custom_domain', id: d.id }, message, true);
+  }
+
+  #verifyDomainRecord(p: UserPrincipal, orgId: string, id: string, found: boolean) {
     return this.#mutate(p, orgId, 'share:manage', async (tx, { now }) => {
       const cur = await tx.getForUpdate('domain', orgId, id);
       if (!cur) throw notFound();
@@ -2899,6 +3007,7 @@ export class SharingService {
         status: 'verified',
         verifiedAt: cur.verifiedAt ?? now,
         checkedAt: now,
+        missingSince: null,
       });
       if (cur.status !== 'verified')
         await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.domain.verified', { type: 'custom_domain', id }, { hostname: cur.hostname });
@@ -2908,6 +3017,7 @@ export class SharingService {
           status: 'verified',
           verifiedAt: cur.verifiedAt ?? now,
           checkedAt: now,
+          missingSince: null,
         }),
         verified: true,
       };
@@ -3176,6 +3286,29 @@ export class SharingService {
       });
       return;
     }
+    if (job.kind === 'member_invite') {
+      const inv = await this.#d.invitation?.(job.subjectId);
+      if (this.#d.mailer && inv) {
+        const oneLine = (v: string, max: number) =>
+          v
+            .replace(/[\r\n\t]+/g, ' ')
+            .slice(0, max)
+            .trim();
+        const from = oneLine(inv.invitedBy, 254);
+        const workspace = oneLine(inv.workspaceName, 120);
+        const url = `${this.#c.publicOrigin}/signin?next=${encodeURIComponent('/app')}`;
+        await this.#d.mailer.send({
+          id: job.id,
+          to: inv.email,
+          replyTo: from,
+          subject: oneLine(`${from} invited you to ${workspace} on Rokela PDF`, 150),
+          text: `${from} invited you to join the team workspace "${workspace}" on Rokela PDF as ${inv.role}.\n\nSign in with this email address (or create a free account with it) to accept or decline: ${url}\nThe invitation expires ${inv.expiresAt.toUTCString()}.\n\nYou are not added to anything unless you accept. If unexpected, ignore this email or report it: ${this.#c.publicOrigin}/report`,
+          html: inviteEmailHtml({ from, workspace, role: inv.role, url, origin: this.#c.publicOrigin, expiresAt: inv.expiresAt }),
+        });
+      }
+      await s.transaction((tx) => this.#finish(tx, job, claim));
+      return;
+    }
     if (job.kind === 'share_email') {
       if (job.payload['mode'] === 'request_invitation') await this.#sendRequestInvitation(job);
       else await this.#sendShareEmail(job);
@@ -3395,6 +3528,8 @@ export class SharingService {
       stats: 0,
       attempts: 0,
       notifications: 0,
+      domainsChecked: 0,
+      domainsLapsed: 0,
     };
     for (const t of await s.dueTransfers(now, batch)) {
       await s.transaction(async (tx) => {
@@ -3460,6 +3595,10 @@ export class SharingService {
     out.stats = await s.purgeStats(dayKey(new Date(now.getTime() - this.#c.statRetentionDays * day)), 5000);
     out.attempts = await s.purgeAttempts(new Date(now.getTime() - day), 5000);
     out.notifications = await s.purgeNotifications(new Date(now.getTime() - this.#c.notificationRetentionDays * day), 5000);
+    // DNS lookups, so a small batch per run; each domain is due once per recheck interval.
+    const domains = await this.#recheckDomains(now, Math.min(batch, 20));
+    out.domainsChecked = domains.checked;
+    out.domainsLapsed = domains.lapsed;
     return out;
   }
 }

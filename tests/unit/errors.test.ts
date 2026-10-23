@@ -8,7 +8,7 @@ import type { Container } from '@/lib/server/container';
 const foreign = (code: string, status: number, message: string) =>
   Object.assign(new Error(message), { name: 'DomainError', code, status, details: undefined, [Symbol.for('rokela.DomainError')]: true });
 
-const stub = { config: { trustProxy: false, rateLimitPerMinute: 1000 }, rateLimiter: { hit: async () => true } } as unknown as Container;
+const stub = { config: { trustProxy: 0, rateLimitPerMinute: 1000 }, rateLimiter: { hit: async () => true } } as unknown as Container;
 const call = async (r: Router) => {
   const res = await r.handle(stub, new Request('http://x/t', { method: 'GET' }));
   return { status: res.status, body: await res.json() };

@@ -42,6 +42,8 @@ interface WsState {
   P: string;
   nav: Nav;
   go(tab: Tab, id?: string, linkTarget?: LinkTarget): void;
+  /** Reloads the account and workspace list (after your own role or membership changes). */
+  refresh(): Promise<unknown>;
 }
 export const WsCtx = createContext<WsState | undefined>(undefined);
 export function useWs(): WsState {

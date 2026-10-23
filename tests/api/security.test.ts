@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { EICAR } from '@/lib/server/sharing';
 import { createContentServer } from '@/lib/server/storage/local';
+import { FakeMailer, joinTeam } from '../support/env';
 import { DAY } from './support';
 import { BUSINESS, UA, visit, fetchSigned, pdf, sharingEnv, sp, tokenOf, upload, type SharingEnv } from './support';
 
@@ -80,10 +81,7 @@ describe('sharing: tenant isolation', () => {
       token: owner.token,
       body: { name: 'Team' },
     });
-    await env.call('POST', `/api/v1/workspaces/${team.body.id}/members`, {
-      token: owner.token,
-      body: { email: 'member@example.test', role: 'member' },
-    });
+    await joinTeam(env, owner.token, team.body.id, member, 'member@example.test');
     const P = sp(team.body.id);
     const tr = await env.call('POST', `${P}/transfers`, {
       token: owner.token,
@@ -1054,5 +1052,127 @@ describe('sharing: review, approval and branding', () => {
         })
       ).status,
     ).toBe(409);
+  });
+});
+
+describe('sharing: quota and claim abuse', () => {
+  it('a pending claim on a hostname does not block its real owner', async () => {
+    let txt: string[][] = [];
+    env = await sharingEnv({ resolveTxt: async () => txt });
+    const squatter = await env.user('squat@example.test', { verified: true });
+    const owner = await env.user('owner@kamara.example', { verified: true });
+    await env.plan(squatter.orgId, BUSINESS);
+    await env.plan(owner.orgId, BUSINESS);
+    const add = (u: { token: string; orgId: string }) =>
+      env.call('POST', `${sp(u.orgId)}/domains`, { token: u.token, body: { hostname: 'links.kamara.example' } });
+    const squat = await add(squatter);
+    expect(squat.status).toBe(201);
+    const mine = await add(owner);
+    expect(mine.status).toBe(201);
+    expect((await add(owner)).status).toBe(409);
+    txt = [[mine.body.verification.value]];
+    const verify = (u: { token: string; orgId: string }, id: string) => env.call('POST', `${sp(u.orgId)}/domains/${id}/verify`, { token: u.token, body: {} });
+    expect((await verify(owner, mine.body.id)).body.verified).toBe(true);
+    // The squatter's challenge is not in DNS, and even a matching record could not take a verified hostname.
+    expect((await verify(squatter, squat.body.id)).body.verified).toBe(false);
+    txt = [[squat.body.verification.value]];
+    expect((await verify(squatter, squat.body.id)).status).toBe(409);
+    // Once verified, nobody else can start a claim on it.
+    const late = await env.user('late@example.test', { verified: true });
+    await env.plan(late.orgId, BUSINESS);
+    expect((await add(late)).status).toBe(409);
+  });
+
+  it('limits how much storage unfinished anonymous uploads can reserve on one request', async () => {
+    env = await sharingEnv();
+    const owner = await env.user('cap@example.test', { verified: true });
+    await env.plan(owner.orgId, BUSINESS);
+    const P = sp(owner.orgId);
+    const req = await env.call('POST', `${P}/upload-requests`, {
+      token: owner.token,
+      body: {
+        title: 'Receipts',
+        requirements: [{ key: 'doc', label: 'Receipt', accept: ['pdf'], required: true, max_files: 20 }],
+        deadline: new Date(env.clock.now().getTime() + 7 * DAY).toISOString(),
+        max_file_bytes: 1_000_000,
+        max_total_bytes: 3_000_000,
+      },
+    });
+    expect(req.status).toBe(201);
+    const R = `/api/v1/public/upload-requests/${tokenOf(req.body.url)}`;
+    const opened = await env.call('POST', `${R}/open`, { body: {} });
+    const begin = async () => {
+      const secret = (await env.call('POST', `${R}/submissions`, { body: { grant: opened.body.grant, name: 'Anon' } })).body.submission_secret;
+      return env.call('POST', `${R}/uploads`, {
+        headers: { 'x-submission-secret': secret },
+        body: { requirement_key: 'doc', name: 'r.pdf', size: 1_000_000 },
+      });
+    };
+    // Room for two full submissions (6 MB) of declared-but-unsent bytes, then refusals instead of reservations.
+    const codes = [];
+    for (let i = 0; i < 8; i++) codes.push((await begin()).status);
+    expect(codes).toEqual([201, 201, 201, 201, 201, 201, 429, 429]);
+    const reserved = await env.admin.query("SELECT count(*)::int AS n FROM share_blobs WHERE org_id = $1 AND status = 'uploading'", [owner.orgId]);
+    expect(reserved.rows[0].n).toBe(6);
+  });
+});
+
+describe('sharing: custom-domain re-checks', () => {
+  it('warns when the record goes missing, ignores DNS outages, and un-verifies only after the grace period', async () => {
+    let dns: () => Promise<string[][]> = async () => [];
+    const mailer = new FakeMailer();
+    env = await sharingEnv({ resolveTxt: () => dns(), mailer });
+    const owner = await env.user('dns@example.test', { verified: true });
+    await env.plan(owner.orgId, BUSINESS);
+    const P = sp(owner.orgId);
+    const dom = await env.call('POST', `${P}/domains`, { token: owner.token, body: { hostname: 'go.dns.example' } });
+    const record = [[dom.body.verification.value]];
+    dns = async () => record;
+    expect((await env.call('POST', `${P}/domains/${dom.body.id}/verify`, { token: owner.token, body: {} })).body.verified).toBe(true);
+    await env.call('POST', `${P}/short-links`, {
+      token: owner.token,
+      body: { kind: 'public', destination_type: 'external', destination_url: 'https://dns.example/', alias: 'promo', domain_id: dom.body.id },
+    });
+    const state = async () => (await env.call('GET', `${P}/domains`, { token: owner.token })).body.items[0];
+    const day = async (lookup: () => Promise<string[][]>) => {
+      dns = lookup;
+      env.clock.advance(DAY + 1000);
+      return env.c.sharing.runRetention();
+    };
+    const fail = (code: string) => async () => Promise.reject(Object.assign(new Error('dns'), { code }));
+
+    // Within a day nothing is re-checked; a resolver outage is never held against the domain.
+    expect((await env.c.sharing.runRetention()).domainsChecked).toBe(0);
+    expect(await day(fail('ETIMEOUT'))).toMatchObject({ domainsChecked: 1, domainsLapsed: 0 });
+    expect(await state()).toMatchObject({ status: 'verified', missing_since: null });
+
+    // A definite "no record" starts the grace period and warns the managers, while links keep working.
+    await day(fail('ENOTFOUND'));
+    const warned = await state();
+    expect(warned.status).toBe('verified');
+    expect(warned.missing_since).not.toBeNull();
+    expect(new Date(warned.lapses_at).getTime() - new Date(warned.missing_since).getTime()).toBe(14 * DAY);
+    const notes = (await env.call('GET', `${P}/notifications`, { token: owner.token })).body.items;
+    expect(notes.some((n: { message: string }) => n.message.includes('go.dns.example is missing'))).toBe(true);
+    await env.c.sharing.processJobs({ limit: 20 });
+    expect(mailer.sent.some((m) => m.to === 'dns@example.test' && m.text.includes('go.dns.example'))).toBe(true);
+    expect((await visit(env, '/l/promo', {}, 'go.dns.example')).status).toBe(302);
+
+    // Restoring the record clears the warning.
+    await day(async () => record);
+    expect((await state()).missing_since).toBeNull();
+
+    // Missing for the whole grace period: back to pending, and its short links stop resolving there.
+    await day(async () => [['some-other-value']]);
+    for (let i = 0; i < 13; i++) await day(async () => []);
+    expect((await state()).status).toBe('verified');
+    expect((await day(async () => [])).domainsLapsed).toBe(1);
+    expect(await state()).toMatchObject({ status: 'pending', missing_since: null, verified_at: null });
+    expect((await visit(env, '/l/promo', {}, 'go.dns.example')).status).toBe(404);
+    expect((await env.audit(owner.orgId, 'share.domain.lapsed')).length).toBe(1);
+    // Pending domains are not re-checked; restoring the record and checking again restores the domain.
+    expect((await day(async () => record)).domainsChecked).toBe(0);
+    expect((await env.call('POST', `${P}/domains/${dom.body.id}/verify`, { token: owner.token, body: {} })).body.verified).toBe(true);
+    expect((await visit(env, '/l/promo', {}, 'go.dns.example')).status).toBe(302);
   });
 });

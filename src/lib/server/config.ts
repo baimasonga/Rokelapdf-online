@@ -32,7 +32,8 @@ export interface AppConfig {
   jobIntervalSeconds: number;
   maintenanceIntervalSeconds: number;
   rateLimitPerMinute: number;
-  trustProxy: boolean;
+  /** Proxies in front of the app that append to X-Forwarded-For (`TRUST_PROXY`, 0 = trust none). */
+  trustProxy: number;
 }
 
 function origin(raw: string, name: string, prod: boolean): string {
@@ -180,6 +181,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     maintenanceIntervalSeconds: int(env, 'MAINTENANCE_INTERVAL_SECONDS', 5, 86400, 60),
     rateLimitPerMinute: int(env, 'RATE_LIMIT_PER_MINUTE', 1, 1_000_000, 60),
     warrior: warriorConfig(env),
-    trustProxy: env['TRUST_PROXY'] === '1',
+    trustProxy: int(env, 'TRUST_PROXY', 0, 5, 0),
   };
 }

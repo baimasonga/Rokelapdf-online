@@ -107,21 +107,21 @@ and deployment the app is actually reaching. Do not infer a service's identity f
 
 ### App variables (mark secrets as secret)
 
-| Variable                                                               | Value                                                                                          |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                                             | `production`                                                                                   |
-| `PUBLIC_ORIGIN`                                                        | `https://<your app domain>`                                                                    |
-| `SHORT_ORIGIN` (optional)                                              | a separate short domain for public short links, e.g. `https://rkl.to`                          |
-| `DATABASE_URL`, `DATABASE_MIGRATE_URL`, `DATABASE_CA_PEM`              | from §1                                                                                        |
-| `APP_DB_ROLE`                                                          | `rokela_app`                                                                                   |
-| `DB_SCHEMA` (optional)                                                 | `rokela` (default)                                                                             |
-| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`                             | from §1                                                                                        |
-| `SHARING_SECRET`                                                       | `openssl rand -base64 48` — signs link tokens; changing it invalidates every link              |
-| `STORAGE`                                                              | `r2`                                                                                           |
-| `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | from §2                                                                                        |
-| `CLAMD_HOST`, `CLAMD_PORT`                                             | `<clamav>.railway.internal`, `3310` — or `MALWARE_SCAN_DISABLED=true` (structural checks only) |
-| `TRUST_PROXY`                                                          | `1` (Railway's proxy sets `X-Forwarded-For`)                                                   |
-| `CONVERTER_URL`, `CONVERTER_TOKEN` (optional)                          | `http://<converter>.railway.internal:8080` and the converter's token — set both or neither     |
+| Variable                                                               | Value                                                                                              |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                                             | `production`                                                                                       |
+| `PUBLIC_ORIGIN`                                                        | `https://<your app domain>`                                                                        |
+| `SHORT_ORIGIN` (optional)                                              | a separate short domain for public short links, e.g. `https://rkl.to`                              |
+| `DATABASE_URL`, `DATABASE_MIGRATE_URL`, `DATABASE_CA_PEM`              | from §1                                                                                            |
+| `APP_DB_ROLE`                                                          | `rokela_app`                                                                                       |
+| `DB_SCHEMA` (optional)                                                 | `rokela` (default)                                                                                 |
+| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`                             | from §1                                                                                            |
+| `SHARING_SECRET`                                                       | `openssl rand -base64 48` — signs link tokens; changing it invalidates every link                  |
+| `STORAGE`                                                              | `r2`                                                                                               |
+| `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | from §2                                                                                            |
+| `CLAMD_HOST`, `CLAMD_PORT`                                             | `<clamav>.railway.internal`, `3310` — or `MALWARE_SCAN_DISABLED=true` (structural checks only)     |
+| `TRUST_PROXY`                                                          | `1` (Railway's proxy appends the client to `X-Forwarded-For`; use `2` with another proxy in front) |
+| `CONVERTER_URL`, `CONVERTER_TOKEN` (optional)                          | `http://<converter>.railway.internal:8080` and the converter's token — set both or neither         |
 
 **Email (optional, off until a provider is configured).** The mailer supports Cloudflare Email Sending and Resend.
 The app queues private download links, expiry reminders and download digests through the same worker. Without

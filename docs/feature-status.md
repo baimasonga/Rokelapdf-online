@@ -88,6 +88,21 @@ HTTP routing or TLS: the operator must attach the hostname to the main Railway a
 configure the DNS routing records Railway supplies, and verify HTTPS before the
 workspace uses it for short links. Keep the converter and ClamAV on private networking.
 
+A hostname may be pending in several workspaces, but only one can verify it. Verified
+domains are re-checked daily: if the TXT record is definitely gone (not a DNS outage), owners
+and admins are warned in the app and by email, and after 14 days the domain returns to pending
+and its short links stop resolving there. Restoring the record and checking again restores it.
+
+## Team members
+
+Owners and admins invite people by email; nobody joins a team until they accept, signed in
+with that address confirmed. Invitations expire after 7 days and can be cancelled. The invite
+form answers the same whether or not the address has an account.
+
+Owners and admins change roles and remove members ranked at or below them; only an owner
+changes or removes an owner, and a team always keeps at least one owner. Anyone can leave a
+team. Files and links a removed member created stay in the workspace.
+
 ## Organization SSO: preparation only
 
 SSO remains disabled until an identity provider and a Supabase plan supporting SAML
