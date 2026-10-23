@@ -36,7 +36,7 @@ export function WorkspaceSettings() {
         </p>
         <p className="muted">
           {data.subscription.trial_active
-            ? 'The free trial is active. Registered users can create upload requests without selecting a paid plan. Storage, file-size and usage limits still apply.'
+            ? 'The free trial is active. All workspace features are available to registered users without selecting a paid plan. Storage, file-size and usage limits still apply.'
             : 'Plan changes are currently managed by the platform operator. Browser PDF tools remain free; server conversions require sign-in and have service limits.'}
         </p>
       </Panel>

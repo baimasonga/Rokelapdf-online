@@ -22,9 +22,24 @@ import {
 const policy = { reservedHosts: ['rokela.example'], blockedHosts: ['evil.test'] };
 
 describe('commercial limits', () => {
-  it('enables upload requests during the trial without lifting quota limits or changing the free baseline', () => {
-    expect(resolveLimits([], true)).toEqual({ ...FREE_LIMITS, uploadRequests: true });
-    expect(resolveLimits([]).uploadRequests).toBe(false);
+  it('enables every trial feature for new and existing workspaces while preserving numeric quotas', () => {
+    const expected = { ...FREE_LIMITS, uploadRequests: true, persistent: true, customDomains: true, branding: true, advancedAnalytics: true };
+    expect(resolveLimits([], true)).toEqual(expected);
+    expect(
+      resolveLimits(
+        [
+          {
+            share_upload_requests: false,
+            share_persistent: false,
+            share_custom_domains: false,
+            share_branding: false,
+            share_advanced_analytics: false,
+          },
+        ],
+        true,
+      ),
+    ).toEqual(expected);
+    expect(resolveLimits([], false)).toEqual(FREE_LIMITS);
   });
   it('never falls below the free baseline and takes the most generous valid license', () => {
     expect(resolveLimits([])).toEqual(FREE_LIMITS);

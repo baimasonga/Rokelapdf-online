@@ -18,7 +18,15 @@ it('lets separate personal trial workspaces create requests without a paid plan 
     const subscription = await env.call('GET', `/api/v1/workspaces/${user.orgId}/subscription`, { token: user.token });
     expect(subscription.body).toMatchObject({ plan: 'trial', trial_active: true });
     const overview = await env.call('GET', `${sp(user.orgId)}/overview`, { token: user.token });
-    expect(overview.body.limits).toMatchObject({ upload_requests: true, storage_bytes: 2 * 1024 ** 3, max_file_bytes: 250 * 1024 ** 2 });
+    expect(overview.body.limits).toMatchObject({
+      upload_requests: true,
+      persistent: true,
+      branding: true,
+      custom_domains: true,
+      advanced_analytics: true,
+      storage_bytes: 2 * 1024 ** 3,
+      max_file_bytes: 250 * 1024 ** 2,
+    });
     expect((await env.call('POST', `${sp(user.orgId)}/upload-requests`, { token: user.token, body })).status).toBe(201);
     expect(
       (

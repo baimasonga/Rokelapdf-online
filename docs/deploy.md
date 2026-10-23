@@ -3,13 +3,14 @@
 ## Current free trial
 
 `TRIAL_MODE` defaults to `true` during the user trial. Every registered workspace
-can create upload requests (and collect signatures through them) without an
-operator-managed paid plan. Workspaces without a paid plan display **Free trial**.
+has access to upload requests, signature collection, persistent sharing, branding,
+custom domains and advanced analytics without an operator-managed paid plan.
+This applies equally to existing workspaces and newly registered users. Workspaces without a paid plan display **Free trial**.
 Existing storage, file-size, retention, email and API limits still apply; trial
 mode does not disable authentication, workspace isolation or malware checks.
-Other optional entitlements, such as custom domains, remain separately controlled.
+Custom domains still require ownership verification and DNS configuration.
 
-Set `TRIAL_MODE=false` and redeploy to end this temporary upload-request access.
+Set `TRIAL_MODE=false` and redeploy to end this temporary full-feature access.
 Paid workspace grants remain unchanged. Trial mode does not write permanent plan
 grants, and existing requests are not deleted when the trial ends. Keep this flag
 consistent between Railway and any Cloudflare backup. No new plan-selection UI or

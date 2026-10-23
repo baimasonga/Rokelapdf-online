@@ -82,7 +82,15 @@ const CEILING: Record<string, number> = {
  */
 export function resolveLimits(entitlementSets: ReadonlyArray<Record<string, unknown>>, trialMode = false): SharingLimits {
   const out: SharingLimits = { ...FREE_LIMITS };
-  if (trialMode) out.uploadRequests = true;
+  // Trial access applies to every workspace, including existing free-plan rows.
+  // Only feature gates change; numeric quotas and authorization remain enforced.
+  if (trialMode) {
+    out.uploadRequests = true;
+    out.persistent = true;
+    out.customDomains = true;
+    out.branding = true;
+    out.advancedAnalytics = true;
+  }
   for (const ent of entitlementSets) {
     for (const [field, key] of Object.entries(LIMIT_ENTITLEMENTS) as Array<[keyof SharingLimits, string]>) {
       const v = ent[key];

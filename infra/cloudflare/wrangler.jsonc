@@ -31,6 +31,7 @@
     },
   ],
   "vars": {
+    "TRIAL_MODE": "true",
     "PUBLIC_ORIGIN": "https://www.rokelapdf.com",
     "SHORT_ORIGIN": "https://www.rokelapdf.com",
     "SUPABASE_URL": "https://htnozuqylgnvevlpskkc.supabase.co",
