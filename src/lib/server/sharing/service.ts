@@ -74,6 +74,8 @@ export interface SharingConfig {
   statRetentionDays: number;
   notificationRetentionDays: number;
   scanMaxAttempts: number;
+  /** A file whose checks keep failing (scanner unreachable) is retried this long before it is rejected. */
+  scanGiveUpHours: number;
   jobLeaseSeconds: number;
   partBytes: number;
   /** How often verified custom domains are re-checked, and how long a missing record is tolerated. */
@@ -93,6 +95,7 @@ export const DEFAULT_SHARING_CONFIG: Omit<SharingConfig, 'publicOrigin' | 'short
   statRetentionDays: 400,
   notificationRetentionDays: 90,
   scanMaxAttempts: 6,
+  scanGiveUpHours: 24,
   jobLeaseSeconds: 300,
   partBytes: 8 * 1024 * 1024,
   domainRecheckHours: 24,
@@ -3191,6 +3194,10 @@ export class SharingService {
     let done = 0;
     let failed = 0;
     for (const job of jobs) {
+      // The batch runs one job at a time, so a lease taken at claim time can run out before the last jobs start, and
+      // another worker on this database (the Cloudflare backup) would then run them again: duplicate emails and scans.
+      // Renew it as each job starts, and skip a job whose lease another worker has already taken.
+      if (!(await this.#renewLease(job, claim))) continue;
       try {
         await this.#runJob(job, claim);
         done++;
@@ -3200,6 +3207,15 @@ export class SharingService {
       }
     }
     return { done, failed };
+  }
+
+  #renewLease(job: JobRow, claim: string): Promise<boolean> {
+    return this.#d.store.transaction(async (tx) => {
+      const j = await tx.getForUpdate('job', job.orgId, job.id);
+      if (!j || j.claim !== claim) return false;
+      await tx.update('job', job.orgId, job.id, { lockedUntil: this.#at(this.#c.jobLeaseSeconds * 1000) });
+      return true;
+    });
   }
 
   async #finish(tx: SharingTx, job: JobRow, claim: string): Promise<boolean> {
@@ -3471,6 +3487,12 @@ export class SharingService {
     }
   }
 
+  async #scanStillWaiting(tx: SharingTx, job: JobRow, now: Date): Promise<boolean> {
+    const b = await tx.get('blob', job.orgId, job.subjectId);
+    const since = b?.completedAt ?? b?.createdAt;
+    return b?.status === 'quarantined' && !!since && now.getTime() - since.getTime() < this.#c.scanGiveUpHours * 3_600_000;
+  }
+
   async #failJob(job: JobRow, claim: string, e: unknown) {
     const code = (e as { code?: unknown })?.code;
     const err = `${(e as Error)?.name ?? 'Error'}${typeof code === 'string' ? `:${code.slice(0, 40)}` : ''}`.slice(0, 100);
@@ -3479,7 +3501,10 @@ export class SharingService {
       if (!j || j.claim !== claim) return;
       const now = this.#now();
       const attempts = j.attempts + 1;
-      if (attempts >= this.#c.scanMaxAttempts) {
+      // An unreachable scanner must not cost people their uploads: checks are retried (at most hourly) until the file
+      // has waited `scanGiveUpHours`, and only then does it fail closed.
+      const waiting = job.kind === 'scan' && (await this.#scanStillWaiting(tx, job, now));
+      if (attempts >= this.#c.scanMaxAttempts && !waiting) {
         await tx.remove('job', job.orgId, job.id);
         if (job.kind === 'scan') {
           // Fail closed: a file whose checks never completed never becomes available.
