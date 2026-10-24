@@ -142,6 +142,14 @@ const invalid = (m: string) => new DomainError('invalid_request', m);
 const quota = (what: string) => new DomainError('quota_exceeded', `${what} limit reached for this plan`);
 const unavailable = (state: string) => new DomainError('link_unavailable', 'this link is no longer available', { state });
 
+/**
+ * Jobs that only a worker with a mailer can run. Both app instances (Railway and the Cloudflare backup) share the job
+ * queue, and a worker without email settings used to mark these done without sending; now it leaves them alone.
+ */
+export const EMAIL_JOBS: readonly JobRow['kind'][] = ['share_email', 'notify_email', 'member_invite'];
+/** An email still unsent this long after it fell due is dropped (no worker can send it, and it is stale). */
+const STALE_EMAIL_MS = 7 * 86_400_000;
+
 // Unfinished uploads one upload request may hold at a time: a count, and room for this many full submissions.
 const MAX_PENDING_REQUEST_UPLOADS = 10;
 const PENDING_REQUEST_SUBMISSIONS = 2;
@@ -3205,7 +3213,9 @@ export class SharingService {
   async processJobs(opts: { limit?: number } = {}): Promise<{ done: number; failed: number }> {
     const claim = newId('clm');
     const now = this.#now();
-    const jobs = await this.#d.store.transaction((tx) => tx.claimJobs(now, opts.limit ?? 20, claim, new Date(now.getTime() + this.#c.jobLeaseSeconds * 1000)));
+    const jobs = await this.#d.store.transaction((tx) =>
+      tx.claimJobs(now, opts.limit ?? 20, claim, new Date(now.getTime() + this.#c.jobLeaseSeconds * 1000), this.#d.mailer ? [] : EMAIL_JOBS),
+    );
     let done = 0;
     let failed = 0;
     for (const job of jobs) {
@@ -3568,6 +3578,7 @@ export class SharingService {
       stats: 0,
       attempts: 0,
       notifications: 0,
+      staleEmails: 0,
       domainsChecked: 0,
       domainsLapsed: 0,
     };
@@ -3635,6 +3646,7 @@ export class SharingService {
     out.stats = await s.purgeStats(dayKey(new Date(now.getTime() - this.#c.statRetentionDays * day)), 5000);
     out.attempts = await s.purgeAttempts(new Date(now.getTime() - day), 5000);
     out.notifications = await s.purgeNotifications(new Date(now.getTime() - this.#c.notificationRetentionDays * day), 5000);
+    out.staleEmails = await s.purgeStaleJobs(EMAIL_JOBS, new Date(now.getTime() - STALE_EMAIL_MS), 5000);
     // DNS lookups, so a small batch per run; each domain is due once per recheck interval.
     const domains = await this.#recheckDomains(now, Math.min(batch, 20));
     out.domainsChecked = domains.checked;

@@ -564,13 +564,13 @@ class PgSharingRepo implements SharingRepo {
     return r.rows.map((x) => fromRow('shortLink', x));
   }
 
-  async claimJobs(now: Date, limit: number, claim: string, lockedUntil: Date): Promise<JobRow[]> {
+  async claimJobs(now: Date, limit: number, claim: string, lockedUntil: Date, skipKinds: readonly JobRow['kind'][] = []): Promise<JobRow[]> {
     const r = await this.#db.query(
       `UPDATE share_jobs SET claim = $1, locked_until = $2
        WHERE id IN (SELECT id FROM share_jobs WHERE run_after <= $3 AND (locked_until IS NULL OR locked_until <= $3)
-                    ORDER BY run_after LIMIT $4 FOR UPDATE SKIP LOCKED)
+                    AND NOT (kind = ANY($5::text[])) ORDER BY run_after LIMIT $4 FOR UPDATE SKIP LOCKED)
        RETURNING ${Object.keys(SPECS.job.cols).map(snake).join(', ')}`,
-      [claim, lockedUntil, now, Math.max(1, Math.min(100, limit))],
+      [claim, lockedUntil, now, Math.max(1, Math.min(100, limit)), [...skipKinds]],
     );
     return r.rows.map((x) => fromRow('job', x));
   }
@@ -688,6 +688,13 @@ class PgSharingRepo implements SharingRepo {
   }
   purgeAttempts(before: Date, limit: number) {
     return this.#purge('share_attempts', 'updated_at', before, limit);
+  }
+  async purgeStaleJobs(kinds: readonly JobRow['kind'][], dueBefore: Date, limit: number) {
+    const r = await this.#db.query(
+      `DELETE FROM share_jobs WHERE id IN (SELECT id FROM share_jobs WHERE kind = ANY($1::text[]) AND claim IS NULL AND run_after < $2 LIMIT $3)`,
+      [[...kinds], dueBefore, limit],
+    );
+    return r.rowCount ?? 0;
   }
   purgeNotifications(before: Date, limit: number) {
     return this.#purge('share_notifications', 'created_at', before, limit);

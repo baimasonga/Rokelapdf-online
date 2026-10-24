@@ -255,6 +255,20 @@ export function sharingStoreContract(name: string, make: () => SharingHarness | 
       expect(later.map((j) => j.claim).sort()).toEqual(['w3', 'w3']);
     });
 
+    it('skips job kinds a worker cannot run, and purges only unclaimed stale ones of a kind', async () => {
+      const h = await make();
+      const { orgId } = await h.seed();
+      await h.store.insert('job', f.job(orgId, { kind: 'scan', runAfter: T0 }));
+      await h.store.insert('job', f.job(orgId, { kind: 'share_email', runAfter: T0 }));
+      await h.store.insert('job', f.job(orgId, { kind: 'share_email', runAfter: at(86_400_000) }));
+      const got = await h.store.transaction((tx) => tx.claimJobs(at(1000), 10, 'w1', at(30_000), ['share_email']));
+      expect(got.map((j) => j.kind)).toEqual(['scan']);
+      // Only the email that fell due before the cutoff goes; the future reminder and the scan stay.
+      expect(await h.store.purgeStaleJobs(['share_email'], at(60_000), 100)).toBe(1);
+      const left = await h.store.transaction((tx) => tx.claimJobs(at(2 * 86_400_000), 10, 'w2', at(3 * 86_400_000)));
+      expect(left.map((j) => j.kind).sort()).toEqual(['scan', 'share_email']);
+    });
+
     it('lists due transfers, upload requests and abandoned uploads across tenants', async () => {
       const h = await make();
       const a = await h.seed();

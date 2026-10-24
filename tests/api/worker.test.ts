@@ -32,6 +32,25 @@ describe('background jobs', () => {
     expect(sent.sort()).toEqual(['a@example.test', 'b@example.test', 'c@example.test']);
   });
 
+  it('a worker without email settings leaves email jobs for one that has them, and stale ones are cleared', async () => {
+    env = await sharingEnv(); // no mailer: like a backup instance whose email settings are missing
+    const owner = await env.user('lead@example.test', { verified: true });
+    const team = await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'Team' } });
+    expect(
+      (await env.call('POST', `/api/v1/workspaces/${team.body.id}/members`, { token: owner.token, body: { email: 'new@example.test', role: 'member' } }))
+        .status,
+    ).toBe(201);
+    const pending = async () =>
+      Number((await env.admin.query("SELECT count(*) AS n FROM share_jobs WHERE kind = 'member_invite' AND claim IS NULL")).rows[0].n);
+    await env.c.sharing.processJobs({ limit: 20 });
+    expect(await pending()).toBe(1); // not marked done without sending
+    env.clock.advance(6 * 86_400_000);
+    expect((await env.c.sharing.runRetention()).staleEmails).toBe(0);
+    env.clock.advance(2 * 86_400_000);
+    expect((await env.c.sharing.runRetention()).staleEmails).toBe(1);
+    expect(await pending()).toBe(0);
+  });
+
   it('keeps retrying checks while the scanner is unreachable, and fails closed only after a day', async () => {
     let down = true;
     const basic = new BasicContentScanner();
