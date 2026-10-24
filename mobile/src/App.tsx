@@ -3,7 +3,9 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { isPdf, native, onIncoming, scanDocument, sharePdf, takeIncoming, type PdfFile } from './native';
 import { openPdf, renderPage, type OpenPdf } from './pdf';
 
-type Screen = { k: 'home' } | { k: 'view'; file: PdfFile; pdf: OpenPdf };
+type Screen = { k: 'home' } | { k: 'view'; file: PdfFile; pdf: OpenPdf; id: number };
+
+let opened = 0;
 
 export function App() {
   const [screen, setScreen] = useState<Screen>({ k: 'home' });
@@ -16,7 +18,7 @@ export function App() {
     const pdf = await openPdf(file.bytes);
     setScreen((old) => {
       if (old.k === 'view') void old.pdf.close();
-      return { k: 'view', file, pdf };
+      return { k: 'view', file, pdf, id: ++opened };
     });
   }, []);
   const run = useCallback(async (label: string, fn: () => Promise<void>) => {
@@ -43,6 +45,11 @@ export function App() {
     return () => void sub?.then((h) => h.remove());
   }, [run, show]);
 
+  const back = () => {
+    if (screen.k === 'view') void screen.pdf.close();
+    setScreen({ k: 'home' });
+  };
+
   const pick = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -58,7 +65,7 @@ export function App() {
     <div className="app">
       <header className="bar">
         {screen.k === 'view' ? (
-          <button className="back" onClick={() => setScreen({ k: 'home' })} aria-label="Back">
+          <button className="back" onClick={back} aria-label="Back">
             ‹
           </button>
         ) : null}
@@ -106,7 +113,8 @@ export function App() {
           {!native ? <p className="note">Preview in a browser: scanning and “Open with” need the Android app.</p> : null}
         </main>
       ) : (
-        <Viewer doc={screen.pdf.doc} />
+        // Keyed per document so pages from a previous PDF are never reused.
+        <Viewer key={screen.id} doc={screen.pdf.doc} />
       )}
     </div>
   );
@@ -137,7 +145,10 @@ function Page({ doc, n }: { doc: PDFDocumentProxy; n: number }) {
       (entries) => {
         if (!entries.some((e) => e.isIntersecting) || done) return;
         io.disconnect();
-        void renderPage(doc, n, el, Math.min(el.parentElement!.clientWidth, 900)).then(() => setDone(true));
+        renderPage(doc, n, el, Math.min(el.parentElement!.clientWidth, 900)).then(
+          () => setDone(true),
+          () => undefined, // the document was closed mid-render
+        );
       },
       { rootMargin: '600px' },
     );
