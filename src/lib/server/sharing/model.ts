@@ -493,7 +493,10 @@ export interface SharingRepo {
   searchShortLinks(orgId: string, q: ShortLinkQuery): Promise<ShortLinkRow[]>;
 
   /** Fenced job claim: due, unleased jobs get `claim` and a lease until `lockedUntil`. */
-  claimJobs(now: Date, limit: number, claim: string, lockedUntil: Date): Promise<JobRow[]>;
+  /** `skipKinds`: kinds this worker cannot run, left for a worker that can (see `EMAIL_JOBS`). */
+  claimJobs(now: Date, limit: number, claim: string, lockedUntil: Date, skipKinds?: readonly JobRow['kind'][]): Promise<JobRow[]>;
+  /** Removes unclaimed jobs of these kinds that fell due before `dueBefore`. */
+  purgeStaleJobs(kinds: readonly JobRow['kind'][], dueBefore: Date, limit: number): Promise<number>;
   /** Cross-tenant maintenance scans, bounded by `limit`. */
   dueTransfers(now: Date, limit: number): Promise<TransferRow[]>;
   dueUploadRequests(now: Date, limit: number): Promise<UploadRequestRow[]>;
@@ -667,9 +670,11 @@ class MemoryRepo implements SharingRepo {
     return rows.slice(0, q.limit ?? 200);
   }
 
-  async claimJobs(now: Date, limit: number, claim: string, lockedUntil: Date) {
+  async claimJobs(now: Date, limit: number, claim: string, lockedUntil: Date, skipKinds: readonly JobRow['kind'][] = []) {
     const due = [...this._tbl('job').values()]
-      .filter((j) => (j['runAfter'] as Date) <= now && (!j['lockedUntil'] || (j['lockedUntil'] as Date) <= now))
+      .filter(
+        (j) => (j['runAfter'] as Date) <= now && (!j['lockedUntil'] || (j['lockedUntil'] as Date) <= now) && !skipKinds.includes(j['kind'] as JobRow['kind']),
+      )
       .sort((a, b) => +(a['runAfter'] as Date) - +(b['runAfter'] as Date))
       .slice(0, limit);
     for (const j of due) Object.assign(j, { claim, lockedUntil });
@@ -759,6 +764,17 @@ class MemoryRepo implements SharingRepo {
   }
   async purgeEvents(before: Date, limit: number) {
     return this._purge('event', before, limit);
+  }
+  async purgeStaleJobs(kinds: readonly JobRow['kind'][], dueBefore: Date, limit: number) {
+    let n = 0;
+    for (const [id, j] of this._tbl('job')) {
+      if (n >= limit) break;
+      if (kinds.includes(j['kind'] as JobRow['kind']) && !j['claim'] && (j['runAfter'] as Date) < dueBefore) {
+        this._tbl('job').delete(id);
+        n++;
+      }
+    }
+    return n;
   }
   async purgeNotifications(before: Date, limit: number) {
     return this._purge('notification', before, limit);
