@@ -1,6 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { buildCsp, cspInputsFromEnv, pageSecurityHeaders } from './lib/csp';
 
+/**
+ * The host the visitor asked for. Behind Railway (and Cloudflare) the app is reached over plain HTTP on an internal
+ * port, so `nextUrl.origin` never equals the public HTTPS origin and comparing it redirected /signin to itself forever.
+ * The proxy's Host / X-Forwarded-Host header carries the public host; the scheme is HTTPS at the edge either way.
+ */
+function requestHost(req: NextRequest): string {
+  const raw = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? req.nextUrl.host;
+  return raw.split(',')[0]!.trim().toLowerCase();
+}
+
 // Next.js proxy: adds a per-request CSP nonce and security headers to HTML pages. API routes and redirects set their own headers.
 export function proxy(req: NextRequest) {
   // Keep PKCE requests on the same origin as the email hook and browser storage.
@@ -14,7 +24,7 @@ export function proxy(req: NextRequest) {
       canonical.pathname === '/' &&
       !canonical.search &&
       !canonical.hash &&
-      req.nextUrl.origin !== canonical.origin
+      requestHost(req) !== canonical.host
     ) {
       const destination = new URL('/signin', canonical);
       destination.search = req.nextUrl.search;

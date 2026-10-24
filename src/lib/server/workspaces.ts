@@ -73,8 +73,24 @@ export class WorkspaceService {
     });
   }
 
-  /** Upserts the user mirror and creates the personal workspace on first sign-in. Idempotent and race-safe. */
+  /**
+   * Upserts the user mirror and creates the personal workspace on first sign-in. Idempotent and race-safe. Runs before
+   * every signed-in request, so a read first decides whether anything changed: the write, with its row lock, runs only
+   * for a new user, a changed email or confirmation, or a missing personal workspace. The read always reflects the
+   * database, so a mirror changed by another instance is repaired on the next request.
+   */
   async sync(p: UserPrincipal): Promise<void> {
+    const cur = (
+      await this.#pool.query(
+        `SELECT u.email, u.email_verified, EXISTS (SELECT 1 FROM memberships m JOIN organizations o ON o.id = m.org_id
+           WHERE m.user_id = u.id AND o.kind = 'personal') AS has_personal FROM users u WHERE u.id = $1`,
+        [p.userId],
+      )
+    ).rows[0];
+    if (!cur || cur.email !== p.email || cur.email_verified !== p.emailVerified || !cur.has_personal) await this.#write(p);
+  }
+
+  async #write(p: UserPrincipal): Promise<void> {
     await this.#tx(async (q, audit) => {
       const now = this.#clock.now();
       // Supabase holds each email on one account at a time, so a mirror row with this email but another id is stale

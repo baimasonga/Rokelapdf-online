@@ -191,6 +191,40 @@ describe('accounts and workspaces', () => {
     expect((await env.call('GET', `/api/v1/workspaces/${team.body.id}/members`, { token: guest.token })).status).toBe(404);
   });
 
+  it('writes the user mirror only when something changed, and repairs it on the next request', async () => {
+    env = await makeEnv();
+    const u = await env.user('mirror@example.test');
+    const row = async () =>
+      (await env.admin.query('SELECT email, email_verified, updated_at FROM users WHERE id = $1', [u.userId])).rows[0] as {
+        email: string;
+        email_verified: boolean;
+        updated_at: Date;
+      };
+    const me = async (token = u.token) => expect((await env.call('GET', '/api/v1/me', { token })).status).toBe(200);
+    const first = await row();
+    // Repeat requests write nothing while the mirror is current.
+    for (const wait of [60_000, 60_000, 10 * 60_000]) {
+      env.clock.advance(wait);
+      await me();
+    }
+    expect((await row()).updated_at).toEqual(first.updated_at);
+    // Confirming the address and changing it both reach the mirror on the very next request.
+    env.verifier.users.set(u.token, { userId: u.userId, email: 'mirror@example.test', emailVerified: true });
+    await me();
+    expect(await row()).toMatchObject({ email: 'mirror@example.test', email_verified: true });
+    env.verifier.users.set(u.token, { userId: u.userId, email: 'renamed@example.test', emailVerified: true });
+    await me();
+    expect((await row()).email).toBe('renamed@example.test');
+    // A mirror changed elsewhere (another instance, a stale token) is repaired on the next request.
+    await env.admin.query(`UPDATE users SET email = 'stale@example.test' WHERE id = $1`, [u.userId]);
+    await me();
+    expect((await row()).email).toBe('renamed@example.test');
+    // A personal workspace that went missing is recreated.
+    await env.admin.query(`DELETE FROM memberships WHERE user_id = $1`, [u.userId]);
+    await me();
+    expect((await env.call('GET', '/api/v1/me', { token: u.token })).body.workspaces.map((w: { kind: string }) => w.kind)).toEqual(['personal']);
+  });
+
   it('a re-created account with a known email is not locked out by the stale mirror row', async () => {
     env = await makeEnv();
     const first = await env.user('reuse@example.test', { verified: true });
