@@ -15,6 +15,11 @@ export interface ZipEntry {
 
 /** Above this, browsers without direct-to-disk saving are asked to download files one by one. */
 export const IN_MEMORY_LIMIT = 2 * 1024 ** 3;
+/**
+ * fflate writes classic ZIP only (no ZIP64), whose sizes and offsets are 32-bit: an archive past 4 GiB comes out
+ * corrupt. Larger sets are downloaded file by file. The margin covers headers and the central directory.
+ */
+export const ZIP_LIMIT = 4 * 1024 ** 3 - 64 * 1024 ** 2;
 
 type SaveTarget = { write(d: Uint8Array): Promise<void>; close(): Promise<void> };
 
@@ -53,6 +58,7 @@ export function archivePaths(entries: Array<Pick<ZipEntry, 'name' | 'folderPath'
 
 export async function downloadZip(entries: ZipEntry[], zipName: string, target: SaveTarget | undefined, onProgress: (done: number, total: number) => void) {
   const total = entries.reduce((n, e) => n + e.size, 0);
+  if (total > ZIP_LIMIT) throw new Error('These files are too large to download as one ZIP. Download them one by one.');
   const chunks: Uint8Array[] = [];
   let writing: Promise<void> = Promise.resolve();
   let failure: Error | undefined;
