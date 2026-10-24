@@ -16,6 +16,15 @@ interface IncomingFilePlugin {
 }
 const IncomingFile = registerPlugin<IncomingFilePlugin>('IncomingFile');
 
+/** Android's "Save to…" dialog (android/…/SaveFilePlugin.java): the person picks the folder; no storage permission. */
+interface SaveFilePlugin {
+  save(o: { name: string; mime: string; data: string }): Promise<{ saved: boolean }>;
+}
+const SaveFile = registerPlugin<SaveFilePlugin>('SaveFile');
+
+export const PDF_MIME = 'application/pdf';
+export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
 const fromBase64 = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 function toBase64(bytes: Uint8Array) {
   let s = '';
@@ -48,18 +57,31 @@ export async function scanDocument(): Promise<PdfFile | undefined> {
   return { name: `scan-${stamp}.pdf`, bytes: fromBase64(file.data as string) };
 }
 
-/** Opens the Android share sheet (save to Files or Drive, WhatsApp, email…) for a PDF. */
-export async function sharePdf(f: PdfFile) {
-  const name = f.name.replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'document.pdf';
+const safeName = (name: string) => name.replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'document';
+
+function download(name: string, bytes: Uint8Array, mime: string) {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+/** Opens the Android share sheet (Drive, WhatsApp, email…). */
+export async function shareFile(name: string, bytes: Uint8Array, mime = PDF_MIME) {
+  const n = safeName(name);
+  if (!native) return download(n, bytes, mime);
+  const written = await Filesystem.writeFile({ path: n, data: toBase64(bytes), directory: Directory.Cache });
+  await Share.share({ title: n, files: [written.uri] });
+}
+
+/** Saves to a folder the person chooses. Resolves false when they cancel. */
+export async function saveFile(name: string, bytes: Uint8Array, mime = PDF_MIME): Promise<boolean> {
+  const n = safeName(name);
   if (!native) {
-    const url = URL.createObjectURL(new Blob([f.bytes as BlobPart], { type: 'application/pdf' }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: name });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    return;
+    download(n, bytes, mime);
+    return true;
   }
-  const written = await Filesystem.writeFile({ path: name, data: toBase64(f.bytes), directory: Directory.Cache });
-  await Share.share({ title: name, files: [written.uri] });
+  return (await SaveFile.save({ name: n, mime, data: toBase64(bytes) })).saved;
 }
 
 export { isPdf };

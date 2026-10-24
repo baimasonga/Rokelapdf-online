@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, degrees } from 'pdf-lib';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { buildPdf, blankPdf, dataUrlBytes, loadSource } from '@/lib/editor/export';
+import { EditorError, buildPdf, blankPdf, dataUrlBytes, loadSource } from '@/lib/editor/export';
+import { signatureEdits } from '@/lib/editor/signature';
 import { png } from './png';
 import {
   appendPages,
@@ -236,6 +237,23 @@ describe('editor signatures and form fields', () => {
         expect(img!.bottomRight.v).toBeCloseTo(0.2, 3);
       }
     }
+  });
+
+  it('signs pages as the app shows them (signatureEdits), whatever their own rotation', async () => {
+    for (const r of [0, 90, 180, 270] as Rotation[]) {
+      const src = await source([[400, 600]], r);
+      const s = signatureEdits([r], [{ page: 0, u: 0.2, v: 0.1, w: 0.3, h: 0.1, src: sig() }]);
+      expect(s.pages).toEqual([{ id: 'p0', src: 0, index: 0, rotation: 0 }]);
+      const img = await imageOnScreen(await buildPdf([src], s));
+      expect(img, `rotation ${r}`).toBeDefined();
+      expect(img!.topLeft.u).toBeCloseTo(0.2, 3);
+      expect(img!.topLeft.v).toBeCloseTo(0.1, 3);
+      expect(img!.bottomRight.u).toBeCloseTo(0.5, 3);
+      expect(img!.bottomRight.v).toBeCloseTo(0.2, 3);
+    }
+    const two = signatureEdits([0, 0], [{ page: 1, u: 0.5, v: 0.5, w: 0.2, h: 0.1, src: sig() }]);
+    expect(Object.keys(two.annots)).toEqual(['p1']);
+    expect(() => signatureEdits([0], [{ page: 1, u: 0, v: 0, w: 0.1, h: 0.1, src: sig() }])).toThrow(EditorError);
   });
 
   it('embeds a signature placed several times only once', async () => {
