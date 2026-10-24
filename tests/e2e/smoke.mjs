@@ -852,6 +852,10 @@ async function main() {
     await vp.reload();
     await vp.getByText('Revoked document').waitFor();
     check((await vp.locator('main').textContent()).includes('payment reversed or not received'), 'revocation and its reason show publicly');
+    await vp.getByLabel('PDF to check').setInputFiles({ name: 'copy.pdf', mimeType: 'application/pdf', buffer: issued.bytes });
+    const revokedMatch = vp.getByRole('alert').filter({ hasText: 'the issuer has revoked it' });
+    await revokedMatch.waitFor();
+    check((await vp.getByText(/^\s*Exact match/).count()) === 0, 'a genuine copy of a revoked document is shown as a warning, not a match');
     await checker.close();
 
     step('Operator abuse review');
