@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# A newer push cancels the run of an older one, so a superseded build can never publish over a newer APK.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-24.04
@@ -60,8 +65,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-    concurrency:
-      group: android-release
     steps:
       - uses: actions/download-artifact@v4
         with:
