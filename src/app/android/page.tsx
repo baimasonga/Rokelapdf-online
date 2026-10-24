@@ -54,6 +54,11 @@ export default function AndroidPage() {
               <Download size={20} aria-hidden="true" /> Download for Android
             </a>
             <p className="android-small">Free · about 7 MB · Android 7.0 or newer</p>
+            <p className="android-note">
+              <strong>Blank screen after tapping?</strong> If you opened this page from WhatsApp, Gmail or Facebook, tap <strong>⋮</strong> and choose{' '}
+              <strong>Open in Chrome</strong>, then tap the button again. In Chrome the download may finish quietly: check your notifications or the{' '}
+              <strong>Downloads</strong> folder for rokela-pdf.apk.
+            </p>
           </div>
           <div className="android-scan">
             <PageQr />

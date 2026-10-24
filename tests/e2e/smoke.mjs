@@ -192,6 +192,7 @@ async function main() {
       return Array.from(ctx.getImageData(0, 0, 400, 400).data);
     });
     check(jsQR(Uint8ClampedArray.from(qr), 400, 400)?.data === 'https://www.rokelapdf.com/android', 'QR code opens rokelapdf.com/android');
+    check(await p.getByText('Blank screen after tapping?').isVisible(), 'page explains what to do when an in-app browser shows a blank screen');
     ok('download page renders');
     await shot(p, 'android');
 

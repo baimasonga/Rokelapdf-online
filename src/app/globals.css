@@ -4281,3 +4281,12 @@ button.org-page:hover:not(:disabled) {
   font-weight: 600;
   color: var(--brand);
 }
+.android-note {
+  max-width: 34rem;
+  margin: 1rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 10%);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
