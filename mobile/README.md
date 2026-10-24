@@ -25,10 +25,15 @@ start with `%PDF`. The app asks for no storage or camera permission: the scanner
 
 ## Getting a test build
 
-Every pull request and push that touches `mobile/` runs the **Android** workflow, which uploads `app-debug.apk` as the
-`rokela-pdf-debug-apk` artifact (kept 30 days). Download it on the phone, unzip, open the APK and allow installs from
-that source when Android asks. Debug builds are signed with a throwaway key, so uninstall one before installing a
-Play Store build later.
+**For people installing the app:** <https://www.rokelapdf.com/android> has the download button, a QR code for computer
+visitors and install steps. The button points at a link that never changes:
+<https://github.com/baimasonga/Rokelapdf-online/releases/download/android/rokela-pdf.apk>.
+
+Every push to the default branch that touches the app runs the **Android** workflow, which replaces that APK on the
+`android` release. Pull requests upload the APK as the `rokela-pdf-debug-apk` artifact instead (kept 30 days). Test builds
+are debug-signed with one key kept in the Actions cache, so a newer build installs over an older one; if the cache was
+evicted, Android refuses the update and the old version must be uninstalled first. Play Store builds will use a release
+key.
 
 ## Building locally
 

@@ -9,6 +9,7 @@ export function LegalFooter() {
         <small>Registered in {COMPANY.location}.</small>
       </span>
       <nav aria-label="Legal and contact">
+        <Link href="/android">Android app</Link>
         <Link href="/ownership">Ownership</Link>
         <Link href="/terms">Terms</Link>
         <Link href="/privacy">Privacy</Link>

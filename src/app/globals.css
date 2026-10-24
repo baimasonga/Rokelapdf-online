@@ -4198,3 +4198,86 @@ button.org-page:hover:not(:disabled) {
   align-items: center;
   gap: 0.4em;
 }
+
+/* ---- Android app download page ---------------------------------------------------------------------- */
+.android-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3rem) 1rem 3rem;
+}
+.android-hero {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr;
+  gap: 2.5rem;
+  align-items: center;
+  padding: clamp(1.5rem, 5vw, 3rem);
+  border-radius: 28px;
+  color: #fff;
+  background: radial-gradient(600px 300px at 100% 0%, rgb(255 103 89 / 25%), transparent 65%), linear-gradient(135deg, var(--blue-800), var(--blue-950));
+}
+.android-hero h1 {
+  font-size: clamp(1.8rem, 4.5vw, 2.6rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0.6rem 0 1.2rem;
+}
+.android-hero .ticks {
+  margin-bottom: 1.6rem;
+}
+.android-hero .button.primary.xl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #fff;
+  border-color: #fff;
+  color: var(--brand);
+}
+.android-small {
+  margin: 0.8rem 0 0;
+  opacity: 0.8;
+  font-size: 0.9rem;
+}
+.android-scan {
+  text-align: center;
+}
+.android-scan p {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+.android-qr {
+  width: min(220px, 100%);
+  height: auto;
+  border-radius: 12px;
+}
+.android-steps {
+  max-width: 760px;
+  margin: 2.5rem auto 0;
+}
+.android-steps h2 {
+  font-size: 1.5rem;
+}
+.android-steps ol {
+  display: grid;
+  gap: 0.7rem;
+  padding-left: 1.3rem;
+  line-height: 1.55;
+}
+@media (max-width: 760px) {
+  .android-hero {
+    grid-template-columns: 1fr;
+  }
+  .android-scan {
+    display: none;
+  }
+}
+.home-app {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+.home-app a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--brand);
+}
