@@ -115,11 +115,17 @@ export default function VerifyPage() {
           <input id="verify-file" type="file" accept="application/pdf,.pdf" onChange={(e) => void compare(e.target.files?.[0])} />
         </label>
         {check.k === 'busy' && <Muted>Checking…</Muted>}
-        {check.k === 'match' && (
-          <p role="status">
-            <BadgeCheck aria-hidden /> Exact match: this file is the document that was issued{valid ? '' : ', but the issuer has since revoked it'}.
-          </p>
-        )}
+        {check.k === 'match' &&
+          (valid ? (
+            <p role="status">
+              <BadgeCheck aria-hidden /> Exact match: this file is the document that was issued.
+            </p>
+          ) : (
+            // A genuine copy of a revoked document must not look reassuring.
+            <p role="alert">
+              <CircleAlert aria-hidden /> This file is the document that was issued, but the issuer has revoked it. Do not rely on it.
+            </p>
+          ))}
         {check.k === 'mismatch' && (
           <p role="alert">
             <CircleX aria-hidden /> This file does not match. It may have been altered, re-saved or exported again, or it is a different document. A printed
