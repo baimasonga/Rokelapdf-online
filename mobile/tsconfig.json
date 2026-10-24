@@ -11,7 +11,11 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "types": ["vite/client"],
-    "paths": { "@/*": ["../src/*"] }
+    "paths": {
+      "@/*": ["../src/*"],
+      "pdf-lib": ["./node_modules/pdf-lib"],
+      "@pdf-lib/fontkit": ["./node_modules/@pdf-lib/fontkit"]
+    }
   },
   "include": ["src", "vite.config.ts", "capacitor.config.ts"]
 }

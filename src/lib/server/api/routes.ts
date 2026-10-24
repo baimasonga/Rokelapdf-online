@@ -134,6 +134,9 @@ export function buildRouter(): Router {
     });
   });
 
+  // The Android app reads its configuration and converts Word ⇄ PDF; nothing else is reachable from it.
+  r.allowApp('GET', '/api/v1/config').allowApp('POST', '/api/v1/convert/:target');
+
   // ---- overview and documents ------------------------------------------------------------------------
   r.add('GET', `${P}/overview`, 'user', async (x) => sh(x).overview(me(x), org(x)));
   r.add('GET', `${P}/documents`, 'user', async (x) => ({ items: await sh(x).listDocuments(me(x), org(x)) }));

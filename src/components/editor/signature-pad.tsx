@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Button, Modal } from '@/components/ui';
 import type { Signature } from './page-view';
+import { trimSignature as finish, typedSignature } from '@/lib/editor/signature';
 
 // Creates a signature image on this device: drawn, typed or from a photo/scan. The result is a trimmed PNG with a
 // transparent background; it is never uploaded and is forgotten when the editor closes.
@@ -15,39 +16,6 @@ const FONTS: Array<[string, string]> = [
 ];
 const W = 640;
 const H = 220;
-const MAX_OUT = 900;
-
-/** Crops to the drawn pixels (plus a little padding) and limits the size; undefined when nothing is drawn. */
-function finish(src: HTMLCanvasElement): Signature | undefined {
-  const ctx = src.getContext('2d')!;
-  const { data, width, height } = ctx.getImageData(0, 0, src.width, src.height);
-  let x0 = width;
-  let y0 = height;
-  let x1 = -1;
-  let y1 = -1;
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++)
-      if (data[(y * width + x) * 4 + 3]! > 16) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
-      }
-  if (x1 < 0) return undefined;
-  const pad = 4;
-  x0 = Math.max(0, x0 - pad);
-  y0 = Math.max(0, y0 - pad);
-  x1 = Math.min(width - 1, x1 + pad);
-  y1 = Math.min(height - 1, y1 + pad);
-  const w = x1 - x0 + 1;
-  const h = y1 - y0 + 1;
-  const k = Math.min(1, MAX_OUT / Math.max(w, h));
-  const out = document.createElement('canvas');
-  out.width = Math.max(1, Math.round(w * k));
-  out.height = Math.max(1, Math.round(h * k));
-  out.getContext('2d')!.drawImage(src, x0, y0, w, h, 0, 0, out.width, out.height);
-  return { src: out.toDataURL('image/png'), aspect: out.width / out.height };
-}
 
 export function SignaturePad({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (s: Signature) => void }) {
   const [mode, setMode] = useState<Mode>('draw');
@@ -129,24 +97,7 @@ export function SignaturePad({ open, onClose, onDone }: { open: boolean; onClose
     let sig: Signature | undefined;
     if (mode === 'draw') sig = canvas.current ? finish(canvas.current) : undefined;
     else if (mode === 'upload') sig = hasUpload && upload.current ? finish(upload.current) : undefined;
-    else {
-      const text = name.trim().slice(0, 60);
-      if (text) {
-        const c = document.createElement('canvas');
-        c.width = 1200;
-        c.height = 260;
-        const ctx = c.getContext('2d')!;
-        ctx.fillStyle = ink;
-        ctx.textBaseline = 'middle';
-        let size = 120;
-        do {
-          ctx.font = `${size}px ${font}`;
-          size -= 6;
-        } while (ctx.measureText(text).width > c.width - 40 && size > 30);
-        ctx.fillText(text, 20, c.height / 2);
-        sig = finish(c);
-      }
-    }
+    else sig = typedSignature(name, font, ink);
     if (!sig)
       return setError(mode === 'type' ? 'Type your name first.' : mode === 'upload' ? 'Choose an image of your signature.' : 'Draw your signature first.');
     onDone(sig);

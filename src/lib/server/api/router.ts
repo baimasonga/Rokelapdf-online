@@ -25,6 +25,8 @@ type Mode = 'user' | 'public' | 'operator';
 interface Route {
   method: string;
   parts: string[];
+  /** Readable by Rokela PDF's own apps (see APP_ORIGINS). */
+  app?: boolean;
   mode: Mode;
   handler: Handler;
   /** Per-IP limit per minute for public routes (defaults to config). */
@@ -35,6 +37,14 @@ export class Router {
   readonly routes: Route[] = [];
   add(method: string, path: string, mode: Mode, handler: Handler, limit?: number) {
     this.routes.push({ method, parts: path.split('/').filter(Boolean), mode, handler, ...(limit ? { limit } : {}) });
+    return this;
+  }
+  /** Lets Rokela PDF's apps call an already-listed route from their WebView (CORS for APP_ORIGINS only). */
+  allowApp(method: string, path: string) {
+    const parts = path.split('/').filter(Boolean);
+    const route = this.routes.find((r) => r.method === method && r.parts.join('/') === parts.join('/'));
+    if (!route) throw new Error(`allowApp: no route ${method} ${path}`);
+    route.app = true;
     return this;
   }
   #match(method: string, path: string): { route: Route; params: Record<string, string> } | undefined {
@@ -61,9 +71,14 @@ export class Router {
   async handle(c: Container, req: Request): Promise<Response> {
     const requestId = crypto.randomUUID();
     const url = new URL(req.url);
+    const origin = req.headers.get('origin');
+    let cors: string | undefined;
     try {
+      if (req.method === 'OPTIONS')
+        return preflight(this.#match(req.headers.get('access-control-request-method') ?? '', url.pathname)?.route, origin, requestId);
       const m = this.#match(req.method, url.pathname);
       if (!m) throw new DomainError('not_found', 'not found');
+      if (m.route.app) cors = appOrigin(origin) ?? '';
       const ip = clientIp(req, c.config.trustProxy);
       if (
         m.route.mode === 'public' &&
@@ -97,10 +112,10 @@ export class Router {
         },
       };
       const out = await m.route.handler(ctx);
-      if (out instanceof Response) return withHeaders(out, requestId);
-      return withHeaders(json(out === undefined ? null : toWire(out)), requestId);
+      if (out instanceof Response) return withHeaders(out, requestId, cors);
+      return withHeaders(json(out === undefined ? null : toWire(out)), requestId, cors);
     } catch (e) {
-      return withHeaders(errorResponse(e, requestId), requestId);
+      return withHeaders(errorResponse(e, requestId), requestId, cors);
     }
   }
 }
@@ -166,8 +181,38 @@ function errorResponse(e: unknown, requestId: string): Response {
   return json({ code: 'internal', message: 'internal error', request_id: requestId }, 500);
 }
 
-function withHeaders(res: Response, requestId: string): Response {
+/**
+ * Origins of Rokela PDF's own apps: Capacitor serves the Android app's pages from https://localhost inside its
+ * WebView. The API authenticates with bearer tokens and never cookies, so allowing an origin gives it no ambient
+ * authority; it only lets the app read responses to requests it could already send. Only routes marked with
+ * `allowApp` answer cross-origin, and no other origin is ever allowed.
+ */
+export const APP_ORIGINS: readonly string[] = ['https://localhost'];
+const appOrigin = (origin: string | null) => (origin && APP_ORIGINS.includes(origin) ? origin : undefined);
+
+/** CORS preflight: allowed only for an app origin asking about an app route; anything else is an empty 404. */
+function preflight(route: Route | undefined, origin: string | null, requestId: string): Response {
+  const allowed = route?.app ? appOrigin(origin) : undefined;
+  if (!allowed) return withHeaders(new Response(null, { status: 404 }), requestId, route?.app ? '' : undefined);
+  const res = new Response(null, {
+    status: 204,
+    headers: {
+      'access-control-allow-methods': route!.method,
+      'access-control-allow-headers': 'authorization, content-type',
+      'access-control-max-age': '600',
+    },
+  });
+  return withHeaders(res, requestId, allowed);
+}
+
+/** `cors`: undefined for routes apps cannot use, '' for an app route requested from another origin. */
+function withHeaders(res: Response, requestId: string, cors?: string): Response {
   const h = new Headers(res.headers);
+  if (cors !== undefined) h.append('vary', 'origin');
+  if (cors) {
+    h.set('access-control-allow-origin', cors);
+    h.set('access-control-expose-headers', 'content-disposition, x-request-id');
+  }
   h.set('x-request-id', requestId);
   h.set('cache-control', 'no-store');
   h.set('x-content-type-options', 'nosniff');
