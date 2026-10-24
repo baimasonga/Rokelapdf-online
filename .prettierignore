@@ -9,3 +9,4 @@ mobile/node_modules/
 mobile/dist/
 mobile/android/
 mobile/package-lock.json
+mobile/public/

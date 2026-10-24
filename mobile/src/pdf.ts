@@ -3,6 +3,20 @@ import worker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 GlobalWorkerOptions.workerSrc = worker;
 
+/** Character maps, fonts and decoders bundled with the app (public/pdfjs), so every PDF renders offline. */
+const asset = (p: string) => new URL(p, document.baseURI).href;
+export const PDF_DATA = {
+  cMapUrl: asset('pdfjs/cmaps/'),
+  cMapPacked: true,
+  standardFontDataUrl: asset('pdfjs/standard_fonts/'),
+  wasmUrl: asset('pdfjs/wasm/'),
+  iccUrl: asset('pdfjs/iccs/'),
+  enableXfa: false,
+};
+
+/** Thrown when a PDF needs a password to open. */
+export class PasswordRequired extends Error {}
+
 /** An open document and the means to release its worker resources. */
 export interface OpenPdf {
   doc: PDFDocumentProxy;
@@ -11,12 +25,12 @@ export interface OpenPdf {
 
 export async function openPdf(bytes: Uint8Array): Promise<OpenPdf> {
   // pdf.js takes ownership of the buffer it is given; keep the caller's copy usable for sharing.
-  const task = getDocument({ data: bytes.slice() });
+  const task = getDocument({ data: bytes.slice(), ...PDF_DATA });
   try {
     return { doc: await task.promise, close: () => task.destroy() };
   } catch (e) {
     void task.destroy();
-    if ((e as Error)?.name === 'PasswordException') throw new Error('This PDF is password-protected.');
+    if ((e as Error)?.name === 'PasswordException') throw new PasswordRequired('This PDF is password-protected.');
     throw new Error('This file could not be opened as a PDF.');
   }
 }

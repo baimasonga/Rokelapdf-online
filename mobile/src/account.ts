@@ -41,8 +41,9 @@ export async function signOut() {
   await (await supabase()).auth.signOut();
 }
 
-export type Target = 'pdf' | 'docx';
-export const WORD_EXTENSIONS = ['docx', 'doc', 'odt', 'rtf'];
+export type Target = 'pdf' | 'docx' | 'xlsx' | 'pptx';
+/** Word, Excel and PowerPoint files (and their OpenDocument equivalents) the converter turns into PDF. */
+export const OFFICE_EXTENSIONS = ['docx', 'doc', 'odt', 'rtf', 'xlsx', 'xls', 'ods', 'pptx', 'ppt', 'odp'];
 
 /** The original base name with the new extension. */
 export const renamed = (name: string, ext: Target) => `${name.replace(/\.[a-z0-9]{2,5}$/i, '').trim() || 'document'}.${ext}`;

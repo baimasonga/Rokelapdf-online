@@ -5,15 +5,25 @@ Shared browser code is imported from the web app with the `@/` alias (`../src`).
 
 ## What it does
 
-| Feature            | Status | Notes                                                                                              |
-| ------------------ | ------ | -------------------------------------------------------------------------------------------------- |
-| Scan a document    | Ready  | Google ML Kit document scanner: edge detection, clean-up, gallery import, up to 50 pages, PDF out. |
-| Open a PDF         | Ready  | File picker, plus "Open with" and "Share" from WhatsApp, Files, Gmail and other apps.              |
-| View               | Ready  | pdf.js; pages render as they scroll into view.                                                     |
-| Share and save     | Ready  | Android share sheet, or "Save" with Android's own Save-to dialog (no storage permission).          |
-| Sign a PDF         | Ready  | Draw or type a signature, tap to place, drag and resize; drawn into the PDF on the phone.          |
-| Word ⇄ PDF         | Ready  | Through rokelapdf.com's converter: needs internet and a signed-in account with a confirmed email.  |
-| Play Store release | Later  | Step 3: needs a Play developer account, a 512 px icon and a release signing key.                   |
+| Feature                                       | Where it runs | Notes                                                                                            |
+| --------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------ |
+| Scan a document                               | Phone         | Google ML Kit document scanner: edge detection, clean-up, gallery import, up to 50 pages.        |
+| Open, view, save, share                       | Phone         | "Open with"/"Share" from other apps; Save uses Android's Save-to dialog (no storage permission). |
+| Sign                                          | Phone         | Draw or type a signature, place, drag and resize.                                                |
+| Edit                                          | Phone         | Add text, highlight, draw, cover (white-out) and pictures. Cover + text replaces words.          |
+| Pages                                         | Phone         | Reorder, rotate, delete, add pages from another PDF.                                             |
+| Combine PDFs, Photos → PDF                    | Phone         |                                                                                                  |
+| Compress                                      | Phone         | Light / Recommended / Strong; never returns a bigger file.                                       |
+| Protect / unlock                              | Phone         | AES-256 password; protected PDFs ask for the password when opened and open an unlocked copy.     |
+| Make text searchable (OCR)                    | Phone         | Tesseract (English) bundled in the app; pages that already have text are skipped.                |
+| Fill in a form                                | Phone         | Text, checkbox, list and radio fields; optional "lock the answers" (flatten).                    |
+| PDF → Word / Excel / PowerPoint, Office → PDF | rokelapdf.com | Needs internet and a signed-in account with a confirmed email.                                   |
+| Play Store release                            |               | Later: needs a Play developer account, a 512 px icon and a release signing key.                  |
+
+The tools are the website's own (`src/lib/tools`, `src/lib/editor`, `src/lib/client/{ocr,raster}.ts`), shared through the
+`@/` alias; `src/pdfjs-shim.ts` stands in for the website's pdf.js loader. `npm run build` first copies pdf.js data and the
+OCR engine into `public/` (`tools/copy-assets.mjs`, not committed). `npm run smoke` drives every tool in a phone-sized
+browser and checks each saved PDF (CI runs it before building the APK).
 
 Signing reuses the web editor's export (`src/lib/editor`): signatures never leave the phone. Conversions call
 `POST /api/v1/convert/:target` on `VITE_SITE_ORIGIN` (default `https://www.rokelapdf.com`) with the Supabase access
