@@ -167,18 +167,20 @@ async function main() {
     const layer = page.locator('.edit-layer').first();
     const box = await layer.boundingBox();
     await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.3);
-    await page.getByLabel('Text', { exact: true }).fill('Paid in full');
+    await page.getByLabel('Text', { exact: true }).fill('Paid in full · Привет');
     await page.getByRole('button', { name: 'Done' }).click();
     const drag = async (tool, x1, y1, x2, y2) => {
       await page.getByRole('radio', { name: tool }).click();
+      const box = await layer.boundingBox();
       await page.mouse.move(box.x + box.width * x1, box.y + box.height * y1);
       await page.mouse.down();
       for (let i = 1; i <= 8; i++) await page.mouse.move(box.x + box.width * (x1 + ((x2 - x1) * i) / 8), box.y + box.height * (y1 + ((y2 - y1) * i) / 8));
       await page.mouse.up();
     };
     await drag('Highlight', 0.08, 0.08, 0.6, 0.11);
-    await drag('Draw', 0.1, 0.5, 0.6, 0.55);
-    await drag('Cover', 0.08, 0.13, 0.5, 0.155);
+    await drag('Cover', 0.4, 0.4, 0.8, 0.45);
+    // Drawn after the cover and across it: it must show (and save) on top of the cover.
+    await drag('Draw', 0.35, 0.38, 0.85, 0.48);
     await page.getByRole('radio', { name: 'Image' }).click();
     await input('image/*').setInputFiles(file('photo.png'));
     await page.getByText(/Tap where the picture goes/).waitFor();
@@ -190,6 +192,11 @@ async function main() {
         (await page.locator('.edit-layer .placed').count()) === 1,
       'highlight, cover, drawing and picture are shown',
     );
+    const stacked = await page.evaluate(() => {
+      const els = [...document.querySelector('.edit-layer').children];
+      return els.findIndex((e) => e.matches('svg.ink')) > els.findIndex((e) => e.matches('.box.whiteout'));
+    });
+    check(stacked, 'the preview stacks edits in the order they were made (a stroke drawn after a cover shows on top)');
     await page.getByRole('button', { name: 'Undo' }).click();
     check((await page.locator('.edit-layer .placed').count()) === 0, 'Undo removes the last change');
     await page.getByRole('button', { name: 'Save changes' }).click();
@@ -197,6 +204,7 @@ async function main() {
     const edited = await saved();
     r = await textOf(edited);
     check(/Paid in full/.test(r.text) && /TENANCY/.test(r.text), 'edited PDF contains the typed text and the original text');
+    check(/Привет/.test(r.text), 'text beyond Latin letters is kept (embedded Unicode font)');
 
     step('Pages: rotate, add a PDF, move, delete');
     await page.getByRole('button', { name: 'Pages', exact: true }).click();

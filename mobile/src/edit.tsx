@@ -1,6 +1,6 @@
 import { useRef, useState, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { buildPdf } from '@/lib/editor/export';
+import { buildEditedPdf } from '@/lib/client/editor-export';
 import { norm } from '@/lib/editor/model';
 import { overlayEdits, type OverlayItem, type ShownPage } from '@/lib/editor/overlay';
 
@@ -40,7 +40,8 @@ export async function editPdf(bytes: Uint8Array, doc: PDFDocumentProxy, items: r
       return { rotation: norm(page.rotate), shownWidth: page.getViewport({ scale: 1 }).width };
     }),
   );
-  return buildPdf([bytes], overlayEdits(pages, items));
+  // The web editor's export: embeds Noto Sans when the text needs more than Helvetica's characters.
+  return buildEditedPdf([bytes], overlayEdits(pages, items));
 }
 
 const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
@@ -69,7 +70,13 @@ export function EditLayer({
   onText: (at: { page: number; u: number; v: number } | Item) => void;
 }) {
   const layer = useRef<HTMLDivElement>(null);
-  const [draft, setDraft] = useState<Item>();
+  const [draft, setDraftState] = useState<Item>();
+  // The item being drawn lives in a ref too: a quick swipe can lift the finger before React re-renders.
+  const draftRef = useRef<Item>(undefined);
+  const setDraft = (d: Item | undefined) => {
+    draftRef.current = d;
+    setDraftState(d);
+  };
   const start = useRef<{ u: number; v: number }>(undefined);
   const drag = useRef<{ id: number; kind: 'move' | 'size'; x: number; y: number }>(undefined);
   /** Set when a press turned into a drag, so the click that follows does not open the text sheet. */
@@ -100,6 +107,7 @@ export function EditLayer({
       });
   };
   const move = (e: RPointerEvent<HTMLDivElement>) => {
+    const draft = draftRef.current;
     if (!draft || !start.current) return;
     const p = at(e);
     if (draft.kind === 'ink') setDraft({ ...draft, points: [...draft.points, [p.u, p.v]] });
@@ -109,7 +117,7 @@ export function EditLayer({
     }
   };
   const up = () => {
-    const d = draft;
+    const d = draftRef.current;
     setDraft(undefined);
     start.current = undefined;
     if (!d) return;
@@ -174,23 +182,21 @@ export function EditLayer({
       onPointerCancel={up}
       onClick={tap}
     >
-      <svg className="ink" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
-        {shown.map((it) =>
-          it.kind === 'ink' ? (
-            <polyline
-              key={it.id}
-              points={it.points.map(([u, v]) => `${u},${v}`).join(' ')}
-              fill="none"
-              stroke={it.color}
-              strokeWidth={Math.max(1.5, it.width * width)}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : null,
-        )}
-      </svg>
       {shown.map((it) => {
+        if (it.kind === 'ink')
+          return (
+            <svg key={it.id} className="ink" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+              <polyline
+                points={it.points.map(([u, v]) => `${u},${v}`).join(' ')}
+                fill="none"
+                stroke={it.color}
+                strokeWidth={Math.max(1.5, it.width * width)}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          );
         if (it.kind === 'highlight' || it.kind === 'whiteout')
           return (
             <div

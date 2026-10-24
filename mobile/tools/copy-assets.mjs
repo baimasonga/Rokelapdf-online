@@ -25,4 +25,9 @@ cpSync(need(join(nm, 'tesseract.js', 'dist', 'worker.min.js')), join(ocr, 'worke
 for (const f of ['tesseract-core-lstm.wasm.js', 'tesseract-core-simd-lstm.wasm.js', 'tesseract-core-relaxedsimd-lstm.wasm.js'])
   cpSync(need(join(nm, 'tesseract.js-core', f)), join(ocr, 'core', f));
 cpSync(need(join(nm, '@tesseract.js-data', 'eng', '4.0.0_best_int', 'eng.traineddata.gz')), join(ocr, 'lang', 'eng.traineddata.gz'));
-console.log('copied pdf.js data and OCR assets into public/');
+// Noto Sans for edited text beyond Helvetica's characters (the web editor's export loads /fonts/NotoSans-Regular.ttf).
+const fonts = join(pub, 'fonts');
+rmSync(fonts, { recursive: true, force: true });
+mkdirSync(fonts, { recursive: true });
+for (const f of ['NotoSans-Regular.ttf', 'LICENSE.txt']) cpSync(need(join(root, '..', 'public', 'fonts', f)), join(fonts, f));
+console.log('copied pdf.js data, OCR assets and fonts into public/');
