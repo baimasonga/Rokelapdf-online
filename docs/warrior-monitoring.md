@@ -57,3 +57,48 @@ proves restart retry, exact ID retention, durable receipt, concurrent deduplicat
 fresh recovery, portal notification intents and audit verification. Without
 `WARRIOR_CHECKOUT`, this optional cross-repository test is explicitly skipped; a
 skipped test is not integration acceptance.
+
+## Idle dependency readiness (24 October 2026)
+
+With monitoring configured, a separate background task runs at startup and every
+60 seconds. Runs never overlap and do not wait for sharing jobs or maintenance.
+The converter check calls only the configured converter's `/health`, refuses
+redirects, requires HTTP success plus `ok: true` and `service: rokela-converter`,
+and caps the body at 4 KiB and the whole request at five seconds. No converter
+credential or document is sent. This checks installed converter dependencies,
+not authentication or the correctness of every conversion format.
+
+The scanner check sends ClamAV's `zPING` command to the configured private daemon,
+requires an exact `PONG` response, and caps the reply at 64 characters and the
+whole connection at five seconds. It checks daemon responsiveness, not a real
+file scan or signature freshness. A missing converter/ClamAV configuration reports
+unknown rather than claiming health from structural-only content checks. A failed
+scanner probe also emits `scanner.unavailable` with bounded actual queue counts.
+Converter probe failures emit unavailable heartbeats, never fabricated conversion
+failures. Fresh successful probes provide recovery evidence to Warrior.
+
+Checks run independently; monitoring errors cannot prevent document jobs or
+startup. Probe errors, addresses, responses and credentials are never logged or
+included in monitoring payloads. Existing upload scans remain fail closed.
+
+Railway's tracked `railway.json` configures `/api/v1/health` with a 120-second
+healthcheck timeout. Live dashboard overrides must be inspected separately; source
+configuration alone is not proof of a successful deployed health check. An
+independent external uptime monitor and its alert destination remain separate
+account configuration, not provided by these dependency probes.
+
+Verification and rollout: readiness/protocol tests exercise failures, recovery,
+wrong service/body, response budgets, a silent scanner, HTTP body timeout,
+startup cadence, non-overlap and disabled monitoring. Confirm fresh idle reports
+from all three actual production components after GitHub deployment before
+claiming this release live. Never stop production dependencies to test alerts;
+use isolated fake services for failure/recovery acceptance.
+
+Local evidence for this change (24 October 2026): `npm run check` passed
+(268 passed, two optional tests skipped), production build passed, and focused
+Warrior suites passed as the restricted app role (22 tests). The optional
+cross-repository acceptance was run separately with the Warrior checkout and
+passed conversion failure → durable receipt → deduplicated incident → fresh
+recovery. Deliberate wrong-service acceptance and slow-schedule mutations were
+caught by the focused tests and restored. These are isolated tests, not a claim
+that the new readiness task is already running in production.

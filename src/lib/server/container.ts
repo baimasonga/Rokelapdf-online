@@ -1,3 +1,4 @@
+import { checkWarriorReadiness } from './warrior-readiness';
 import { WarriorMonitor } from './warrior';
 import 'server-only';
 import { resolveTxt } from 'node:dns/promises';
@@ -28,6 +29,7 @@ export interface Container {
   rateLimiter: RateLimiter;
   conversions: ConversionService;
   warrior: WarriorMonitor | undefined;
+  warriorReadiness: (() => Promise<void>) | undefined;
   localStore: LocalObjectStore | undefined;
   close(): Promise<void>;
 }
@@ -185,6 +187,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     rateLimiter,
     conversions,
     warrior,
+    warriorReadiness: warrior ? () => checkWarriorReadiness(config, warrior) : undefined,
     localStore,
     close: async () => {
       await monitorPool?.end();
