@@ -4191,3 +4191,10 @@ button.org-page:hover:not(:disabled) {
   font-size: 1.25rem;
   margin-top: 2rem;
 }
+
+/* Verified document page status heading */
+.verify-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}

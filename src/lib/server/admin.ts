@@ -50,6 +50,7 @@ const BOOLEAN_KEYS = new Set<string>([
   LIMIT_ENTITLEMENTS.customDomains,
   LIMIT_ENTITLEMENTS.branding,
   LIMIT_ENTITLEMENTS.advancedAnalytics,
+  LIMIT_ENTITLEMENTS.verifiedDocuments,
 ]);
 const KNOWN_KEYS = new Set<string>(Object.values(LIMIT_ENTITLEMENTS));
 

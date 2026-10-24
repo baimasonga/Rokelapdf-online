@@ -204,7 +204,8 @@ A team workspace's plan covers its members; another workspace has its own plan.
    ```
    Keys: `share_storage_bytes`, `share_max_file_bytes`, `share_retention_days`, `share_persistent`,
    `share_bandwidth_bytes_per_month`, `share_api_requests_per_month`, `share_processing_bytes_per_month`,
-   `share_upload_requests`, `share_custom_domains`, `share_branding`, `share_advanced_analytics`.
+   `share_upload_requests`, `share_custom_domains`, `share_branding`, `share_advanced_analytics`,
+   `share_verified_documents` (QR-verified PDFs; team workspaces only, see `docs/verified-documents.md`).
 
 ## 5. First-deploy checklist
 

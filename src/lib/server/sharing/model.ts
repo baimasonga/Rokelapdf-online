@@ -323,6 +323,28 @@ export interface DomainRow {
   missingSince: Date | null;
 }
 
+/** A PDF issued with a public verification QR code (docs/verified-documents.md). Never deleted. */
+export interface VerifiedDocumentRow {
+  id: string;
+  orgId: string;
+  /** Public, unguessable code printed on the document (`/v/<code>`). */
+  code: string;
+  title: string;
+  /** Details the issuer chose to publish on the verification page. */
+  details: Array<{ label: string; value: string }>;
+  /** Workspace name when the code was reserved. */
+  issuerName: string;
+  /** SHA-256 (hex) of the stamped PDF; null while pending. */
+  sha256: string | null;
+  status: 'pending' | 'active' | 'revoked';
+  createdBy: string;
+  createdAt: Date;
+  issuedAt: Date | null;
+  revokedAt: Date | null;
+  revokedBy: string | null;
+  revocationReason: 'issued_in_error' | 'superseded' | 'payment_reversed' | 'fraud_suspected' | 'other' | null;
+}
+
 export interface BrandRow {
   id: string; // = orgId
   orgId: string;
@@ -369,6 +391,7 @@ export interface Rows {
   domain: DomainRow;
   brand: BrandRow;
   abuse: AbuseRow;
+  verifiedDocument: VerifiedDocumentRow;
 }
 export type Kind = keyof Rows;
 export const KINDS = [
@@ -392,6 +415,7 @@ export const KINDS = [
   'domain',
   'brand',
   'abuse',
+  'verifiedDocument',
 ] as const satisfies readonly Kind[];
 
 /** Global unique lookups (public paths resolve a secret's hash to its row; the row then names its tenant). */
@@ -401,6 +425,7 @@ export const UNIQUE_LOOKUPS = {
   submission: ['secretHash'],
   shortLink: ['lookupKey'],
   abuse: [],
+  verifiedDocument: ['code'],
 } as const satisfies Partial<Record<Kind, readonly string[]>>;
 export type UniqueKind = keyof typeof UNIQUE_LOOKUPS;
 export type UniqueField<K extends UniqueKind> = (typeof UNIQUE_LOOKUPS)[K][number];
@@ -411,6 +436,7 @@ export const UNIQUE_TOGETHER: Partial<Record<Kind, readonly string[][]>> = {
   uploadRequest: [['tokenHash']],
   submission: [['secretHash']],
   shortLink: [['lookupKey']],
+  verifiedDocument: [['code']],
   domain: [['orgId', 'hostname']],
   version: [['documentId', 'number']],
   review: [['versionId', 'reviewerUserId']],

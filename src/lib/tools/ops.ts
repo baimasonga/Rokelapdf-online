@@ -26,6 +26,7 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import { unzlibSync } from 'fflate';
+import { encodeQr } from '../qr';
 import { loadSource, EditorError } from '../editor/export';
 import { drawableText, norm, toPage, displaySize, type Rotation } from '../editor/model';
 
@@ -332,6 +333,54 @@ export async function addWatermark(bytes: Uint8Array, o: WatermarkOptions, spec 
       drawCentered(page, font, text, o.fontSize, dims.w / 2, dims.h / 2, turn, { color, opacity: o.opacity });
     }
   });
+  return save(d);
+}
+
+// ---- verified documents ---------------------------------------------------------------------------------------
+/**
+ * Stamps a verification QR code for `url` and the line "Verify at <url>" at the bottom right of every page as it is
+ * displayed (rotation-aware), on a white background so they stay readable over content. The issuer then registers
+ * the SHA-256 of the returned bytes (docs/verified-documents.md).
+ */
+export async function stampVerification(bytes: Uint8Array, url: string): Promise<Uint8Array> {
+  if (!/^https?:\/\/[^\s]+$/.test(url) || url.length > 200) fail('Invalid verification address.');
+  const d = await load(bytes);
+  const font = await d.embedFont(StandardFonts.Helvetica);
+  const qr = encodeQr(url);
+  const label = `Verify at ${url.replace(/^https?:\/\//, '')}`;
+  for (const page of d.getPages()) {
+    const box = page.getCropBox();
+    const r: Rotation = norm(page.getRotation().angle);
+    const dims = displaySize(box.width, box.height, r);
+    // Quiet zone of 4 modules (ISO/IEC 18004); about an inch on an A4 or Letter page.
+    const size = Math.min(80, Math.max(56, Math.min(dims.w, dims.h) * 0.12));
+    const cell = size / (qr.size + 8);
+    const margin = Math.min(18, Math.min(dims.w, dims.h) * 0.03);
+    const left = dims.w - margin - size;
+    const top = dims.h - margin - size;
+    // Fills a rectangle given in display coordinates (y grows downwards).
+    const fill = (x: number, y: number, w: number, h: number, color: ReturnType<typeof rgb>) => {
+      const a = toPage(x / dims.w, y / dims.h, r);
+      const b = toPage((x + w) / dims.w, (y + h) / dims.h, r);
+      const minX = Math.min(a.x, b.x),
+        maxY = Math.max(a.y, b.y);
+      page.drawRectangle({
+        x: box.x + minX * box.width,
+        y: box.y + (1 - maxY) * box.height,
+        width: Math.abs(b.x - a.x) * box.width,
+        height: Math.abs(b.y - a.y) * box.height,
+        color,
+        borderWidth: 0,
+      });
+    };
+    const fontSize = 6;
+    const textW = font.widthOfTextAtSize(label, fontSize);
+    fill(left - textW - 6, top + size - fontSize * 2, textW + 6, fontSize * 2, rgb(1, 1, 1));
+    fill(left, top, size, size, rgb(1, 1, 1));
+    for (let y = 0; y < qr.size; y++)
+      for (let x = 0; x < qr.size; x++) if (qr.modules[y]![x]) fill(left + (x + 4) * cell, top + (y + 4) * cell, cell, cell, rgb(0, 0, 0));
+    drawCentered(page, font, label, fontSize, left - 3 - textW / 2, top + size - fontSize, 0, { color: rgb(0.1, 0.1, 0.1), opacity: 1 });
+  }
   return save(d);
 }
 

@@ -22,6 +22,7 @@ import type {
   TransferRow,
   UploadRequestRow,
   UploadTarget,
+  VerifiedDocumentRow,
   VersionRow,
 } from './model';
 import {
@@ -128,6 +129,8 @@ export interface SharingDeps {
   managers?: (orgId: string) => Promise<string[]>;
   /** A pending team invitation, for its email (undefined once answered, cancelled or expired). */
   invitation?: (id: string) => Promise<{ email: string; workspaceName: string; invitedBy: string; role: string; expiresAt: Date } | undefined>;
+  /** Name and kind of a workspace, for the issuer shown on verified documents. */
+  organization?: (orgId: string) => Promise<{ name: string; kind: 'personal' | 'team' } | undefined>;
 }
 
 /** Request facts for public endpoints. Only coarse, non-identifying attributes are ever stored. */
@@ -138,6 +141,13 @@ export interface PublicContext {
 }
 
 const notFound = () => new DomainError('not_found', 'not found');
+const VERIFICATION_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+/** 20 symbols from 32: each random byte's low 5 bits are uniform, giving 100 bits. */
+const verificationCode = () => Array.from(randomBytes(20), (b) => VERIFICATION_ALPHABET[b & 31]).join('');
+const VERIFICATION_MAX_DETAILS = 8;
+const VERIFICATION_RESERVED_LABELS = new Set(['document', 'issuedby', 'issuer', 'issuedon', 'issued', 'code', 'status', 'valid', 'verified', 'revoked']);
+const VERIFICATION_RESERVATION_MS = 60 * 60 * 1000;
+export const VERIFICATION_REVOCATION_REASONS = ['issued_in_error', 'superseded', 'payment_reversed', 'fraud_suspected', 'other'] as const;
 const invalid = (m: string) => new DomainError('invalid_request', m);
 const quota = (what: string) => new DomainError('quota_exceeded', `${what} limit reached for this plan`);
 const unavailable = (state: string) => new DomainError('link_unavailable', 'this link is no longer available', { state });
@@ -3060,6 +3070,134 @@ export class SharingService {
       await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.domain.removed', { type: 'custom_domain', id }, { hostname: d.hostname });
       return { removed: true };
     });
+  }
+
+  // =============================================================================================
+  // Verified documents (docs/verified-documents.md)
+  // =============================================================================================
+
+  #verificationView(v: VerifiedDocumentRow) {
+    return {
+      id: v.id,
+      code: v.code,
+      url: `${this.#c.publicOrigin}/v/${v.code}`,
+      title: v.title,
+      details: v.details,
+      issuerName: v.issuerName,
+      status: v.status,
+      sha256: v.sha256,
+      createdBy: v.createdBy,
+      createdAt: v.createdAt,
+      issuedAt: v.issuedAt,
+      revokedAt: v.revokedAt,
+      revocationReason: v.revocationReason,
+    };
+  }
+
+  /** Reserves a verification code; the browser stamps it into the PDF and then issues the stamped file's digest. */
+  async reserveVerification(p: UserPrincipal, orgId: string, input: { title: string; details: Array<{ label: string; value: string }> }) {
+    const docTitle = title(input.title);
+    if (!Array.isArray(input.details) || input.details.length > VERIFICATION_MAX_DETAILS) throw invalid(`at most ${VERIFICATION_MAX_DETAILS} details`);
+    const details = input.details.map((d, i) => {
+      const label = text(d.label, 40, `detail ${i + 1} label`);
+      const value = text(d.value, 200, `detail ${i + 1} value`);
+      if (!label || !value) throw invalid(`detail ${i + 1} needs a label and a value`);
+      // Labels must not imitate the facts the verification page vouches for itself.
+      if (VERIFICATION_RESERVED_LABELS.has(label.toLowerCase().replace(/[^a-z]/g, ''))) throw invalid(`detail ${i + 1} label is reserved`);
+      return { label, value };
+    });
+    if (new Set(details.map((d) => d.label.toLowerCase())).size !== details.length) throw invalid('detail labels must be different');
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
+      if (!limits.verifiedDocuments) throw new DomainError('forbidden', 'verified documents are not included in this plan');
+      const org = await this.#d.organization?.(orgId);
+      if (!org) throw notFound();
+      if (org.kind !== 'team') throw new DomainError('forbidden', 'verified documents are issued from a team workspace');
+      const row: VerifiedDocumentRow = {
+        id: newId('vdoc'),
+        orgId,
+        code: verificationCode(),
+        title: docTitle,
+        details,
+        issuerName: org.name,
+        sha256: null,
+        status: 'pending',
+        createdBy: p.userId,
+        createdAt: now,
+        issuedAt: null,
+        revokedAt: null,
+        revokedBy: null,
+        revocationReason: null,
+      };
+      await tx.insert('verifiedDocument', row);
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.verification.reserved', { type: 'verified_document', id: row.id });
+      return this.#verificationView(row);
+    });
+  }
+
+  /** Binds a reservation to the SHA-256 of the stamped PDF. Only its creator, once, within the reservation window. */
+  async issueVerification(p: UserPrincipal, orgId: string, id: string, input: { sha256: string }) {
+    const sha256 = String(input.sha256 ?? '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(sha256)) throw invalid('sha256 must be 64 hexadecimal characters');
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
+      if (!limits.verifiedDocuments) throw new DomainError('forbidden', 'verified documents are not included in this plan');
+      const v = await tx.getForUpdate('verifiedDocument', orgId, id);
+      if (!v) throw notFound();
+      if (v.createdBy !== p.userId) throw new DomainError('forbidden', 'only the person who reserved this code can issue it');
+      if (v.status !== 'pending') throw new DomainError('conflict', 'this document has already been issued');
+      if (now.getTime() - v.createdAt.getTime() > VERIFICATION_RESERVATION_MS) throw new DomainError('conflict', 'this reservation expired; start again');
+      const issued: VerifiedDocumentRow = { ...v, sha256, status: 'active', issuedAt: now };
+      await tx.update('verifiedDocument', orgId, id, { sha256, status: 'active', issuedAt: now });
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.verification.issued', { type: 'verified_document', id }, { sha256 });
+      return this.#verificationView(issued);
+    });
+  }
+
+  /** Issued and revoked documents (pending reservations are internal). */
+  async listVerifications(p: UserPrincipal, orgId: string) {
+    await this.#d.authorize(p, orgId, 'share:read');
+    return (await this.#d.store.list('verifiedDocument', orgId, {}, { limit: 500 }))
+      .filter((v) => v.status !== 'pending')
+      .map((v) => this.#verificationView(v));
+  }
+
+  /** Permanent. The creator or a workspace manager. */
+  async revokeVerification(p: UserPrincipal, orgId: string, id: string, input: { reason: NonNullable<VerifiedDocumentRow['revocationReason']> }) {
+    if (!VERIFICATION_REVOCATION_REASONS.includes(input.reason)) throw invalid('unknown revocation reason');
+    return this.#mutate(p, orgId, 'share:read', async (tx, { now }) => {
+      const v = await tx.getForUpdate('verifiedDocument', orgId, id);
+      if (!v || v.status === 'pending') throw notFound();
+      await this.#requireManager(p, orgId, v.createdBy);
+      if (v.status === 'revoked') throw new DomainError('conflict', 'this document is already revoked');
+      const revoked: VerifiedDocumentRow = { ...v, status: 'revoked', revokedAt: now, revokedBy: p.userId, revocationReason: input.reason };
+      await tx.update('verifiedDocument', orgId, id, { status: 'revoked', revokedAt: now, revokedBy: p.userId, revocationReason: input.reason });
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.verification.revoked', { type: 'verified_document', id }, { reason: input.reason });
+      return this.#verificationView(revoked);
+    });
+  }
+
+  /**
+   * Public verification page data. Unknown, malformed and pending codes are indistinguishable (404). Shows only what
+   * the issuer published, the issuer name snapshot and the workspace's DNS-verified domains.
+   */
+  async publicVerification(rawCode: string) {
+    const code = String(rawCode ?? '')
+      .toUpperCase()
+      .replace(/[\s-]/g, '');
+    if (!/^[A-Z2-7]{20}$/.test(code)) throw notFound();
+    const v = await this.#d.store.findUnique('verifiedDocument', 'code', code);
+    if (!v || v.status === 'pending') throw notFound();
+    const domains = await this.#d.store.list('domain', v.orgId, { status: 'verified' }, { limit: 20 });
+    return {
+      code: v.code,
+      title: v.title,
+      details: v.details,
+      issuer: { name: v.issuerName, verifiedDomains: domains.map((d) => d.hostname).sort() },
+      status: v.status,
+      sha256: v.sha256,
+      issuedAt: v.issuedAt,
+      revokedAt: v.revokedAt,
+      revocationReason: v.revocationReason,
+    };
   }
 
   // =============================================================================================

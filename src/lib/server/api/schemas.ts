@@ -231,3 +231,17 @@ export const shortUnlockBody = openBody
 export const submissionFileParams = z.object({ token: urlToken, fileId: id }).strict();
 
 export const requestEmailBody = linkEmailBody.omit({ remind_before_expiry: true }).strict();
+
+// Verified documents (docs/verified-documents.md).
+export const verificationBody = z
+  .object({
+    title: str(200),
+    details: z
+      .array(z.object({ label: str(40), value: str(200) }).strict())
+      .max(8)
+      .default([]),
+  })
+  .strict();
+export const verificationIssueBody = z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
+export const verificationRevokeBody = z.object({ reason: z.enum(['issued_in_error', 'superseded', 'payment_reversed', 'fraud_suspected', 'other']) }).strict();
+export const verificationCodeParams = z.object({ code: z.string().min(20).max(40) }).strict();

@@ -3,7 +3,7 @@ import { LegalFooter } from '@/components/legal-footer';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Bell, FileInput, FilePen, FileText, House, Link2, LogOut, Menu, Plus, Send, Share2, Users, X, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, Bell, FileInput, FilePen, FileText, House, Link2, LogOut, Menu, Plus, Send, Share2, Users, X, type LucideIcon } from 'lucide-react';
 import { Brand } from '@/components/header';
 import { Form, Modal, Panel } from '@/components/ui';
 import { api, sharingPath } from '@/lib/client/api';
@@ -15,6 +15,7 @@ import { Transfers } from './transfers';
 import { ShareLinks } from './links';
 import { ShortLinks } from './short-links';
 import { SignatureRequests } from './signatures';
+import { VerifiedDocuments } from './verified';
 import { Requests } from './requests';
 import { Notifications } from './notifications';
 import { Members } from './members';
@@ -34,6 +35,7 @@ const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['notifications', 'Notifications', Bell, 'Access, downloads, receipts and submissions.'],
   ['members', 'Members', Users, 'Who can work in this team workspace.'],
   ['signatures', 'Request signatures', FilePen, 'Send a fixed PDF for signing and collect the signed copy.'],
+  ['verified', 'Verified documents', BadgeCheck, 'Issue PDFs with a QR code anyone can scan to confirm they are genuine.'],
   ['settings', 'Settings', House, 'Branding, custom domains and workspace limits.'],
   ['activity', 'Activity', FileText, 'Audit history and workspace data exports.'],
   ['monitoring', 'Monitoring', House, 'Warrior delivery status and backlog.'],
@@ -107,6 +109,7 @@ export function WorkspaceApp() {
     'short-links': ShortLinks,
     requests: Requests,
     signatures: SignatureRequests,
+    verified: VerifiedDocuments,
     notifications: Notifications,
     members: Members,
     settings: WorkspaceSettings,

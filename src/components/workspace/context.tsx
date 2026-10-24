@@ -13,6 +13,7 @@ export type Tab =
   | 'notifications'
   | 'members'
   | 'signatures'
+  | 'verified'
   | 'settings'
   | 'activity'
   | 'abuse'
