@@ -1,5 +1,8 @@
-import { GlobalWorkerOptions, getDocument, type PDFDocumentProxy } from 'pdfjs-dist';
-import worker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+// The legacy build, like the website: the modern one needs very recent JavaScript built-ins that older Android
+// WebViews (and Chromium before ~145) do not have, and fails to render there.
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import worker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 GlobalWorkerOptions.workerSrc = worker;
 
