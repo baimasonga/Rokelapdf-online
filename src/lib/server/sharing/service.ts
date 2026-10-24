@@ -217,6 +217,16 @@ export class SharingService {
     if (createdBy !== p.userId) await this.#d.authorize(p, orgId, 'share:manage');
   }
 
+  async #isManager(p: UserPrincipal, orgId: string, createdBy: string | null): Promise<boolean> {
+    try {
+      await this.#requireManager(p, orgId, createdBy);
+      return true;
+    } catch (e) {
+      if (e instanceof DomainError && e.code === 'forbidden') return false;
+      throw e;
+    }
+  }
+
   #audit(
     tx: SharingTx,
     actor: { type: 'user' | 'system' | 'anonymous' | 'operator'; id?: string },
@@ -1004,7 +1014,8 @@ export class SharingService {
       if (f?.status === 'current') [blobId, name] = [f.blobId, f.name];
     } else {
       const f = await s.get('submissionFile', orgId, ref.id);
-      if (f?.status === 'current') [blobId, name] = [f.blobId, f.name];
+      const request = f && (await s.get('uploadRequest', orgId, f.requestId));
+      if (f?.status === 'current' && request && (await this.#isManager(p, orgId, request.createdBy))) [blobId, name] = [f.blobId, f.name];
     }
     const b = blobId ? await s.get('blob', orgId, blobId) : undefined;
     if (!b) throw notFound();
@@ -2508,6 +2519,9 @@ export class SharingService {
     const s = this.#d.store;
     const r = await s.get('uploadRequest', orgId, id);
     if (!r || r.status === 'purged') throw notFound();
+    // What people submitted (often identity documents) is for the request's creator and the workspace's owners and
+    // admins only; other members see that the request exists, not who sent what.
+    if (!(await this.#isManager(p, orgId, r.createdBy))) return { ...this.#requestView(r, this.#now()), submissionsVisible: false, submissions: [] };
     const subs = await s.list('submission', orgId, { requestId: id }, { limit: 1000 });
     const files = await s.list('submissionFile', orgId, { requestId: id, status: 'current' }, { limit: 10_000, order: 'oldest' });
     const blobs = new Map<string, BlobRow>();
@@ -2517,6 +2531,7 @@ export class SharingService {
     }
     return {
       ...this.#requestView(r, this.#now()),
+      submissionsVisible: true,
       submissions: subs.map((x) => ({
         id: x.id,
         submitterName: x.submitterName,

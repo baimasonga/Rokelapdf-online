@@ -1176,3 +1176,67 @@ describe('sharing: custom-domain re-checks', () => {
     expect((await visit(env, '/l/promo', {}, 'go.dns.example')).status).toBe(302);
   });
 });
+
+describe('sharing: who sees what was submitted to an upload request', () => {
+  it('limits submissions to the request creator and workspace owners and admins', async () => {
+    env = await sharingEnv();
+    const owner = await env.user('boss@example.test', { verified: true });
+    const hr = await env.user('hr@example.test', { verified: true });
+    const colleague = await env.user('colleague@example.test', { verified: true });
+    const admin = await env.user('admin@example.test', { verified: true });
+    const team = await env.call('POST', '/api/v1/workspaces', { token: owner.token, body: { name: 'Team' } });
+    await env.plan(team.body.id, BUSINESS);
+    await joinTeam(env, owner.token, team.body.id, hr, 'hr@example.test');
+    await joinTeam(env, owner.token, team.body.id, colleague, 'colleague@example.test');
+    await joinTeam(env, owner.token, team.body.id, admin, 'admin@example.test', 'admin');
+    const P = sp(team.body.id);
+
+    // HR (a plain member) collects ID documents; someone outside submits one.
+    const req = await env.call('POST', `${P}/upload-requests`, {
+      token: hr.token,
+      body: {
+        title: 'Staff IDs',
+        requirements: [{ key: 'id', label: 'ID', accept: ['pdf'], required: true }],
+        deadline: new Date(env.clock.now().getTime() + 7 * DAY).toISOString(),
+        max_file_bytes: 1_000_000,
+        max_total_bytes: 1_000_000,
+      },
+    });
+    expect(req.status).toBe(201);
+    const R = `/api/v1/public/upload-requests/${tokenOf(req.body.url)}`;
+    const opened = await env.call('POST', `${R}/open`, { body: {} });
+    const secret = (await env.call('POST', `${R}/submissions`, { body: { grant: opened.body.grant, name: 'Aminata', email: 'aminata@example.test' } })).body
+      .submission_secret;
+    const bytes = pdf('passport scan');
+    const h = { 'x-submission-secret': secret };
+    const begin = await env.call('POST', `${R}/uploads`, { headers: h, body: { requirement_key: 'id', name: 'passport.pdf', size: bytes.length } });
+    const nums = Array.from({ length: begin.body.part_count }, (_, n) => n + 1);
+    const parts = await env.call('POST', `${R}/uploads/${begin.body.upload_id}/parts`, { headers: h, body: { part_numbers: nums } });
+    for (const part of parts.body.parts as Array<{ part_number: number; url: string }>) {
+      const chunk = bytes.subarray((part.part_number - 1) * begin.body.part_size, part.part_number * begin.body.part_size);
+      expect((await env.content('PUT', part.url, chunk)).status).toBe(200);
+    }
+    expect((await env.call('POST', `${R}/uploads/${begin.body.upload_id}/complete`, { headers: h, body: {} })).status).toBe(200);
+    await env.c.sharing.processJobs({ limit: 20 });
+
+    const detail = (token: string) => env.call('GET', `${P}/upload-requests/${req.body.id}`, { token });
+    const download = (token: string, id: string) => env.call('POST', `${P}/files/download`, { token, body: { type: 'submission_file', id } });
+    const mine = await detail(hr.token);
+    expect(mine.body.submissions_visible).toBe(true);
+    const fileId = mine.body.submissions[0].files[0].id;
+    expect(mine.body.submissions[0]).toMatchObject({ submitter_name: 'Aminata', submitter_email: 'aminata@example.test' });
+
+    // Another plain member sees the request, but not who submitted what, and cannot download it.
+    const theirs = await detail(colleague.token);
+    expect(theirs.status).toBe(200);
+    expect(theirs.body).toMatchObject({ title: 'Staff IDs', submissions_visible: false, submissions: [] });
+    expect(JSON.stringify(theirs.body)).not.toContain('Aminata');
+    expect((await download(colleague.token, fileId)).status).toBe(404);
+
+    // The creator, an admin and the owner can.
+    for (const u of [hr, admin, owner]) {
+      expect((await detail(u.token)).body.submissions).toHaveLength(1);
+      expect((await download(u.token, fileId)).status).toBe(200);
+    }
+  });
+});

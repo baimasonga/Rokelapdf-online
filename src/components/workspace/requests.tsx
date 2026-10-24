@@ -173,24 +173,28 @@ export function RequestDetail({ id }: { id: string }) {
         </div>
       </Panel>
       <Panel title="Submissions">
-        <p className="muted">Names and emails are typed by the submitter and are not verified.</p>
-        {r.submissions.length ? (
-          <Table
-            head={['From', 'State', 'Files']}
-            rows={r.submissions.map((s: any) => [
-              `${s.submitter_name}${s.submitter_email ? ` <${s.submitter_email}>` : ''}`,
-              <Badge key="s" state={s.status} />,
-              <div key="f">
-                {s.files.map((f: any) => (
-                  <div key={f.id} className="file-line">
-                    {f.name} · {fmtBytes(f.size)} · {f.status}
-                    {f.reject_reason ? ` (${f.reject_reason})` : ''}{' '}
-                    {f.status === 'available' && <Button onClick={() => ownerDownload(workspace.id, 'submission_file', f.id)}>Download</Button>}
-                  </div>
-                ))}
-              </div>,
-            ])}
-          />
+        {!r.submissions_visible ? (
+          <p className="muted">Only the person who created this request and the workspace owners and admins can see what was submitted.</p>
+        ) : r.submissions.length ? (
+          <>
+            <p className="muted">Names and emails are typed by the submitter and are not verified.</p>
+            <Table
+              head={['From', 'State', 'Files']}
+              rows={r.submissions.map((s: any) => [
+                `${s.submitter_name}${s.submitter_email ? ` <${s.submitter_email}>` : ''}`,
+                <Badge key="s" state={s.status} />,
+                <div key="f">
+                  {s.files.map((f: any) => (
+                    <div key={f.id} className="file-line">
+                      {f.name} · {fmtBytes(f.size)} · {f.status}
+                      {f.reject_reason ? ` (${f.reject_reason})` : ''}{' '}
+                      {f.status === 'available' && <Button onClick={() => ownerDownload(workspace.id, 'submission_file', f.id)}>Download</Button>}
+                    </div>
+                  ))}
+                </div>,
+              ])}
+            />
+          </>
         ) : (
           <Empty>No submissions yet.</Empty>
         )}
