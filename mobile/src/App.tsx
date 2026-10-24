@@ -31,16 +31,25 @@ export function App() {
   const [placed, setPlaced] = useState<Placed[]>();
   const picker = useRef<HTMLInputElement>(null);
 
-  const show = useCallback(async (file: PdfFile) => {
+  /** Messages belong to the screen they were shown on; clear them whenever the screen changes. */
+  const clearMessages = useCallback(() => {
     setError(undefined);
-    setPlaced(undefined);
-    const pdf = await openPdf(file.bytes);
-    setScreen((old) => {
-      if (old.k === 'view') void old.pdf.close();
-      if (old.k === 'convert' && old.from) void old.from.pdf.close();
-      return { k: 'view', file, pdf, id: ++opened };
-    });
+    setNotice(undefined);
   }, []);
+
+  const show = useCallback(
+    async (file: PdfFile) => {
+      clearMessages();
+      setPlaced(undefined);
+      const pdf = await openPdf(file.bytes);
+      setScreen((old) => {
+        if (old.k === 'view') void old.pdf.close();
+        if (old.k === 'convert' && old.from) void old.from.pdf.close();
+        return { k: 'view', file, pdf, id: ++opened };
+      });
+    },
+    [clearMessages],
+  );
   const run = useCallback(async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
     setError(undefined);
@@ -67,6 +76,7 @@ export function App() {
   }, [run, show]);
 
   const back = () => {
+    clearMessages();
     setPlaced(undefined);
     if (screen.k === 'convert' && screen.from) return setScreen(screen.from);
     if (screen.k === 'view') void screen.pdf.close();
@@ -74,6 +84,7 @@ export function App() {
   };
 
   const openAccount = (from?: View) => {
+    clearMessages();
     setSession(undefined);
     setScreen({ k: 'convert', ...(from ? { from } : {}) });
     void currentSession().then(setSession, (e: Error) => {
