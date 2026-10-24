@@ -1,5 +1,6 @@
 // Deployment tooling (schema-owner connection). Run with `npm run <script>`; see docs/deploy.md.
 //
+//   config                                     validate the app's settings as the server will read them (no database)
 //   migrate                                    apply db/migrations to DB_SCHEMA (default rokela)
 //   grants   [--role <app_role>]               least-privilege grants for the web app's role (default: APP_DB_ROLE)
 //   operator --email <e> --reason <r>          promote a user (who has signed in once) to operator
@@ -11,6 +12,8 @@ import pg from 'pg';
 import { applyGrants, applyMigrations, assertIdent, MIGRATIONS_DIR } from '../src/lib/server/db/schema';
 import { bootstrapOperator, setPlan } from '../src/lib/server/admin';
 import { connectionConfig } from '../src/lib/server/db/connect';
+import { loadConfig } from '../src/lib/server/config';
+import { authEmailOptions } from '../src/lib/server/auth-email';
 
 const [command, ...rest] = process.argv.slice(2);
 const { values } = parseArgs({
@@ -33,7 +36,18 @@ function need(name: keyof typeof values): string {
   return v;
 }
 
+/**
+ * Reads the settings exactly as the server does at startup. Runs first in the pre-deploy step, so a bad setting fails
+ * the deploy and the running version stays live, instead of the new one refusing every request.
+ */
+function checkConfig() {
+  const config = loadConfig(process.env);
+  authEmailOptions(process.env);
+  console.log(`settings valid for ${config.env} at ${config.publicOrigin}${config.warrior ? ' (monitoring on)' : ''}`);
+}
+
 async function main() {
+  if (command === 'config') return checkConfig();
   const url = process.env['DATABASE_MIGRATE_URL'] || process.env['DATABASE_URL'];
   if (!url) throw new Error('DATABASE_MIGRATE_URL or DATABASE_URL is required');
   const schema = assertIdent(process.env['DB_SCHEMA'] ?? 'rokela');

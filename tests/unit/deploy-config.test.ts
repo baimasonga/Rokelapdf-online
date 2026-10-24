@@ -10,7 +10,8 @@ describe('deployment configuration', () => {
 
   it('runs migrations and grants before every deploy through a script that exists', () => {
     expect(railway.deploy.preDeployCommand).toEqual(['npm run deploy:prepare']);
-    expect(pkg.scripts['deploy:prepare']).toBe('tsx tools/admin.ts migrate && tsx tools/admin.ts grants');
+    // Settings are validated first, so a bad one fails the deploy and the running version stays live.
+    expect(pkg.scripts['deploy:prepare']).toBe('tsx tools/admin.ts config && tsx tools/admin.ts migrate && tsx tools/admin.ts grants');
     expect(pkg.dependencies.tsx).toBeDefined(); // available in the production image, not only in dev
     expect(railway.deploy.startCommand).toBe('npm start');
   });
