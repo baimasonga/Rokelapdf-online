@@ -107,6 +107,10 @@ and deployment the app is actually reaching. Do not infer a service's identity f
 
 ### App variables (mark secrets as secret)
 
+The pre-deploy step (`npm run deploy:prepare`) first checks these settings exactly as the server reads them
+(`tsx tools/admin.ts config`). A bad setting fails the deploy with a message naming the variable, and the running
+version stays live.
+
 | Variable                                                               | Value                                                                                              |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `NODE_ENV`                                                             | `production`                                                                                       |
