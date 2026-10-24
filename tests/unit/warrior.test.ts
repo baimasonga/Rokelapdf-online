@@ -11,17 +11,28 @@ const config = {
   scannerComponentId: 'opm_' + 'c'.repeat(24),
 };
 const heartbeat = { type: 'component.heartbeat', attributes: { status: 'healthy' } };
-it('requires complete server-only scope bindings', () => {
-  expect(warriorConfig({})).toBeUndefined();
-  expect(() => warriorConfig({ WARRIOR_EVENTS_TOKEN: config.token })).toThrow('complete scoped');
-  expect(
-    warriorConfig({
-      WARRIOR_EVENTS_TOKEN: config.token,
-      WARRIOR_API_COMPONENT_ID: config.apiComponentId,
-      WARRIOR_CONVERTER_COMPONENT_ID: config.converterComponentId,
-      WARRIOR_SCANNER_COMPONENT_ID: config.scannerComponentId,
-    }),
-  ).toEqual(config);
+it('requires complete server-only scope bindings, and never takes the site down over them', () => {
+  const warnings: string[] = [];
+  const warn = (m: string) => warnings.push(m);
+  const full = {
+    WARRIOR_EVENTS_TOKEN: config.token,
+    WARRIOR_API_COMPONENT_ID: config.apiComponentId,
+    WARRIOR_CONVERTER_COMPONENT_ID: config.converterComponentId,
+    WARRIOR_SCANNER_COMPONENT_ID: config.scannerComponentId,
+  };
+  expect(warriorConfig({}, warn)).toBeUndefined();
+  expect(warriorConfig(full, warn)).toEqual(config);
+  // Pasted values with stray whitespace still work.
+  expect(warriorConfig({ ...full, WARRIOR_SCANNER_COMPONENT_ID: ` ${config.scannerComponentId}\n` }, warn)).toEqual(config);
+  expect(warnings).toEqual([]);
+  // Incomplete or malformed settings disable monitoring and say which variables are wrong, never their values.
+  expect(warriorConfig({ WARRIOR_EVENTS_TOKEN: config.token }, warn)).toBeUndefined();
+  expect(warriorConfig({ ...full, WARRIOR_CONVERTER_COMPONENT_ID: 'opm_ABC' }, warn)).toBeUndefined();
+  expect(warnings).toEqual([
+    expect.stringContaining('WARRIOR_API_COMPONENT_ID, WARRIOR_CONVERTER_COMPONENT_ID, WARRIOR_SCANNER_COMPONENT_ID'),
+    expect.stringMatching(/malformed WARRIOR_CONVERTER_COMPONENT_ID \(/),
+  ]);
+  expect(warnings.join(' ')).not.toContain(config.token);
 });
 it('durably retries the exact same safe event and credential destination after a collector outage and restart', async () => {
   env = await makeEnv();
