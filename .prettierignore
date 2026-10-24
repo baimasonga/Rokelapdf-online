@@ -5,3 +5,7 @@ package-lock.json
 infra/cloudflare/.output/
 infra/cloudflare/.wrangler/
 db/migrations/
+mobile/node_modules/
+mobile/dist/
+mobile/android/
+mobile/package-lock.json
