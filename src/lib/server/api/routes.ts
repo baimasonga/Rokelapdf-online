@@ -359,6 +359,18 @@ export function buildRouter(): Router {
   r.add('POST', `${P}/domains/:id/verify`, 'user', async (x) => sh(x).verifyDomain(me(x), ids(x).orgId, ids(x).id));
   r.add('POST', `${P}/domains/:id/remove`, 'user', async (x) => sh(x).removeDomain(me(x), ids(x).orgId, ids(x).id));
 
+  // ---- verified documents (docs/verified-documents.md) -------------------------------------------------
+  r.add('GET', `${P}/verified-documents`, 'user', async (x) => ({ items: await sh(x).listVerifications(me(x), org(x)) }));
+  r.add('POST', `${P}/verified-documents`, 'user', async (x) =>
+    created(await sh(x).reserveVerification(me(x), org(x), parse(s.verificationBody, await x.body()))),
+  );
+  r.add('POST', `${P}/verified-documents/:id/issue`, 'user', async (x) =>
+    sh(x).issueVerification(me(x), ids(x).orgId, ids(x).id, parse(s.verificationIssueBody, await x.body())),
+  );
+  r.add('POST', `${P}/verified-documents/:id/revoke`, 'user', async (x) =>
+    sh(x).revokeVerification(me(x), ids(x).orgId, ids(x).id, parse(s.verificationRevokeBody, await x.body())),
+  );
+
   // ---- public: shares, short-link unlock, upload requests, abuse ----------------------------------------
   const tok = (x: Ctx) => parse(s.shareTokenParams, x.params).token;
   const secret = (x: Ctx) => {
@@ -386,6 +398,8 @@ export function buildRouter(): Router {
     const b = parse(s.decisionBody, await x.body());
     return sh(x).decideReview(tok(x), { grant: b.grant, decision: b.decision, note: b.note }, await x.publicCtx());
   });
+  // Anyone can check a verified document; rate-limited per IP like every public route.
+  r.add('GET', '/api/v1/public/verifications/:code', 'public', async (x) => sh(x).publicVerification(parse(s.verificationCodeParams, x.params).code));
   r.add('POST', '/api/v1/public/short-links/:code/unlock', 'public', async (x) => {
     const { code } = parse(s.shortCodeParams, x.params);
     return sh(x).unlockShortLink(x.req.headers.get('host') ?? undefined, code, parse(s.shortUnlockBody, await x.body()), await x.publicCtx());

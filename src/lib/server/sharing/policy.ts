@@ -27,6 +27,8 @@ export interface SharingLimits {
   customDomains: boolean;
   branding: boolean;
   advancedAnalytics: boolean;
+  /** Issue PDFs with a public verification QR code (docs/verified-documents.md). */
+  verifiedDocuments: boolean;
 }
 
 const GiB = 1024 ** 3;
@@ -46,6 +48,7 @@ export const FREE_LIMITS: Readonly<SharingLimits> = Object.freeze({
   customDomains: false,
   branding: false,
   advancedAnalytics: false,
+  verifiedDocuments: false,
 });
 
 /** Plan entitlement keys. Deliberately not `_monthly` so the quota ledger (ADR-018) does not meter them. */
@@ -62,6 +65,7 @@ export const LIMIT_ENTITLEMENTS = {
   customDomains: 'share_custom_domains',
   branding: 'share_branding',
   advancedAnalytics: 'share_advanced_analytics',
+  verifiedDocuments: 'share_verified_documents',
 } as const satisfies Record<keyof SharingLimits, string>;
 
 /** Hard ceilings: a mistyped plan must not create an unbounded commitment. */
@@ -90,6 +94,7 @@ export function resolveLimits(entitlementSets: ReadonlyArray<Record<string, unkn
     out.customDomains = true;
     out.branding = true;
     out.advancedAnalytics = true;
+    out.verifiedDocuments = true;
   }
   for (const ent of entitlementSets) {
     for (const [field, key] of Object.entries(LIMIT_ENTITLEMENTS) as Array<[keyof SharingLimits, string]>) {

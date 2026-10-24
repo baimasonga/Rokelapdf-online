@@ -1,5 +1,20 @@
 # Feature status and configuration
 
+## Verified documents (QR) — 24 October 2026
+
+Team workspaces with `share_verified_documents` (on by default while `TRIAL_MODE=true`) can issue PDFs with a
+verification QR code on every page. The PDF is stamped and fingerprinted (SHA-256) in the issuer's browser and is
+never uploaded; `/v/<code>` shows the issuer, title, published details, issue date and validity, warns when the
+issuer has no DNS-verified domain, and lets anyone check a copy locally. Revocation is permanent and shown publicly
+with a reason. Records are evidence: a database trigger refuses deletes, digest or detail changes after issue, and
+any change after revocation. Design, privacy and threat notes and the planned fee-clearance and procurement
+phases: [verified-documents.md](verified-documents.md).
+
+Verification: 8 API tests (plan and team gating, reservation rules, tenant isolation, reserved and duplicate
+labels, revocation rights, verified-domain display, database guards; also as the least-privilege app role), a
+render-and-decode test proving the QR scans on every rotation and crop box, the full browser smoke test (issue,
+download, anonymous check, mismatch, no upload, noindex, revoke) and 13 deliberate mutations, each caught.
+
 ## Cloudflare authentication email — 20 October 2026
 
 Implemented the opt-in, signed Supabase Send Email Hook at `/api/auth/send-email`.

@@ -46,7 +46,8 @@ tables — `share_documents`, `share_versions`, `share_blobs` (every stored obje
 `share_transfer_files`, `share_links`, `share_comments`/`share_reviews`, `short_links` + `short_link_destinations`
 (destination history), `upload_requests`/`upload_submissions`/`upload_submission_files`, `share_events`/`share_stats`
 (aggregate analytics), `share_notifications`, `share_usage` (quotas), `share_jobs`, `share_brands`, `share_domains`,
-`abuse_reports`, `share_attempts` (password-guess throttling).
+`abuse_reports`, `share_attempts` (password-guess throttling), `verified_documents` (QR-verified PDFs: code, published
+details and the stamped file's SHA-256; never deleted, see [verified-documents.md](verified-documents.md)).
 
 ## Documents, versions and links
 

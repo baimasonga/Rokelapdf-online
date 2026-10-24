@@ -808,6 +808,52 @@ async function main() {
     await p.getByLabel('Return signed PDF').waitFor();
     check((await p.getByLabel('Document to sign').inputValue()).includes('/s/'), 'signature collection provides a fixed document and return URL');
 
+    step('Verified documents: issue with a QR code, check anonymously, revoke');
+    await p.getByRole('button', { name: /New team workspace/ }).click();
+    await p.getByLabel('Team name').fill('Example University Finance');
+    await p.getByRole('button', { name: 'Create workspace' }).click();
+    await p.waitForURL(/tab=members/);
+    await p.getByRole('button', { name: 'Verified documents', exact: true }).click();
+    await p.getByLabel('PDF to issue').setInputFiles({ name: 'clearance.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await p.getByLabel('Title shown on the verification page').fill('Fee clearance 2026/27');
+    await p.getByLabel('Detail 1 label').fill('Student ID');
+    await p.getByLabel('Detail 1 value').fill('FBC/2024/123');
+    const issued = await fetchDownload(p.getByRole('button', { name: 'Issue and download' }));
+    const verifyUrl = await p.getByRole('textbox', { name: 'Verification page', exact: true }).inputValue();
+    check(issued.name === 'clearance-verified.pdf' && /\/v\/[A-Z2-7]{20}$/.test(verifyUrl), 'issuer downloads the stamped PDF and gets its verification page');
+    check(
+      (await textOf(issued.bytes)).every((t) => t.includes(`Verify at ${verifyUrl.replace(/^https?:\/\//, '')}`)),
+      'every page carries the verification line',
+    );
+    const checker = await browser.newContext();
+    const vp = await checker.newPage();
+    watch(vp, 'verifier');
+    const verifierUploads = [];
+    vp.on('request', (rq) => rq.method() !== 'GET' && verifierUploads.push(`${rq.method()} ${rq.url()}`));
+    await vp.goto(verifyUrl);
+    await vp.getByText('Valid document').waitFor();
+    const pageText = await vp.locator('main').textContent();
+    check(
+      ['Fee clearance 2026/27', 'Example University Finance', 'Student ID', 'FBC/2024/123', 'has not verified this issuer'].every((x) => pageText.includes(x)),
+      'anyone sees the issuer, the published details and the unverified-issuer warning',
+    );
+    check((await vp.locator('meta[name="robots"]').getAttribute('content'))?.includes('noindex'), 'verification pages are not indexed');
+    await vp.getByLabel('PDF to check').setInputFiles({ name: 'copy.pdf', mimeType: 'application/pdf', buffer: issued.bytes });
+    await vp.getByText(/Exact match/).waitFor();
+    ok('the issued copy matches');
+    await vp.getByLabel('PDF to check').setInputFiles({ name: 'other.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await vp.getByText(/This file does not match/).waitFor();
+    ok('a different file does not match');
+    check(verifierUploads.length === 0, 'checking a copy uploads nothing');
+    await p.getByRole('button', { name: 'Revoke', exact: true }).click();
+    await p.getByLabel('Reason shown publicly').selectOption('payment_reversed');
+    await p.getByRole('button', { name: 'Revoke permanently' }).click();
+    await p.getByText(/Revoked — Payment reversed/).waitFor();
+    await vp.reload();
+    await vp.getByText('Revoked document').waitFor();
+    check((await vp.locator('main').textContent()).includes('payment reversed or not received'), 'revocation and its reason show publicly');
+    await checker.close();
+
     step('Operator abuse review');
     const report = await r.request.post(`${ORIGIN}/api/v1/public/abuse-reports`, {
       data: { reference: campaignUrl, category: 'other', details: 'Browser workflow review' },

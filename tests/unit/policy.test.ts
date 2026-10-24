@@ -23,7 +23,15 @@ const policy = { reservedHosts: ['rokela.example'], blockedHosts: ['evil.test'] 
 
 describe('commercial limits', () => {
   it('enables every trial feature for new and existing workspaces while preserving numeric quotas', () => {
-    const expected = { ...FREE_LIMITS, uploadRequests: true, persistent: true, customDomains: true, branding: true, advancedAnalytics: true };
+    const expected = {
+      ...FREE_LIMITS,
+      uploadRequests: true,
+      persistent: true,
+      customDomains: true,
+      branding: true,
+      advancedAnalytics: true,
+      verifiedDocuments: true,
+    };
     expect(resolveLimits([], true)).toEqual(expected);
     expect(
       resolveLimits(

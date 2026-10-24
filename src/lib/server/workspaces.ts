@@ -155,6 +155,12 @@ export class WorkspaceService {
     return r.rows.map((x) => x.user_id as string);
   }
 
+  /** Name and kind of a workspace (internal; for issuer snapshots). */
+  async organization(orgId: string): Promise<{ name: string; kind: 'personal' | 'team' } | undefined> {
+    const r = (await this.#pool.query('SELECT name, kind FROM organizations WHERE id = $1', [orgId])).rows[0];
+    return r ? { name: r.name as string, kind: r.kind as 'personal' | 'team' } : undefined;
+  }
+
   async isOperator(userId: string): Promise<boolean> {
     return (await this.#pool.query('SELECT is_operator FROM users WHERE id = $1', [userId])).rows[0]?.is_operator === true;
   }

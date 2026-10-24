@@ -15,6 +15,7 @@ export const BUSINESS = {
   share_custom_domains: true,
   share_branding: true,
   share_advanced_analytics: true,
+  share_verified_documents: true,
 };
 
 export type SharingEnv = TestEnv;
