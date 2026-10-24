@@ -13,7 +13,6 @@ const GRANTS: Record<Role, readonly Permission[]> = {
   admin: ['org:read', 'org:manage_members', 'share:read', 'share:create', 'share:manage'],
   owner: ['org:read', 'org:manage_members', 'share:read', 'share:create', 'share:manage'],
 };
-const SYNC_REUSE_MS = 5 * 60_000;
 const RANK: Record<Role, number> = { member: 1, admin: 2, owner: 3 };
 const canGrant = (actor: Role, role: Role) => RANK[role] <= RANK[actor] && (role !== 'owner' || actor === 'owner');
 const INVITATION_DAYS = 7;
@@ -58,8 +57,6 @@ export class WorkspaceService {
   readonly #pool: PgPool;
   readonly #clock: Clock;
   readonly #trialMode: boolean;
-  /** Users this instance synced recently, as of their token at the time (see `sync`). */
-  readonly #synced = new Map<string, { email: string; emailVerified: boolean; at: number }>();
 
   constructor(pool: PgPool, clock: Clock, trialMode = false) {
     this.#pool = pool;
@@ -78,14 +75,11 @@ export class WorkspaceService {
 
   /**
    * Upserts the user mirror and creates the personal workspace on first sign-in. Idempotent and race-safe. Runs before
-   * every signed-in request, so it avoids work when nothing changed: a user synced by this instance in the last few
-   * minutes with the same email and confirmation state is skipped outright, and otherwise a read decides whether the
-   * write (with its row lock) is needed at all. A changed email or confirmation is always synced at once.
+   * every signed-in request, so a read first decides whether anything changed: the write, with its row lock, runs only
+   * for a new user, a changed email or confirmation, or a missing personal workspace. The read always reflects the
+   * database, so a mirror changed by another instance is repaired on the next request.
    */
   async sync(p: UserPrincipal): Promise<void> {
-    const at = this.#clock.now().getTime();
-    const hit = this.#synced.get(p.userId);
-    if (hit && hit.email === p.email && hit.emailVerified === p.emailVerified && at - hit.at < SYNC_REUSE_MS) return;
     const cur = (
       await this.#pool.query(
         `SELECT u.email, u.email_verified, EXISTS (SELECT 1 FROM memberships m JOIN organizations o ON o.id = m.org_id
@@ -94,8 +88,6 @@ export class WorkspaceService {
       )
     ).rows[0];
     if (!cur || cur.email !== p.email || cur.email_verified !== p.emailVerified || !cur.has_personal) await this.#write(p);
-    if (this.#synced.size > 10_000) this.#synced.clear();
-    this.#synced.set(p.userId, { email: p.email, emailVerified: p.emailVerified, at });
   }
 
   async #write(p: UserPrincipal): Promise<void> {

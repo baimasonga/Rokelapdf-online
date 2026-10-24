@@ -191,7 +191,7 @@ describe('accounts and workspaces', () => {
     expect((await env.call('GET', `/api/v1/workspaces/${team.body.id}/members`, { token: guest.token })).status).toBe(404);
   });
 
-  it('syncs the user mirror only when something changed, but always at once when the token changes', async () => {
+  it('writes the user mirror only when something changed, and repairs it on the next request', async () => {
     env = await makeEnv();
     const u = await env.user('mirror@example.test');
     const row = async () =>
@@ -202,7 +202,7 @@ describe('accounts and workspaces', () => {
       };
     const me = async (token = u.token) => expect((await env.call('GET', '/api/v1/me', { token })).status).toBe(200);
     const first = await row();
-    // Repeat requests, recent or after the reuse window, write nothing while the mirror is current.
+    // Repeat requests write nothing while the mirror is current.
     for (const wait of [60_000, 60_000, 10 * 60_000]) {
       env.clock.advance(wait);
       await me();
@@ -215,9 +215,12 @@ describe('accounts and workspaces', () => {
     env.verifier.users.set(u.token, { userId: u.userId, email: 'renamed@example.test', emailVerified: true });
     await me();
     expect((await row()).email).toBe('renamed@example.test');
-    // A personal workspace that went missing is recreated once the reuse window has passed.
+    // A mirror changed elsewhere (another instance, a stale token) is repaired on the next request.
+    await env.admin.query(`UPDATE users SET email = 'stale@example.test' WHERE id = $1`, [u.userId]);
+    await me();
+    expect((await row()).email).toBe('renamed@example.test');
+    // A personal workspace that went missing is recreated.
     await env.admin.query(`DELETE FROM memberships WHERE user_id = $1`, [u.userId]);
-    env.clock.advance(10 * 60_000);
     await me();
     expect((await env.call('GET', '/api/v1/me', { token: u.token })).body.workspaces.map((w: { kind: string }) => w.kind)).toEqual(['personal']);
   });
