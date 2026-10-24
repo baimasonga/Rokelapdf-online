@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, BadgeCheck, Check, Globe2, Lock, Mail, Send } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Check, Globe2, Lock, Mail, Send, Smartphone } from 'lucide-react';
 import { Header } from '@/components/header';
 import { SiteFooter } from '@/components/site-footer';
 import { HeroDrop } from '@/components/tools/hero-drop';
@@ -14,6 +14,11 @@ export default function Home() {
           <h1>Every PDF tool you need, in one place</h1>
           <p className="home-lead">Merge, split, edit, sign and convert PDFs for free — right in your browser. No sign-up, no watermarks.</p>
           <HeroDrop />
+          <p className="home-app">
+            <Link href="/android">
+              <Smartphone size={16} aria-hidden="true" /> Get the Android app: scan, sign and convert on your phone
+            </Link>
+          </p>
         </section>
 
         <section className="home-tools" id="tools" aria-label="PDF tools">

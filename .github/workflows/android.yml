@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# A newer push cancels the run of an older one, so a superseded build can never publish over a newer APK.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-24.04
@@ -35,6 +40,13 @@ jobs:
         run: npm run build
       - name: Copy the web layer and plugins into the Android project
         run: npx cap sync android
+      # Test builds are debug-signed. Reusing one debug key lets a newer test build install over an older one; the
+      # key only marks test builds (Play Store releases will use a separate release key kept out of the repository).
+      - name: Reuse the test-build signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
       - name: Build the debug APK
         working-directory: mobile/android
         run: ./gradlew --no-daemon assembleDebug
@@ -43,3 +55,31 @@ jobs:
           name: rokela-pdf-debug-apk
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+  # Every change on the default branch replaces the APK on the fixed "android" release, so the download link
+  # https://github.com/<repo>/releases/download/android/rokela-pdf.apk (and rokelapdf.com/android) never changes.
+  publish:
+    needs: apk
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rokela-pdf-debug-apk
+      - name: Publish to the android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          mv app-debug.apk rokela-pdf.apk
+          notes="Test build of Rokela PDF for Android from ${SHA::7}, $(date -u '+%d %b %Y %H:%M UTC'). Install steps: https://www.rokelapdf.com/android"
+          if gh release view android >/dev/null 2>&1; then
+            gh release edit android --notes "$notes"
+          else
+            gh release create android --target "$SHA" --prerelease --title "Rokela PDF for Android (test build)" --notes "$notes"
+          fi
+          gh release upload android rokela-pdf.apk --clobber

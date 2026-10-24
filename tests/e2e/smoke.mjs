@@ -12,6 +12,7 @@ import { chromium } from 'playwright-core';
 import { PDFDocument, StandardFonts, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from 'pdf-lib';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import jsQR from 'jsqr';
 import { startFakeSupabase } from './fake-supabase.mjs';
 
 const APP_PORT = 3100;
@@ -170,6 +171,29 @@ async function main() {
     check((await p.locator('.tiles a.tile[href^="/tools/"]').count()) >= 20, 'home page lists every tool');
     ok('landing page renders');
     await shot(p, 'home');
+
+    step('Android app download page');
+    await p.getByRole('link', { name: /Get the Android app/ }).click();
+    await p.getByRole('heading', { name: 'Rokela PDF for Android' }).waitFor();
+    check(
+      (await p.getByRole('link', { name: 'Download for Android' }).getAttribute('href')) ===
+        'https://github.com/baimasonga/Rokelapdf-online/releases/download/android/rokela-pdf.apk',
+      'download button points at the fixed release asset',
+    );
+    // The QR code must open this page on a phone: rasterize the SVG in the browser and decode it here.
+    const qr = await p.locator('svg.android-qr').evaluate(async (svg) => {
+      const img = new Image();
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`;
+      await img.decode();
+      const c = Object.assign(document.createElement('canvas'), { width: 400, height: 400 });
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, 400, 400);
+      return Array.from(ctx.getImageData(0, 0, 400, 400).data);
+    });
+    check(jsQR(Uint8ClampedArray.from(qr), 400, 400)?.data === 'https://www.rokelapdf.com/android', 'QR code opens rokelapdf.com/android');
+    ok('download page renders');
+    await shot(p, 'android');
 
     step('Password recovery requires a valid session');
     await p.goto(`${ORIGIN}/signin?mode=update`);
