@@ -1,0 +1,33 @@
+{
+  "name": "rokela-pdf-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Rokela PDF for Android: scan, open, sign and convert documents. Reuses the web app's browser tools (../src/lib).",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit -p .",
+    "build": "npm run typecheck && vite build",
+    "sync": "npm run build && cap sync android",
+    "apk": "npm run sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor-mlkit/document-scanner": "8.2.1",
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/share": "8.0.3",
+    "pdfjs-dist": "6.3.289",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "^5",
+    "vite": "8.3.5"
+  }
+}
