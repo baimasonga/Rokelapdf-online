@@ -5,7 +5,7 @@ import { Clock, Download, Eye, FileArchive, FileText, Files } from 'lucide-react
 import { PasswordPrompt, PublicFrame, SenderBrand, SignInRequired } from '@/components/public';
 import { Badge, Button, Empty, Form, Modal, Muted, Panel, useNotice } from '@/components/ui';
 import { PagePicker } from '@/components/tools/page-picker';
-import { IN_MEMORY_LIMIT, downloadZip, pickSaveTarget } from '@/lib/client/zip-download';
+import { IN_MEMORY_LIMIT, ZIP_LIMIT, downloadZip, pickSaveTarget } from '@/lib/client/zip-download';
 import { ApiError, api, enc } from '@/lib/client/api';
 import { useAuth } from '@/lib/client/auth';
 import { fmtBytes } from '@/lib/client/format';
@@ -111,9 +111,13 @@ function Manifest({
       return;
     }
     const name = `${(m.title || 'files').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 100)}.zip`;
+    const size = ready.reduce((n: number, f: any) => n + f.size, 0);
+    if (size > ZIP_LIMIT) {
+      notice('These files are too large to download as one ZIP (over 4 GB). Download them one by one below.', true);
+      return;
+    }
     const target = await pickSaveTarget(name);
     if (target === null) return; // cancelled
-    const size = ready.reduce((n: number, f: any) => n + f.size, 0);
     if (!target && size > IN_MEMORY_LIMIT) {
       notice('This set is too large to zip in this browser. Download the files one by one, or use Chrome or Edge.', true);
       return;

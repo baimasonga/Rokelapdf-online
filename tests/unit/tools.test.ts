@@ -275,6 +275,21 @@ describe('download-all archive paths', () => {
       ]),
     ).toEqual(['a.pdf', 'a (2).pdf', 'A (3).PDF', 'site/drawings/plan.pdf', 'abs/x_y.txt', 'noext', 'noext (2)']);
   });
+
+  it('refuses sets that would need ZIP64, before fetching anything', async () => {
+    const { ZIP_LIMIT, downloadZip } = await import('@/lib/client/zip-download');
+    expect(ZIP_LIMIT).toBeLessThan(2 ** 32);
+    const fetched: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (u: string) => (fetched.push(u), new Response('x'))) as typeof fetch;
+    try {
+      const big = (n: number) => ({ name: `${n}.mp4`, folderPath: '', url: `https://files.test/${n}`, size: 2.5 * 1024 ** 3 });
+      await expect(downloadZip([big(1), big(2)], 'all.zip', undefined, () => undefined)).rejects.toThrow(/one by one/);
+      expect(fetched).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });
 
 describe('organize pages', () => {
