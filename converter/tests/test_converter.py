@@ -61,6 +61,22 @@ def report_docx(path: str, pages: int = 1) -> None:
 
 
 @unittest.skipUnless(HAS_SOFFICE, "LibreOffice is not installed")
+class CellValueTests(unittest.TestCase):
+    def test_numbers_excel_cannot_hold_stay_text(self) -> None:
+        self.assertEqual(engines._cell_value("12345678901234567"), "12345678901234567")
+        self.assertEqual(engines._cell_value("1.2345678901234567"), "1.2345678901234567")
+        self.assertEqual(engines._cell_value("007"), "007")
+        self.assertEqual(engines._cell_value("0761234567"), "0761234567")
+
+    def test_ordinary_numbers_are_numeric(self) -> None:
+        self.assertEqual(engines._cell_value("1,234.50"), 1234.5)
+        self.assertEqual(engines._cell_value("42"), 42)
+        self.assertIsInstance(engines._cell_value("42"), int)
+        self.assertEqual(engines._cell_value("0"), 0)
+        self.assertEqual(engines._cell_value("0.75"), 0.75)
+        self.assertEqual(engines._cell_value("-12"), -12)
+
+
 class EngineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

@@ -311,10 +311,14 @@ def _cell_value(text: str):
     t = text.strip()
     if _NUMBER.match(t):
         n = t.replace(",", "")
-        try:
-            return int(n) if "." not in n and len(n) < 16 else float(n)
-        except ValueError:
+        whole = n.lstrip("-").split(".")[0]
+        # Excel keeps 15 significant digits: longer IDs would be rounded. A leading zero ("007", a phone number)
+        # would be dropped. Both stay text.
+        if len(whole) > 1 and whole.startswith("0"):
             return t
+        if len(n.lstrip("-").replace(".", "").lstrip("0")) > 15:
+            return t
+        return float(n) if "." in n else int(n)
     return t
 
 
