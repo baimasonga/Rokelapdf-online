@@ -7,7 +7,7 @@
 //                                  PIPER names the piper command if it is not on the PATH. Scenes stretch to fit.
 // With neither, the advert gets a silent audio track.
 //
-// node tools/ads/render.mjs [w h cut name]... renders one advert; with no arguments, all three.
+// node tools/ads/render.mjs [w h cut name]... renders one advert; with no arguments, all of them. Cuts: full, short, howto.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
@@ -32,6 +32,8 @@ const ADS =
         [1080, 1920, 'full', 'rokela-pdf-android-30s-9x16'],
         [1080, 1920, 'short', 'rokela-pdf-android-15s-9x16'],
         [1920, 1080, 'full', 'rokela-pdf-android-30s-16x9'],
+        [1080, 1920, 'howto', 'rokela-pdf-android-howto-9x16'],
+        [1920, 1080, 'howto', 'rokela-pdf-android-howto-16x9'],
       ];
 
 for (const [name, file] of [

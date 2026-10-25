@@ -94,12 +94,145 @@
         overflow: hidden;
         background: #fff;
       }
-      #screen img {
+      #screen img,
+      #screen .ill {
         position: absolute;
         inset: 0;
         width: 100%;
         height: 100%;
         opacity: 0;
+      }
+      /* Drawn screens for what a browser cannot film: the camera scanner and Android's share sheet. Sized in em, one em
+         being 10 app pixels (the screen is 39em by 84.4em). Deliberately generic, not copies of Google's screens. */
+      .ill {
+        overflow: hidden;
+        font-family: Roboto, 'Inter', sans-serif;
+      }
+      .ill-scan {
+        background: radial-gradient(circle at 50% 45%, #3b3f47, #121418 75%);
+      }
+      .ill-scan .table {
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(100deg, #5b4636 0 2.2em, #634c3a 2.2em 4.6em);
+        opacity: 0.55;
+      }
+      .ill-scan .paper {
+        position: absolute;
+        left: 7em;
+        top: 17em;
+        width: 25em;
+        height: 40em;
+        background: #fbf8f1;
+        transform: rotate(-5deg);
+        box-shadow: 0 1.2em 2.4em rgba(0, 0, 0, 0.45);
+        padding: 3em 2.6em;
+        display: grid;
+        align-content: start;
+        gap: 1.5em;
+      }
+      .ill-scan .paper i {
+        display: block;
+        height: 0.9em;
+        border-radius: 0.3em;
+        background: #2a2a2e;
+        opacity: 0.75;
+      }
+      .ill-scan .edge {
+        position: absolute;
+        inset: -0.4em;
+        border: 0.35em solid #e2483d;
+        border-radius: 0.4em;
+        background: rgba(226, 72, 61, 0.1);
+      }
+      .ill-scan .corner {
+        position: absolute;
+        width: 4em;
+        height: 4em;
+        border-color: #fff;
+        border-style: solid;
+        border-width: 0;
+      }
+      .ill-scan .hint {
+        position: absolute;
+        left: 50%;
+        top: 7em;
+        transform: translateX(-50%);
+        padding: 0.8em 1.8em;
+        border-radius: 99em;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-size: 1.5em;
+        white-space: nowrap;
+      }
+      .ill-scan .shutter {
+        position: absolute;
+        left: 50%;
+        bottom: 6em;
+        width: 7.2em;
+        height: 7.2em;
+        margin-left: -3.6em;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 0 0 0.6em rgba(255, 255, 255, 0.35);
+      }
+      .ill-scan .flash {
+        position: absolute;
+        inset: 0;
+        background: #fff;
+        opacity: 0;
+      }
+      .ill-share .dim {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 31, 61, 0.45);
+      }
+      .ill-share .sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 1.4em 2em 5em;
+        border-radius: 2.4em 2.4em 0 0;
+        background: #fff;
+        color: #13203a;
+      }
+      .ill-share .handle {
+        width: 4em;
+        height: 0.45em;
+        margin: 0 auto 1.6em;
+        border-radius: 1em;
+        background: #cfd5df;
+      }
+      .ill-share .head {
+        font-size: 1.9em;
+        font-weight: 600;
+      }
+      .ill-share .file {
+        margin-top: 0.3em;
+        font-size: 1.4em;
+        color: #5d6b82;
+      }
+      .ill-share .apps {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.6em 0;
+        margin-top: 2.6em;
+        text-align: center;
+        font-size: 1.35em;
+      }
+      .ill-share .app b {
+        display: grid;
+        place-items: center;
+        width: 4.4em;
+        height: 4.4em;
+        margin: 0 auto 0.6em;
+        border-radius: 50%;
+        color: #fff;
+      }
+      .ill-share .app svg {
+        width: 2.2em;
+        height: 2.2em;
       }
       #notch {
         position: absolute;
@@ -450,7 +583,91 @@
         // The homepage links to the app, so the short cut says only the domain to stay within 15 s.
         { id: 'cta', dur: 3.4, vo: 'Get it free at [[ ɹˈəʊkɛlə ]] P D F dot com.' },
       ];
-      const SCENES = CUT === 'short' ? SHORT : FULL;
+      // How to scan, split, merge and share. Split and merge are Pro tools (src/lib/licensing.ts), so the advert says so.
+      const PRO = 'Pro tool · free for your first month';
+      const HOWTO = [
+        {
+          id: 'hook',
+          dur: 2.8,
+          title: 'Scan, split, merge\nand share.',
+          badge: 'How to · Rokela PDF for Android',
+          vo: 'Here is how to scan, split, merge and share your documents.',
+        },
+        {
+          id: 'scan',
+          dur: 5.2,
+          kicker: 'Step 1 · Scan',
+          title: 'Scan any paper',
+          sub: 'Edges are found and cleaned up for you',
+          vo: 'Step one. Tap scan, and point your camera at the page.',
+          screens: [
+            ['01-home', 0],
+            ['ill-scan', 0.95],
+            ['h-scanned', 3.7],
+          ],
+          taps: [['home_fab', 0.65]],
+        },
+        {
+          id: 'split',
+          dur: 5.0,
+          kicker: 'Step 2 · Split',
+          title: 'Split into\nseparate files',
+          sub: PRO,
+          vo: 'Step two. Split a PDF into separate files.',
+          screens: [
+            ['02-viewer', 0],
+            ['h-all-tools', 0.8],
+            ['h-split-sheet', 1.9],
+            ['h-parts', 3.2],
+          ],
+          taps: [
+            ['view_all', 0.55],
+            ['all_split', 1.65],
+            ['split_go', 2.95],
+          ],
+        },
+        {
+          id: 'merge',
+          dur: 4.2,
+          kicker: 'Step 3 · Merge',
+          title: 'Merge PDFs\ninto one',
+          sub: PRO,
+          vo: 'Step three. Merge PDFs into one.',
+          screens: [
+            ['01-home', 0],
+            ['h-combined', 1.2],
+          ],
+          taps: [['home_combine', 0.85]],
+        },
+        {
+          id: 'share',
+          dur: 4.4,
+          kicker: 'Step 4 · Share',
+          title: 'Share in a tap',
+          sub: 'WhatsApp, email and more',
+          vo: 'Step four. Share it on WhatsApp, by email, anywhere.',
+          screens: [
+            ['h-combined', 0],
+            ['ill-share', 0.9],
+          ],
+          taps: [['view_share', 0.6]],
+        },
+        {
+          id: 'cta',
+          dur: 3.6,
+          sub: 'Scan · Split · Merge · Share',
+          small: 'Free download · Pro tools free for your first month',
+          vo: 'Download it free at [[ ɹˈəʊkɛlə ]] P D F dot com slash android.',
+        },
+      ];
+      const SCENES = { full: FULL, short: SHORT, howto: HOWTO }[CUT] ?? FULL;
+      // The first and last scenes can carry their own opening and closing words (pre-line keeps the \n breaks).
+      const HOOK = SCENES[0],
+        CTA = SCENES[SCENES.length - 1];
+      if (HOOK.title) $('#hook .title').textContent = HOOK.title;
+      if (HOOK.badge) $('#hook .badge').textContent = HOOK.badge;
+      if (CTA.sub) $('#cta .sub').textContent = CTA.sub;
+      if (CTA.small) $('#cta .small').textContent = CTA.small;
       let acc = 0;
       const layout = () => {
         acc = 0;
@@ -469,13 +686,72 @@
       };
 
       const imgs = {};
+      const ICON = {
+        chat: '<path d="M4 5h16v11H8l-4 4z"/>',
+        mail: '<path d="M3 6h18v12H3z"/><path d="m3 7 9 6 9-6"/>',
+        folder: '<path d="M3 6h7l2 2h9v10H3z"/>',
+        near: '<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 0 0 0 10M17 7a7 7 0 0 1 0 10"/>',
+      };
+      const svg = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">${ICON[k]}</svg>`;
+      /** A drawn screen; ANIMATE[name](s) moves it, s being seconds since it appeared. */
+      function drawn(name) {
+        const el = document.createElement('div');
+        el.className = `ill ${name}`;
+        el.style.fontSize = 10 * L.s + 'px';
+        if (name === 'ill-scan')
+          el.innerHTML =
+            '<div class="table"></div><div class="paper">' +
+            '<i style="width:70%"></i><i style="width:50%"></i><i style="width:85%"></i><i style="width:85%"></i><i style="width:60%"></i>' +
+            '<i style="width:85%"></i><i style="width:40%"></i><i style="width:75%"></i><i style="width:55%"></i>' +
+            '<div class="edge"></div><div class="corner" data-c="tl"></div><div class="corner" data-c="tr"></div>' +
+            '<div class="corner" data-c="bl"></div><div class="corner" data-c="br"></div></div>' +
+            '<div class="hint">Looking for the page…</div><div class="shutter"></div><div class="flash"></div>';
+        else
+          el.innerHTML =
+            '<img src="screens/h-combined.png" alt="" style="opacity:1" /><div class="dim"></div><div class="sheet"><div class="handle"></div>' +
+            '<div class="head">Share</div><div class="file">combined.pdf · 2 pages</div><div class="apps">' +
+            [
+              ['chat', 'Chat', '#1e8a5a'],
+              ['mail', 'Email', '#2f6fdb'],
+              ['folder', 'Files', '#e8890c'],
+              ['near', 'Nearby', '#7a4fd8'],
+            ]
+              .map(([k, label, c]) => `<div class="app"><b style="background:${c}">${svg(k)}</b>${label}</div>`)
+              .join('') +
+            '</div></div>';
+        return el;
+      }
+      const ANIMATE = {
+        // The page is found: corner marks close in on it, its outline lights up, then the shutter flashes.
+        'ill-scan': (el, s) => {
+          const k = ease(clamp((s - 0.3) / 1.1));
+          for (const c of el.querySelectorAll('.corner')) {
+            const [v, hz] = [c.dataset.c[0], c.dataset.c[1]];
+            const off = (1 - k) * 3 - 0.9 + 'em';
+            c.style[v === 't' ? 'top' : 'bottom'] = off;
+            c.style[hz === 'l' ? 'left' : 'right'] = off;
+            c.style[v === 't' ? 'borderTopWidth' : 'borderBottomWidth'] = '0.5em';
+            c.style[hz === 'l' ? 'borderLeftWidth' : 'borderRightWidth'] = '0.5em';
+          }
+          el.querySelector('.edge').style.opacity = clamp((s - 1.2) / 0.3);
+          el.querySelector('.hint').textContent = s < 1.3 ? 'Looking for the page…' : 'Page found · hold steady';
+          el.querySelector('.shutter').style.transform = `scale(${s > 2.1 && s < 2.3 ? 0.88 : 1})`;
+          el.querySelector('.flash').style.opacity = s > 2.2 ? Math.max(0, 0.9 - (s - 2.2) * 2.5) : 0;
+        },
+        // Android's share sheet rises over the document.
+        'ill-share': (el, s) => {
+          const k = out(s / 0.4);
+          el.querySelector('.sheet').style.transform = `translateY(${(1 - k) * 100}%)`;
+          el.querySelector('.dim').style.opacity = k;
+        },
+      };
       for (const sc of SCENES)
         for (const [name] of sc.screens || []) {
           if (imgs[name]) continue;
-          const im = new Image();
-          im.src = `screens/${name}.png`;
-          screen.appendChild(im);
-          imgs[name] = im;
+          const el = name.startsWith('ill-') ? drawn(name) : new Image();
+          if (!name.startsWith('ill-')) el.src = `screens/${name}.png`;
+          screen.appendChild(el);
+          imgs[name] = el;
         }
       window.ready = Promise.all([...document.images].map((i) => i.decode().catch(() => {})));
 
@@ -613,6 +889,7 @@
           const k = ease((lt - fadeAt) / 0.28);
           if (from && from !== cur && k < 1) imgs[from].style.opacity = 1;
           imgs[cur].style.opacity = from && from !== cur ? k : 1;
+          ANIMATE[cur]?.(imgs[cur], lt - fadeAt);
           imgs[cur].style.zIndex = 2;
           if (from) imgs[from].style.zIndex = 1;
           // Taps.
