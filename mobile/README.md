@@ -45,6 +45,21 @@ are debug-signed with one key kept in the Actions cache, so a newer build instal
 evicted, Android refuses the update and the old version must be uninstalled first. Play Store builds will use a release
 key.
 
+## Video adverts
+
+`npm run ads` makes three adverts from the real app: a 30 s and a 15 s vertical video (1080×1920, for TikTok, Reels and
+WhatsApp Status) and a 30 s 16:9 video (1920×1080, for YouTube and Facebook). It needs ffmpeg on the PATH and takes about
+15 minutes. The MP4s land in `ads-out/` (not committed); they are silent, so add music on the platform.
+
+- `tools/ads/capture.mjs` builds sample documents, drives the app through each feature in a phone-sized browser and
+  screenshots it, recording where each tap lands.
+- `tools/ads/ad.html` lays out the phone, captions and tap marks; every frame is a function of time, set by `render(t)`.
+  The scenes, their wording and timings are the `FULL` and `SHORT` lists in it.
+- `tools/ads/render.mjs` renders every frame and encodes it with ffmpeg. `node tools/ads/render.mjs 1080 1920 short test`
+  re-renders one advert without capturing again.
+
+Re-run it after changing the app's look so the adverts show the current version.
+
 ## Building locally
 
 Needs Node 22, JDK 21 and the Android SDK (platform 36).
