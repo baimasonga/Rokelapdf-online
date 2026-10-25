@@ -3,7 +3,18 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { App as Native } from '@capacitor/app';
 import type { Session } from '@supabase/supabase-js';
 import type { SignatureImage } from '@/lib/editor/signature';
-import { compressPdf, fillForm, imagesToPdf, listFormFields, mergePdfs, type CompressLevel, type FormFieldInfo } from '@/lib/tools/ops';
+import {
+  compressPdf,
+  fillForm,
+  imagesToPdf,
+  listFormFields,
+  mergePdfs,
+  pageCount,
+  splitPdf,
+  type CompressLevel,
+  type FormFieldInfo,
+  type SplitMode,
+} from '@/lib/tools/ops';
 import { protectPdf, unlockPdf } from '@/lib/tools/security';
 import { browserRecoder, imageForPdf } from '@/lib/client/raster';
 import { ocrPdf } from '@/lib/client/ocr';
@@ -33,6 +44,7 @@ import {
   Presentation,
   RotateCw,
   ScanText,
+  Scissors,
   Share2,
   Shrink,
   Signature,
@@ -41,15 +53,17 @@ import {
   X,
 } from 'lucide-react';
 import { norm } from '@/lib/editor/model';
-import { MIME, PDF_MIME, isPdf, native, onIncoming, saveFile, scanDocument, shareFile, takeIncoming, type PdfFile } from './native';
+import { MIME, PDF_MIME, isPdf, native, onIncoming, saveFile, scanDocument, shareFile, shareFiles, takeIncoming, type PdfFile } from './native';
 import { PasswordRequired, openPdf, renderPage, type OpenPdf } from './pdf';
 import { OFFICE_EXTENSIONS, SITE, convert, currentSession, renamed, signIn, signOut, type Target } from './account';
 import { SignLayer, SignaturePad, signPdf, type Placed } from './sign';
 import { COLORS, EditLayer, HINTS, TOOLS, TextSheet, editPdf, newItemId, type EditState, type Item, type Tool } from './edit';
 import { Pages, moveSelected, organize, sheetsOf, type Sheet as PageSheet } from './pages';
-import { CompressSheet, FormSheet, ProtectSheet, ToolsSheet, UnlockSheet } from './tools';
+import { CompressSheet, FormSheet, PaidSheet, PartsSheet, ProtectSheet, SplitSheet, ToolsSheet, UnlockSheet, type Part } from './tools';
+import { paidBlock, type Why } from './access';
+import type { PaidFeature } from '@/lib/licensing';
 import { AppBar, BarButton, IconButton, Progress, Row, Sheet, ToolTile, type ToolDef } from './ui';
-import { forget, openRecent, recentFiles, remember, type Recent } from './recent';
+import { RECENT_MAX, forget, openRecent, recentFiles, remember, type Recent } from './recent';
 import logo from '@/../public/brand/rokela-icon.png';
 
 type View = { k: 'view'; file: PdfFile; pdf: OpenPdf; id: number };
@@ -65,11 +79,16 @@ interface Ready {
   mime: string;
 }
 /** Tools that work on an open PDF; from the home screen they first ask for the file. */
-type FileTool = 'edit' | 'sign' | 'organize' | 'compress' | 'protect' | 'ocr' | 'form' | 'export';
+type FileTool = 'edit' | 'sign' | 'organize' | 'split' | 'compress' | 'protect' | 'ocr' | 'form' | 'export';
+/** File tools that are paid (src/lib/licensing.ts). Combining and adding another PDF's pages are merging. */
+const TOOL_FEATURE: Partial<Record<FileTool, PaidFeature>> = { edit: 'edit', sign: 'sign', split: 'split', protect: 'protect', ocr: 'ocr' };
 type Panel =
   | { k: 'tools' }
   | { k: 'export' }
   | { k: 'compress' }
+  | { k: 'split' }
+  | { k: 'parts'; parts: Part[] }
+  | { k: 'paid'; feature: PaidFeature; why: Why }
   | { k: 'protect' }
   | { k: 'unlock'; file: PdfFile }
   | { k: 'form'; fields: FormFieldInfo[] }
@@ -186,6 +205,19 @@ export function App() {
     }
   }, []);
 
+  /** Runs a paid tool after the access check; otherwise says why it cannot run yet. */
+  const paid = async (feature: PaidFeature, go: () => void) => {
+    setBusy('Checking your access…');
+    let why: Why | undefined;
+    try {
+      why = await paidBlock();
+    } finally {
+      setBusy(undefined);
+    }
+    if (why) setPanel({ k: 'paid', feature, why });
+    else go();
+  };
+
   // The installed build, shown on the home screen so testers can tell which version they have.
   useEffect(() => {
     if (native)
@@ -272,9 +304,13 @@ export function App() {
     pickingFor.current = undefined;
     picker.current?.click();
   };
-  const combine = (e: ChangeEvent<HTMLInputElement>) =>
-    void run('Combining…', async () => {
-      const files = await readFiles(e);
+  const combine = (e: ChangeEvent<HTMLInputElement>) => {
+    const reading = readFiles(e);
+    void paid('merge', () => void combineNow(reading));
+  };
+  const combineNow = (reading: ReturnType<typeof readFiles>) =>
+    run('Combining…', async () => {
+      const files = await reading;
       if (!files.length) return;
       if (files.length < 2) throw new Error('Choose two or more PDFs to combine.');
       if (files.some((f) => !isPdf(f.bytes))) throw new Error('Choose PDF files only.');
@@ -337,9 +373,13 @@ export function App() {
     setSelected(new Set());
     setScreen({ k: 'pages', from: v, sources: [v.file.bytes], docs: [v.pdf.doc], extra: [], sheets: sheetsOf(0, v.pdf.doc.numPages) });
   };
-  const addPages = (e: ChangeEvent<HTMLInputElement>) =>
-    void run('Adding pages…', async () => {
-      const [f] = await readFiles(e);
+  const addPages = (e: ChangeEvent<HTMLInputElement>) => {
+    const reading = readFiles(e);
+    void paid('merge', () => void addPagesNow(reading));
+  };
+  const addPagesNow = (reading: ReturnType<typeof readFiles>) =>
+    run('Adding pages…', async () => {
+      const [f] = await reading;
       if (!f || screen.k !== 'pages') return;
       if (!isPdf(f.bytes)) throw new Error('That file is not a PDF.');
       const d = await openPdf(f.bytes);
@@ -377,6 +417,17 @@ export function App() {
       if (r.after >= r.before) return setNotice('This PDF is already as small as it can be made.');
       await show({ name: suffixed(v.file.name, 'compressed'), bytes: r.bytes });
       setNotice(`${Math.round((1 - r.after / r.before) * 100)}% smaller: ${size(r.before)} → ${size(r.after)}. Save or share it.`);
+    });
+  const split = (v: View, mode: SplitMode) =>
+    run('Splitting…', async () => {
+      const made = await splitPdf(v.file.bytes, mode, v.file.name.replace(/\.pdf$/i, ''));
+      // Recent keeps RECENT_MAX files; more parts would push the first ones out (and off the phone).
+      if (made.length > RECENT_MAX)
+        throw new Error(`That makes ${made.length} files. Split into ${RECENT_MAX} or fewer at a time, so every part is kept in Recent.`);
+      const parts = await Promise.all(made.map(async (p) => ({ ...p, pages: await pageCount(p.bytes) })));
+      // Every part goes into Recent, so none is lost when another one is opened.
+      for (const p of parts) setRecent(await remember({ name: p.name, bytes: p.bytes }, p.pages));
+      setPanel({ k: 'parts', parts });
     });
   const protect = (v: View, o: Parameters<typeof protectPdf>[1]) =>
     run('Protecting…', async () => {
@@ -418,11 +469,17 @@ export function App() {
     });
 
   const startTool = (v: View, tool: FileTool) => {
+    const feature = TOOL_FEATURE[tool];
+    if (feature) void paid(feature, () => openTool(v, tool));
+    else openTool(v, tool);
+  };
+  const openTool = (v: View, tool: FileTool) => {
     if (tool === 'edit') setEdit({ tool: 'text', color: COLORS[0]!, size: 0.03, items: [] });
     else if (tool === 'sign') {
       if (signature) startSigning(signature);
       else setPad(true);
     } else if (tool === 'organize') openPages(v);
+    else if (tool === 'split') setPanel({ k: 'split' });
     else if (tool === 'compress') setPanel({ k: 'compress' });
     else if (tool === 'protect') setPanel({ k: 'protect' });
     else if (tool === 'ocr') void ocr(v);
@@ -465,6 +522,7 @@ export function App() {
     { id: 'edit', label: 'Edit PDF', icon: FilePenLine, color: C.edit, run: () => go('edit') },
     { id: 'sign', label: 'Fill & Sign', icon: Signature, color: C.sign, run: () => go('sign') },
     { id: 'organize', label: 'Organize pages', icon: LayoutGrid, color: C.organize, run: () => go('organize') },
+    { id: 'split', label: 'Split', icon: Scissors, color: C.organize, run: () => go('split') },
     { id: 'compress', label: 'Compress', icon: Shrink, color: C.compress, run: () => go('compress') },
     { id: 'protect', label: 'Protect', icon: Lock, color: C.protect, run: () => go('protect') },
     { id: 'ocr', label: 'Make text searchable', icon: ScanText, color: C.ocr, run: () => go('ocr') },
@@ -792,6 +850,33 @@ export function App() {
         </Sheet>
       ) : null}
       {panel?.k === 'compress' && view ? <CompressSheet onClose={() => setPanel(undefined)} onPick={(level) => void compress(view, level)} /> : null}
+      {panel?.k === 'paid' ? (
+        <PaidSheet
+          feature={panel.feature}
+          why={panel.why}
+          onClose={() => setPanel(undefined)}
+          onSignIn={() => {
+            setPanel(undefined);
+            openAccount(view);
+          }}
+        />
+      ) : null}
+      {panel?.k === 'split' && view ? (
+        <SplitSheet pages={view.pdf.doc.numPages} onClose={() => setPanel(undefined)} onSplit={(m) => void split(view, m)} />
+      ) : null}
+      {panel?.k === 'parts' ? (
+        <PartsSheet
+          parts={panel.parts}
+          onClose={() => setPanel(undefined)}
+          onOpen={(p) =>
+            void run('Opening…', async () => {
+              setPanel(undefined);
+              await show({ name: p.name, bytes: p.bytes });
+            })
+          }
+          onShareAll={() => void run('Preparing…', () => shareFiles(panel.parts))}
+        />
+      ) : null}
       {panel?.k === 'protect' && view ? <ProtectSheet onClose={() => setPanel(undefined)} onDone={(o) => void protect(view, o)} /> : null}
       {panel?.k === 'unlock' ? <UnlockSheet name={panel.file.name} onClose={() => setPanel(undefined)} onDone={(pw) => void unlock(panel.file, pw)} /> : null}
       {panel?.k === 'form' && view ? (
@@ -949,7 +1034,9 @@ function Page({ doc, n, layer, onVisible }: { doc: PDFDocumentProxy; n: number; 
   useEffect(() => {
     const el = canvas.current?.parentElement;
     if (!el) return;
-    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && onVisible(n), { threshold: 0.5 });
+    // The current page is the one crossing the middle of the screen. ("Half of it visible" picked the last page on open:
+    // before they render, short pages are all half visible at once.)
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && onVisible(n), { rootMargin: '-50% 0px -50% 0px' });
     io.observe(el);
     return () => io.disconnect();
   }, [n, onVisible]);

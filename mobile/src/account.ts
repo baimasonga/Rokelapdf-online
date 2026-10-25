@@ -1,23 +1,36 @@
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 
 // Sign-in and Word ⇄ PDF through rokelapdf.com. The server answers this app's origin (https://localhost in the
-// WebView) only on /api/v1/config and /api/v1/convert/*; every conversion is authorized there with the access token.
-// Files are converted and returned in the same response and never stored.
+// WebView) only on /api/v1/config, /api/v1/me/access and /api/v1/convert/*; every conversion is authorized there with
+// the access token. Files are converted and returned in the same response and never stored.
 
 export const SITE = (import.meta.env.VITE_SITE_ORIGIN as string | undefined) ?? 'https://www.rokelapdf.com';
 
+export interface SiteConfig {
+  supabase_url: string;
+  supabase_publishable_key: string;
+  /** When the paid tools stop being free for everyone (null: not set). */
+  paid_features_from: string | null;
+}
+
+let config: Promise<SiteConfig> | undefined;
+/** The site's public configuration, read once per run (again after a failure). */
+export function siteConfig(): Promise<SiteConfig> {
+  config ??= fetch(`${SITE}/api/v1/config`, { credentials: 'omit' }).then((r) => {
+    if (!r.ok) throw new Error();
+    return r.json() as Promise<SiteConfig>;
+  });
+  config.catch(() => (config = undefined));
+  return config;
+}
+
 let client: Promise<SupabaseClient> | undefined;
 function supabase(): Promise<SupabaseClient> {
-  client ??= fetch(`${SITE}/api/v1/config`, { credentials: 'omit' })
-    .then((r) => {
-      if (!r.ok) throw new Error();
-      return r.json() as Promise<{ supabase_url: string; supabase_publishable_key: string }>;
-    })
-    .then((c) =>
-      createClient(c.supabase_url, c.supabase_publishable_key, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'rokela-auth' },
-      }),
-    );
+  client ??= siteConfig().then((c) =>
+    createClient(c.supabase_url, c.supabase_publishable_key, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'rokela-auth' },
+    }),
+  );
   client.catch(() => (client = undefined));
   return client.catch(() => {
     throw new Error('Rokela PDF cannot be reached. Check your internet connection.');

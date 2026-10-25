@@ -14,7 +14,9 @@ export interface Recent {
 }
 
 const KEY = 'rokela-recent';
-const MAX = 15;
+/** How many files Recent keeps; older ones are deleted from the phone. */
+export const RECENT_MAX = 15;
+const MAX = RECENT_MAX;
 const memory = new Map<string, Uint8Array>();
 
 function read(): Recent[] {

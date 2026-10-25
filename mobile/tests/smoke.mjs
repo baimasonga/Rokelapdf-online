@@ -41,6 +41,10 @@ async function fixtures(page) {
   for (const t of ['Annex A', 'Annex B']) annex.addPage([595, 842]).drawText(t, { x: 50, y: 780, size: 20, font: await font(annex) });
   writeFileSync(join(dir, 'annex.pdf'), await annex.save());
 
+  const long = await PDFDocument.create();
+  for (let n = 1; n <= 16; n++) long.addPage([595, 842]).drawText(`Page ${n}`, { x: 50, y: 780, size: 20, font: await font(long) });
+  writeFileSync(join(dir, 'long.pdf'), await long.save());
+
   const form = await PDFDocument.create();
   const fp = form.addPage([595, 842]);
   form.getForm().createTextField('Full name').addToPage(fp, { x: 50, y: 700, width: 300, height: 24 });
@@ -88,9 +92,14 @@ async function main() {
     const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE_PATH });
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, acceptDownloads: true });
     // rokelapdf.com stand-ins: a signed-in session and a converter that echoes a recognisable file.
+    // The paid tools stay free until a launch date is set; the Pro step sets one and answers /me/access itself.
+    const site = { launched: null, access: null, offline: false };
     await ctx.route('https://www.rokelapdf.com/api/v1/config', (r) =>
-      r.fulfill({ json: { supabase_url: 'https://demo.supabase.co', supabase_publishable_key: 'demo' } }),
+      site.offline
+        ? r.abort()
+        : r.fulfill({ json: { supabase_url: 'https://demo.supabase.co', supabase_publishable_key: 'demo', paid_features_from: site.launched } }),
     );
+    await ctx.route('https://www.rokelapdf.com/api/v1/me/access', (r) => (site.offline ? r.abort() : r.fulfill({ json: site.access })));
     await ctx.route('https://demo.supabase.co/**', (r) => r.fulfill({ json: {} }));
     const converted = [];
     await ctx.route('https://www.rokelapdf.com/api/v1/convert/**', (r) => {
@@ -149,6 +158,7 @@ async function main() {
       'Edit PDF',
       'Fill & Sign',
       'Organize pages',
+      'Split',
       'Compress',
       'Protect',
       'Make text searchable',
@@ -189,6 +199,56 @@ async function main() {
     await notice(/Combined 2 PDFs/);
     let r = await textOf(await saved());
     check(r.pages === 3 && /TENANCY/.test(r.text) && /Annex B/.test(r.text), 'combined PDF has all 3 pages in order');
+    await page.waitForTimeout(800);
+    check((await page.locator('.page-pill').textContent()).replace(/\s/g, '') === '1/3', 'the page counter starts at the first page');
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(800);
+    check((await page.locator('.page-pill').textContent()).replace(/\s/g, '') === '3/3', 'and follows scrolling to the last page');
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    step('Split');
+    await more('Split');
+    await page.getByRole('button', { name: 'Split', exact: true }).click();
+    const parts = page.getByRole('dialog', { name: 'Split into 3 files' });
+    await parts.waitFor();
+    check((await parts.locator('.row-item').count()) === 3, 'every page becomes its own file');
+    await parts.getByRole('button', { name: /pages-2\.pdf/ }).click();
+    r = await textOf(await saved());
+    check(r.pages === 1 && /Annex A/.test(r.text), 'a part opens and holds just its page');
+    await page.goto(ORIGIN);
+    await input('application/pdf,.pdf', true).setInputFiles([file('agreement.pdf'), file('annex.pdf')]);
+    await notice(/Combined 2 PDFs/);
+    await more('Split');
+    await page.getByRole('tab', { name: 'Page ranges' }).click();
+    await page.getByLabel('Page ranges, one file each').fill('9');
+    await page.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.locator('.snackbar.error').waitFor();
+    ok('a range beyond the last page is refused with a message');
+    await page.getByLabel('Page ranges, one file each').fill('1, 2-3');
+    await page.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Split into 2 files' }).waitFor();
+    check(await page.getByRole('button', { name: /pages-2-3\.pdf/ }).isVisible(), 'page ranges make one file each');
+    await page.getByRole('dialog', { name: 'Split into 2 files' }).getByRole('button', { name: 'Done' }).click();
+    // Recent keeps 15 files, so a split may make at most 15: more would push the first parts out.
+    await openPdf('long.pdf');
+    await more('Split');
+    const tooMany = page.getByRole('dialog', { name: 'Split PDF' });
+    // The sheet opens after the access check, so wait for it rather than reading it at once.
+    await tooMany.getByText('That makes 16 files').waitFor();
+    check(
+      (await tooMany.getByText('That makes 16 files').isVisible()) && (await tooMany.getByRole('button', { name: 'Split', exact: true }).isDisabled()),
+      'a split into more than 15 files is explained and cannot start',
+    );
+    await tooMany.getByRole('tab', { name: 'Page ranges' }).click();
+    await tooMany.getByLabel('Page ranges, one file each').fill(Array.from({ length: 16 }, (_, i) => i + 1).join(', '));
+    await tooMany.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.locator('.snackbar.error', { hasText: 'That makes 16 files' }).waitFor();
+    ok('16 typed ranges are refused too');
+    await tooMany.getByRole('tab', { name: 'Every few pages' }).click();
+    await tooMany.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Split into 8 files' }).waitFor();
+    ok('every 2 pages makes 8 files');
+    await page.getByRole('dialog', { name: 'Split into 8 files' }).getByRole('button', { name: 'Done' }).click();
 
     step('Photos → PDF');
     await page.goto(ORIGIN);
@@ -325,6 +385,49 @@ async function main() {
     await page.getByRole('button', { name: 'To PowerPoint' }).click();
     await page.locator('.ready', { hasText: '.pptx is ready' }).waitFor();
     check(converted.includes('/api/v1/convert/xlsx') && converted.includes('/api/v1/convert/pptx'), 'PDF → Excel and PowerPoint go through the converter');
+
+    step('Pro tools (src/lib/licensing.ts)');
+    site.launched = '2026-01-01T00:00:00.000Z';
+    site.access = { access: 'none', until: null, reason: 'trial_ended' };
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    const pro = page.getByRole('dialog', { name: 'Editing is a Pro tool' });
+    await pro.waitFor();
+    check(await pro.getByRole('link', { name: 'Get a licence' }).isVisible(), 'after the free month, Edit asks for a licence');
+    await pro.getByRole('button', { name: 'Not now' }).click();
+    check((await page.locator('.edit-layer').count()) === 0, 'and does not open');
+    await more('Compress');
+    await page.getByRole('dialog', { name: 'Compress PDF' }).waitFor();
+    ok('free tools still open');
+    await page.locator('.scrim').click({ position: { x: 20, y: 40 } });
+    await page.goto(ORIGIN);
+    await input('application/pdf,.pdf', true).setInputFiles([file('agreement.pdf'), file('annex.pdf')]);
+    await page.getByRole('dialog', { name: 'Merging is a Pro tool' }).waitFor();
+    ok('combining is merging, so it asks too');
+
+    const inMonth = new Date(Date.now() + 10 * 86400000).toISOString();
+    site.access = { access: 'trial', until: inMonth };
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.locator('.edit-layer').first().waitFor();
+    ok('in the free month, Edit opens');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    site.offline = true;
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.locator('.edit-layer').first().waitFor();
+    ok('offline, the last answer still lets Edit open until its date');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    site.offline = false;
+
+    await openPdf('agreement.pdf');
+    await page.evaluate(() => localStorage.removeItem('rokela-auth'));
+    await page.getByRole('button', { name: 'Fill & Sign', exact: true }).click();
+    const signin = page.getByRole('dialog', { name: 'Signing is a Pro tool' });
+    await signin.waitFor();
+    check(await signin.getByRole('button', { name: 'Sign in' }).isVisible(), 'signed out, a Pro tool offers to sign in');
+    site.launched = null;
 
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
     await browser.close();

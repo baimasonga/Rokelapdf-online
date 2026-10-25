@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Gauge, Feather, Zap } from 'lucide-react';
+import { FileText, Gauge, Feather, Zap } from 'lucide-react';
 import { Row, Sheet, ToolTile, type ToolDef } from './ui';
-import type { FormFieldInfo, CompressLevel } from '@/lib/tools/ops';
+import type { FormFieldInfo, CompressLevel, SplitMode } from '@/lib/tools/ops';
+import { COMPANY } from '@/lib/company';
+import { FEATURE_NAMES, TRIAL_DAYS, type PaidFeature } from '@/lib/licensing';
+import type { Why } from './access';
+import { RECENT_MAX } from './recent';
 
-// Bottom sheets for the PDF tools: all tools, compress, password, unlock and form filling.
+// Bottom sheets for the PDF tools: all tools, compress, split, password, unlock, form filling and the Pro prompt.
 
 /** "All tools" for the open PDF: a grid of tools, then quick actions (save, share). */
 export function ToolsSheet({
@@ -50,6 +54,101 @@ export function CompressSheet({ onClose, onPick }: { onClose: () => void; onPick
         {LEVELS.map(([level, label, hint], i) => (
           <Row key={level} icon={[Feather, Gauge, Zap][i]!} iconColor="#e8890c" title={label} detail={hint} onClick={() => onPick(level)} />
         ))}
+      </div>
+    </Sheet>
+  );
+}
+
+type SplitKind = SplitMode['kind'];
+const SPLIT_KINDS: Array<[SplitKind, string]> = [
+  ['each', 'Every page'],
+  ['every', 'Every few pages'],
+  ['ranges', 'Page ranges'],
+];
+
+/** Split into several PDFs: one per page, a fixed number of pages each, or ranges the person types. */
+export function SplitSheet({ pages, onClose, onSplit }: { pages: number; onClose: () => void; onSplit: (mode: SplitMode) => void }) {
+  const [kind, setKind] = useState<SplitKind>('each');
+  const [n, setN] = useState('2');
+  const [ranges, setRanges] = useState('');
+  const every = Math.max(1, Math.floor(Number(n)) || 1);
+  const files = kind === 'each' ? pages : kind === 'every' ? Math.ceil(pages / every) : undefined;
+  const mode: SplitMode = kind === 'each' ? { kind } : kind === 'every' ? { kind, n: every } : { kind, spec: ranges };
+  return (
+    <Sheet title="Split PDF" onClose={onClose}>
+      <p className="muted">Each part becomes its own PDF. This one has {pages === 1 ? '1 page' : `${pages} pages`}.</p>
+      <div className="seg" role="tablist" aria-label="How to split">
+        {SPLIT_KINDS.map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {kind === 'every' ? (
+        <label className="field">
+          Pages in each file
+          <input type="number" inputMode="numeric" min={1} max={pages} value={n} onChange={(e) => setN(e.target.value)} />
+        </label>
+      ) : null}
+      {kind === 'ranges' ? (
+        <label className="field">
+          Page ranges, one file each
+          <input inputMode="numeric" placeholder="For example 1-2, 3, 4-6" value={ranges} onChange={(e) => setRanges(e.target.value)} />
+        </label>
+      ) : null}
+      {files && files > RECENT_MAX ? (
+        <p className="error-inline">
+          That makes {files} files. Split into {RECENT_MAX} or fewer at a time, so every part is kept in Recent.
+        </p>
+      ) : null}
+      <div className="row">
+        <span className="muted">{files ? `Makes ${files === 1 ? '1 file' : `${files} files`}` : ''}</span>
+        <span className="actions">
+          <button className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" disabled={!!files && files > RECENT_MAX} onClick={() => onSplit(mode)}>
+            Split
+          </button>
+        </span>
+      </div>
+    </Sheet>
+  );
+}
+
+export interface Part {
+  name: string;
+  bytes: Uint8Array;
+  pages: number;
+}
+
+/** The files a split made: open any of them, or share them all at once. */
+export function PartsSheet({ parts, onOpen, onShareAll, onClose }: { parts: Part[]; onOpen: (p: Part) => void; onShareAll: () => void; onClose: () => void }) {
+  return (
+    <Sheet title={`Split into ${parts.length} files`} onClose={onClose}>
+      <p className="muted">Tap a file to open it. They are all in Recent too.</p>
+      <div className="sheet-rows">
+        {parts.map((p) => (
+          <Row
+            key={p.name}
+            icon={FileText}
+            iconColor="#1e8a5a"
+            title={p.name}
+            detail={p.pages === 1 ? '1 page' : `${p.pages} pages`}
+            onClick={() => onOpen(p)}
+          />
+        ))}
+      </div>
+      <div className="row">
+        <span />
+        <span className="actions">
+          <button className="ghost" onClick={onClose}>
+            Done
+          </button>
+          <button className="primary" onClick={onShareAll}>
+            Share all
+          </button>
+        </span>
       </div>
     </Sheet>
   );
@@ -188,6 +287,41 @@ export function FormSheet({
           <button className="primary" onClick={() => onDone(values, flatten)}>
             Fill in
           </button>
+        </span>
+      </div>
+    </Sheet>
+  );
+}
+
+/** Shown when a paid tool (src/lib/licensing.ts) cannot be used yet: what to do about it. */
+export function PaidSheet({ feature, why, onClose, onSignIn }: { feature: PaidFeature; why: Why; onClose: () => void; onSignIn: () => void }) {
+  const mail = `mailto:${COMPANY.email}?subject=${encodeURIComponent('Rokela PDF licence')}`;
+  const text: Record<Why, string> = {
+    signin: `Sign in to use it. Every new account gets ${TRIAL_DAYS} days of every Pro tool free.`,
+    trial_ended: `Your free month has ended. A yearly licence keeps the Pro tools unlocked here and on rokelapdf.com. Email ${COMPANY.email} from the address you sign in with.`,
+    license_ended: `Your licence has ended. Renew it to keep using the Pro tools: email ${COMPANY.email} from the address you sign in with.`,
+    verify_email: 'Confirm your email address first: open the link we sent when you signed up, then try again.',
+    offline: 'Connect to the internet once so the app can check your access. After that it works offline until your access ends.',
+  };
+  return (
+    <Sheet title={`${FEATURE_NAMES[feature]} is a Pro tool`} onClose={onClose}>
+      <p className="muted">{text[why]}</p>
+      <p className="muted">Every other tool stays free, with no account needed.</p>
+      <div className="row">
+        <span />
+        <span className="actions">
+          <button className="ghost" onClick={onClose}>
+            Not now
+          </button>
+          {why === 'signin' ? (
+            <button className="primary" onClick={onSignIn}>
+              Sign in
+            </button>
+          ) : why === 'trial_ended' || why === 'license_ended' ? (
+            <a className="primary pill" href={mail}>
+              Get a licence
+            </a>
+          ) : null}
         </span>
       </div>
     </Sheet>

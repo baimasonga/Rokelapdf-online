@@ -67,6 +67,7 @@ export const TABLE_PRIVILEGES: Record<string, Priv[]> = {
   memberships: ALL, // members can be removed or leave
   member_invitations: RIU,
   org_plans: R, // operators change plans through tooling with the owner connection
+  user_licenses: R, // likewise for licences
   audit_events: RI, // append-only
   rate_limits: ALL,
   share_accounts: RIU, // lock anchor (row locks need UPDATE)

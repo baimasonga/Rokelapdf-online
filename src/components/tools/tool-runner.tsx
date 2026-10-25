@@ -1,4 +1,6 @@
 'use client';
+import { usePaid } from '@/components/paid';
+import { PAID_TOOLS, type PaidFeature } from '@/lib/licensing';
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -133,7 +135,18 @@ function Segmented<T extends string | number>({
 
 const num = (s: string, fallback: number) => (s.trim() === '' || !Number.isFinite(Number(s)) ? fallback : Number(s));
 
+/** A tool page's working area. Paid tools (src/lib/licensing.ts) check access once a file is chosen. */
 export function ToolRunner({ slug }: { slug: ToolSlug }) {
+  const paid = usePaid();
+  return (
+    <>
+      <Runner slug={slug} require={paid.require} />
+      {paid.prompt}
+    </>
+  );
+}
+
+function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) => boolean | Promise<boolean> }) {
   const tool = toolBySlug(slug)!;
   const router = useRouter();
   const [files, setFiles] = useState<Picked[]>([]);
@@ -231,6 +244,8 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   async function choose(list: FileList | File[] | null) {
     if (!list || !list.length) return;
     setError(undefined);
+    const paidFeature = PAID_TOOLS[slug];
+    if (paidFeature && !(await require(paidFeature))) return;
     try {
       const picked = await read(many ? list : [list[0]!]);
       if (tool.editorTool) {
@@ -421,6 +436,8 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   async function run() {
     if (!first || busy) return;
     setError(undefined);
+    // Inserting another PDF is merging, whichever tool page it is done from.
+    if (slug === 'add-pages' && addKind === 'pdf' && !(await require('merge'))) return;
     setBusy('Working…');
     try {
       const out = await compute();
@@ -1004,7 +1021,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
     );
   }
 
-  if (slug === 'organize-pdf') return <Organizer file={{ name: first!.file.name, bytes: first!.bytes }} onReset={reset} />;
+  if (slug === 'organize-pdf') return <Organizer file={{ name: first!.file.name, bytes: first!.bytes }} onReset={reset} require={require} />;
 
   // 3. Finished: a clear, celebratory result with one big download.
   if (outputs.length) {

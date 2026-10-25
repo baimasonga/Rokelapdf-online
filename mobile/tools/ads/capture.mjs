@@ -68,11 +68,42 @@ async function simple(title, lines) {
   return d.save();
 }
 
+/** What a page looks like after Google's scanner has cleaned it up: a receipt on slightly warm paper. */
+async function scannedReceipt() {
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Courier);
+  const b = await d.embedFont(StandardFonts.CourierBold);
+  const p = d.addPage([420, 760]);
+  p.drawRectangle({ x: 0, y: 0, width: 420, height: 760, color: rgb(0.985, 0.975, 0.955) });
+  const ink = rgb(0.16, 0.16, 0.18);
+  p.drawText('KISSY ROAD SUPERMARKET', { x: 70, y: 690, size: 18, font: b, color: ink });
+  p.drawText('12 Kissy Road, Freetown', { x: 105, y: 666, size: 12, font: f, color: ink });
+  p.drawText('25/10/2026  10:30   Till 3', { x: 95, y: 646, size: 12, font: f, color: ink });
+  const items = [
+    ['Rice 25kg', '650,000'],
+    ['Palm oil 5L', '210,000'],
+    ['Onions 2kg', '60,000'],
+    ['Sugar 1kg', '35,000'],
+    ['Exercise books x6', '90,000'],
+  ];
+  items.forEach(([n, v], i) => {
+    p.drawText(n, { x: 50, y: 590 - i * 30, size: 13, font: f, color: ink });
+    p.drawText(`Le ${v}`, { x: 280, y: 590 - i * 30, size: 13, font: f, color: ink });
+  });
+  p.drawLine({ start: { x: 50, y: 425 }, end: { x: 370, y: 425 }, thickness: 1, color: ink, dashArray: [4, 3] });
+  p.drawText('TOTAL', { x: 50, y: 395, size: 15, font: b, color: ink });
+  p.drawText('Le 1,045,000', { x: 255, y: 395, size: 15, font: b, color: ink });
+  p.drawText('Paid: Orange Money', { x: 50, y: 360, size: 12, font: f, color: ink });
+  p.drawText('Thank you for shopping with us!', { x: 70, y: 300, size: 12, font: f, color: ink });
+  return d.save();
+}
+
 async function main() {
   const fx = join(root, 'ads-out', 'fixtures');
   mkdirSync(fx, { recursive: true });
   writeFileSync(join(fx, 'Tenancy agreement.pdf'), await agreement());
   writeFileSync(join(fx, 'School fees invoice.pdf'), await simple('INVOICE', ['Term 1 school fees', 'Amount due: Le 1,200', 'Due: 15 November 2026']));
+  writeFileSync(join(fx, 'scan-202610251030.pdf'), await scannedReceipt());
   writeFileSync(join(fx, 'Payment receipt.pdf'), await simple('RECEIPT OF PAYMENT', ['Received from Aminata Kamara', 'Le 4,500 for rent, November 2026']));
 
   // vite itself, not npx: stopping npx would leave its vite child running.
@@ -92,9 +123,14 @@ async function main() {
     }
     const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE_PATH });
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+    // Answer the app's configuration here, so the capture never depends on whether rokelapdf.com has launched the paid
+    // tools (src/lib/licensing.ts): with no launch date every tool opens.
+    await ctx.route('https://www.rokelapdf.com/api/v1/config', (r) =>
+      r.fulfill({ json: { supabase_url: 'https://demo.supabase.co', supabase_publishable_key: 'demo', paid_features_from: null } }),
+    );
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.log('pageerror', e.message));
-    const KEEP_MESSAGE = ['08-signed'];
+    const KEEP_MESSAGE = ['08-signed', 'h-combined'];
     const shot = async (name, settle = 600) => {
       if (!KEEP_MESSAGE.includes(name)) for (const b of await page.locator('.snack-close').all()) await b.click().catch(() => {});
       // The browser-preview note does not exist in the Android app.
@@ -238,6 +274,36 @@ async function main() {
     await page.getByRole('button', { name: 'Organize', exact: true }).click();
     await page.locator('.thumb canvas').first().waitFor();
     await shot('16-organize-large-text', 1200);
+
+    // The how-to advert: a scanned page, split, merge (Combine files) and share. Fresh page: normal text size.
+    await page.goto(ORIGIN);
+    await page.waitForSelector('.fab');
+    await tap('home_combine', page.locator('.tool-grid').getByRole('button', { name: 'Combine files', exact: true }));
+    await open('scan-202610251030.pdf');
+    await shot('h-scanned', 1200);
+    await open('Tenancy agreement.pdf');
+    await page.getByRole('button', { name: 'All tools', exact: true }).click();
+    const tools = page.getByRole('dialog', { name: 'All tools' });
+    await tools.waitFor();
+    await tap('all_split', tools.getByRole('button', { name: 'Split', exact: true }));
+    await shot('h-all-tools');
+    await tools.getByRole('button', { name: 'Split', exact: true }).click();
+    const splitSheet = page.getByRole('dialog', { name: 'Split PDF' });
+    await splitSheet.waitFor();
+    await tap('split_go', splitSheet.getByRole('button', { name: 'Split', exact: true }));
+    await shot('h-split-sheet');
+    await splitSheet.getByRole('button', { name: 'Split', exact: true }).click();
+    const parts = page.getByRole('dialog', { name: 'Split into 3 files' });
+    await parts.waitFor();
+    await shot('h-parts');
+    await parts.getByRole('button', { name: 'Done' }).click();
+    await home();
+    await page
+      .locator('input[type=file][accept="application/pdf,.pdf"][multiple]')
+      .setInputFiles([join(fx, 'Payment receipt.pdf'), join(fx, 'School fees invoice.pdf')]);
+    await page.waitForSelector('.page canvas[width]');
+    await tap('view_share', page.getByRole('button', { name: 'Share', exact: true }));
+    await shot('h-combined', 1200);
 
     writeFileSync(join(out, 'taps.json'), JSON.stringify(taps, null, 2));
     await browser.close();

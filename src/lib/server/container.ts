@@ -17,6 +17,7 @@ import { S3ObjectStore } from './storage/s3';
 import { ClamdScanner } from './storage/clamd';
 import { CloudflareMailer, ResendMailer, type Mailer } from './mail';
 import { ConversionService, HttpConverter, type ConversionLimits, type Converter } from './convert';
+import { LicenseService } from './licenses';
 import { BasicContentScanner, ChainedScanner, DEFAULT_SHARING_CONFIG, SharingKeys, SharingService, type FileScanner, type ObjectStore } from './sharing';
 
 export interface Container {
@@ -28,6 +29,7 @@ export interface Container {
   sharing: SharingService;
   rateLimiter: RateLimiter;
   conversions: ConversionService;
+  licenses: LicenseService;
   warrior: WarriorMonitor | undefined;
   warriorReadiness: (() => Promise<void>) | undefined;
   localStore: LocalObjectStore | undefined;
@@ -63,6 +65,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
   const pool: PgPool = o.pool ?? ownPool!;
   const verifier = o.verifier ?? new SupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl, publishableKey: config.supabasePublishableKey });
   const workspaces = new WorkspaceService(pool, clock, config.trialMode);
+  const licenses = new LicenseService(pool, clock, config.paidFeaturesFrom);
   let localStore: LocalObjectStore | undefined;
   let objects = o.objects;
   if (!objects) {
@@ -187,6 +190,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     sharing,
     rateLimiter,
     conversions,
+    licenses,
     warrior,
     warriorReadiness: warrior ? () => checkWarriorReadiness(config, warrior) : undefined,
     localStore,

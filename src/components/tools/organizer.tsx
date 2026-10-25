@@ -1,4 +1,5 @@
 'use client';
+import type { PaidFeature } from '@/lib/licensing';
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { ArrowLeft, ArrowRight, CheckCircle2, Download, FilePen, FilePlus, Loader2, Lock, Plus, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
@@ -24,7 +25,16 @@ let seq = 0;
 const key = () => `c${++seq}`;
 const turn = (r: Rot, by: 90 | -90) => ((((r + by) % 360) + 360) % 360) as Rot;
 
-export function Organizer({ file, onReset }: { file: { name: string; bytes: Uint8Array }; onReset: () => void }) {
+export function Organizer({
+  file,
+  onReset,
+  require,
+}: {
+  file: { name: string; bytes: Uint8Array };
+  onReset: () => void;
+  /** Adding pages from another PDF is merging, a paid tool (src/lib/licensing.ts). */
+  require: (f: PaidFeature) => boolean | Promise<boolean>;
+}) {
   const router = useRouter();
   const [sources, setSources] = useState<Uint8Array[]>([file.bytes]);
   const [docs, setDocs] = useState<PDFDocumentProxy[]>([]);
@@ -279,7 +289,7 @@ export function Organizer({ file, onReset }: { file: { name: string; bytes: Uint
               onChange={async (e) => {
                 const f = e.target.files?.[0];
                 e.target.value = '';
-                if (!f) return;
+                if (!f || !(await require('merge'))) return;
                 try {
                   await addSource(new Uint8Array(await f.arrayBuffer()));
                 } catch {
