@@ -356,3 +356,247 @@ button:disabled {
 .card a {
   color: var(--coral);
 }
+/* messages stay in view while scrolling */
+.messages {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + 52px);
+  z-index: 2;
+}
+.messages > * {
+  box-shadow: 0 2px 8px rgba(15, 31, 61, 0.08);
+}
+.messages .busy,
+.messages .error,
+.messages .notice {
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--card);
+}
+.grid2,
+.grid3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.grid3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.grid2 .tile,
+.grid3 .tile {
+  padding: 14px;
+}
+.grid2 .tile strong,
+.grid3 .tile strong {
+  font-size: 15px;
+}
+.grid2 .tile span,
+.grid3 .tile span {
+  font-size: 13px;
+}
+/* edit */
+.edit-tools {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + 52px);
+  z-index: 1;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid #dfe4ee;
+}
+.tool-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.tool-row button {
+  flex: 1;
+  border: 1px solid #c9d1e0;
+  border-radius: 10px;
+  background: var(--card);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 4px;
+  color: var(--text);
+}
+.tool-row button.on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.tool-row.small {
+  margin-top: 6px;
+  justify-content: space-between;
+  min-height: 34px;
+}
+.tool-row.small .muted {
+  font-size: 13px;
+}
+.tool-row.small .link {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--coral);
+}
+.edit-layer {
+  position: absolute;
+  inset: 0;
+  outline: 2px dashed rgba(15, 31, 61, 0.35);
+  touch-action: pan-y;
+}
+.edit-layer.drawing {
+  touch-action: none;
+}
+.edit-layer svg.ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.edit-layer .box {
+  position: absolute;
+  pointer-events: none;
+}
+.edit-layer .box.highlight {
+  background: rgba(255, 225, 77, 0.45);
+  mix-blend-mode: multiply;
+}
+.edit-layer .box.whiteout {
+  background: #fff;
+  outline: 1px dashed #9aa6bb;
+}
+.edit-layer .text-item {
+  position: absolute;
+  white-space: pre;
+  line-height: 1.25;
+  font-family: Helvetica, Arial, sans-serif;
+  touch-action: none;
+  outline: 1px dashed rgba(226, 72, 61, 0.6);
+}
+/* pages */
+.pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+  padding: 12px 12px 96px;
+}
+.thumb {
+  margin: 0;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 1px 3px rgba(15, 31, 61, 0.15);
+}
+.thumb-img {
+  display: grid;
+  place-items: center;
+  height: 200px;
+  overflow: hidden;
+}
+.thumb-img canvas {
+  max-width: 100%;
+  max-height: 100%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.thumb figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+.thumb .num {
+  font-weight: 700;
+  color: var(--muted);
+}
+.tbtns {
+  display: flex;
+  gap: 2px;
+}
+.tbtns button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 16px;
+  color: var(--text);
+}
+/* sheets */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  background: rgba(15, 31, 61, 0.35);
+}
+.sheet {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.sheet-title {
+  margin: 0;
+  font-size: 19px;
+}
+.sheet textarea,
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #c9d1e0;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 16px;
+}
+.sheet input[type='range'] {
+  flex: 1;
+  margin-left: 12px;
+}
+.menu section h3 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.menu-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 6px;
+  padding: 13px 14px;
+  border: 1px solid #dfe4ee;
+  border-radius: 12px;
+  background: var(--card);
+  font: inherit;
+  color: var(--text);
+}
+.menu-item span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.field {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.check input {
+  width: 20px;
+  height: 20px;
+}
+.error-inline {
+  margin: 0;
+  color: #a3281f;
+  font-weight: 600;
+}
+.form-fields {
+  display: grid;
+  gap: 12px;
+}

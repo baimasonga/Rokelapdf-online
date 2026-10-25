@@ -12,9 +12,14 @@
     "resolveJsonModule": true,
     "types": ["vite/client"],
     "paths": {
+      "@/components/editor/pdfjs": ["./src/pdfjs-shim.ts"],
       "@/*": ["../src/*"],
       "pdf-lib": ["./node_modules/pdf-lib"],
-      "@pdf-lib/fontkit": ["./node_modules/@pdf-lib/fontkit"]
+      "@pdf-lib/fontkit": ["./node_modules/@pdf-lib/fontkit"],
+      "@cantoo/pdf-lib": ["./node_modules/@cantoo/pdf-lib"],
+      "fflate": ["./node_modules/fflate"],
+      "tesseract.js": ["./node_modules/tesseract.js"],
+      "pdfjs-dist": ["./node_modules/pdfjs-dist"]
     }
   },
   "include": ["src", "vite.config.ts", "capacitor.config.ts"]

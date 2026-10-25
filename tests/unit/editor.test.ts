@@ -4,6 +4,7 @@ import { PDFDocument, degrees } from 'pdf-lib';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { EditorError, buildPdf, blankPdf, dataUrlBytes, loadSource } from '@/lib/editor/export';
 import { signatureEdits } from '@/lib/editor/signature';
+import { overlayEdits } from '@/lib/editor/overlay';
 import { png } from './png';
 import {
   appendPages,
@@ -164,6 +165,58 @@ describe('editor page operations and export', () => {
     const out = await PDFDocument.load(await buildPdf([blank], initial(1)));
     expect([out.getPage(0).getWidth(), out.getPage(0).getHeight()]).toEqual([200, 300]);
     await expect(buildPdf([blank], { pages: [], annots: {} })).rejects.toThrow(/no pages/);
+  });
+});
+
+describe('overlay edits made on pages as a phone shows them', () => {
+  it('places text where it was typed, upright and sized to the shown page, whatever the page rotation', async () => {
+    for (const r of [0, 90, 180, 270] as Rotation[]) {
+      const src = await source([[400, 600]], r);
+      const shown = { rotation: r, shownWidth: r % 180 ? 600 : 400 };
+      // 3% of the shown width: 12 pt on an upright 400 pt page, 18 pt on a page shown 600 pt wide.
+      const s = overlayEdits([shown], [{ kind: 'text', page: 0, u: 0.2, v: 0.1, text: 'Hello', size: 0.03, color: '#112233' }]);
+      const [t] = await textOnScreen(await buildPdf([src], s));
+      expect(t, `rotation ${r}`).toBeDefined();
+      expect(t!.str).toBe('Hello');
+      expect(t!.upright).toBe(true);
+      expect(t!.u).toBeCloseTo(0.2, 2);
+      const shownH = r % 180 ? 400 : 600;
+      expect(t!.v).toBeCloseTo(0.1 + (0.03 * shown.shownWidth * 0.8) / shownH, 2);
+    }
+  });
+
+  it('maps boxes and ink strokes back to page space for every rotation', () => {
+    for (const r of [0, 90, 180, 270] as Rotation[]) {
+      const s = overlayEdits(
+        [{ rotation: r, shownWidth: 500 }],
+        [
+          { kind: 'highlight', page: 0, u: 0.1, v: 0.2, w: 0.3, h: 0.05, color: '#ffe14d' },
+          {
+            kind: 'ink',
+            page: 0,
+            points: [
+              [0.1, 0.8],
+              [0.4, 0.9],
+            ],
+            width: 0.004,
+            color: '#111827',
+          },
+        ],
+      );
+      const [h, ink] = s.annots['p0']!;
+      if (h!.kind !== 'highlight' || ink!.kind !== 'ink') throw new Error('unexpected kinds');
+      // The box's corners, shown again, are the corners that were drawn.
+      const c1 = toDisplay(h!.x, h!.y, r);
+      const c2 = toDisplay(h!.x + h!.w, h!.y + h!.h, r);
+      expect([Math.min(c1.u, c2.u), Math.min(c1.v, c2.v), Math.max(c1.u, c2.u), Math.max(c1.v, c2.v)].map((n) => +n.toFixed(6))).toEqual([0.1, 0.2, 0.4, 0.25]);
+      const shownInk = ink!.points.map(([x, y]) => toDisplay(x, y, r));
+      expect(shownInk.map((p) => [+p.u.toFixed(6), +p.v.toFixed(6)])).toEqual([
+        [0.1, 0.8],
+        [0.4, 0.9],
+      ]);
+      expect(ink!.width).toBeCloseTo(2, 6);
+    }
+    expect(() => overlayEdits([], [{ kind: 'whiteout', page: 0, u: 0, v: 0, w: 0.1, h: 0.1, color: '#fff' }])).toThrow(EditorError);
   });
 });
 

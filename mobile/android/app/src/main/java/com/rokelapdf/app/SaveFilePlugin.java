@@ -26,7 +26,9 @@ import java.util.List;
 public class SaveFilePlugin extends Plugin {
     private static final List<String> TYPES = Arrays.asList(
         "application/pdf",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     );
 
     @PluginMethod

@@ -23,7 +23,13 @@ interface SaveFilePlugin {
 const SaveFile = registerPlugin<SaveFilePlugin>('SaveFile');
 
 export const PDF_MIME = 'application/pdf';
-export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+/** File types the app saves and shares; SaveFilePlugin.java accepts exactly these. */
+export const MIME = {
+  pdf: PDF_MIME,
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+} as const;
 
 const fromBase64 = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 function toBase64(bytes: Uint8Array) {

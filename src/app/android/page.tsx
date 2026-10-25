@@ -28,8 +28,9 @@ const FEATURES = [
   'Scan documents with the camera: edges found and cleaned up automatically, saved as PDF',
   'Open PDFs from WhatsApp, Files or email with “Open with Rokela PDF”',
   'Sign PDFs with your finger; your signature never leaves the phone',
-  'Convert Word to PDF and PDF to Word (needs internet and a free account)',
-  'Save to any folder or share to WhatsApp, Drive and email',
+  'Edit PDFs: add text, highlight, draw, cover words and add pictures',
+  'Organize pages, combine PDFs, compress, add a password and make scans searchable',
+  'Convert Word, Excel and PowerPoint to and from PDF (needs internet and a free account)',
 ];
 
 export default function AndroidPage() {
@@ -53,7 +54,7 @@ export default function AndroidPage() {
             <a href={ANDROID_APK} className="button primary xl" download>
               <Download size={20} aria-hidden="true" /> Download for Android
             </a>
-            <p className="android-small">Free · about 7 MB · Android 7.0 or newer</p>
+            <p className="android-small">Free · about 18 MB · Android 7.0 or newer</p>
             <p className="android-note">
               <strong>Blank screen after tapping?</strong> If you opened this page from WhatsApp, Gmail or Facebook, tap <strong>⋮</strong> and choose{' '}
               <strong>Open in Chrome</strong>, then tap the button again. In Chrome the download may finish quietly: check your notifications or the{' '}
