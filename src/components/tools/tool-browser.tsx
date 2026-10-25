@@ -16,7 +16,7 @@ export function ToolBrowser() {
           </button>
         ))}
       </div>
-      <div className="tiles">
+      <div className="tiles tool-tiles">
         {shown.map((t) => (
           <ToolTile key={t.slug} t={t} />
         ))}
