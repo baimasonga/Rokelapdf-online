@@ -23,7 +23,7 @@
     "predev": "node tools/copy-pdfjs.mjs",
     "prebuild": "node tools/copy-pdfjs.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
-    "e2e": "node tools/with-postgres.mjs node tests/e2e/smoke.mjs",
+    "e2e": "node tools/with-postgres.mjs node tests/e2e/smoke.mjs && node tools/with-postgres.mjs node tests/e2e/paid.mjs",
     "deploy:prepare": "tsx tools/admin.ts config && tsx tools/admin.ts migrate && tsx tools/admin.ts grants",
     "screens": "node tools/with-postgres.mjs node tests/e2e/screens.mjs",
     "check:services": "tsx tools/check-services.ts"

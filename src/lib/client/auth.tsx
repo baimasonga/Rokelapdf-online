@@ -29,6 +29,18 @@ function supabaseClient(): Promise<SupabaseClient> {
   return clientPromise;
 }
 
+/**
+ * The current access token, waiting for a stored session to be restored first. Use it where an action depends on
+ * whether the person is signed in, so a click made while the page is still loading does not count them as signed out.
+ */
+export async function sessionToken(): Promise<string | undefined> {
+  try {
+    return (await (await supabaseClient()).auth.getSession()).data.session?.access_token;
+  } catch {
+    return undefined;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [supabase, setSupabase] = useState<SupabaseClient>();
   const [session, setSession] = useState<Session | null>(null);

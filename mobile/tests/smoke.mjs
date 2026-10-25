@@ -88,9 +88,14 @@ async function main() {
     const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE_PATH });
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, acceptDownloads: true });
     // rokelapdf.com stand-ins: a signed-in session and a converter that echoes a recognisable file.
+    // The paid tools stay free until a launch date is set; the Pro step sets one and answers /me/access itself.
+    const site = { launched: null, access: null, offline: false };
     await ctx.route('https://www.rokelapdf.com/api/v1/config', (r) =>
-      r.fulfill({ json: { supabase_url: 'https://demo.supabase.co', supabase_publishable_key: 'demo' } }),
+      site.offline
+        ? r.abort()
+        : r.fulfill({ json: { supabase_url: 'https://demo.supabase.co', supabase_publishable_key: 'demo', paid_features_from: site.launched } }),
     );
+    await ctx.route('https://www.rokelapdf.com/api/v1/me/access', (r) => (site.offline ? r.abort() : r.fulfill({ json: site.access })));
     await ctx.route('https://demo.supabase.co/**', (r) => r.fulfill({ json: {} }));
     const converted = [];
     await ctx.route('https://www.rokelapdf.com/api/v1/convert/**', (r) => {
@@ -350,6 +355,49 @@ async function main() {
     await page.getByRole('button', { name: 'To PowerPoint' }).click();
     await page.locator('.ready', { hasText: '.pptx is ready' }).waitFor();
     check(converted.includes('/api/v1/convert/xlsx') && converted.includes('/api/v1/convert/pptx'), 'PDF → Excel and PowerPoint go through the converter');
+
+    step('Pro tools (src/lib/licensing.ts)');
+    site.launched = '2026-01-01T00:00:00.000Z';
+    site.access = { access: 'none', until: null, reason: 'trial_ended' };
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    const pro = page.getByRole('dialog', { name: 'Editing is a Pro tool' });
+    await pro.waitFor();
+    check(await pro.getByRole('link', { name: 'Get a licence' }).isVisible(), 'after the free month, Edit asks for a licence');
+    await pro.getByRole('button', { name: 'Not now' }).click();
+    check((await page.locator('.edit-layer').count()) === 0, 'and does not open');
+    await more('Compress');
+    await page.getByRole('dialog', { name: 'Compress PDF' }).waitFor();
+    ok('free tools still open');
+    await page.locator('.scrim').click({ position: { x: 20, y: 40 } });
+    await page.goto(ORIGIN);
+    await input('application/pdf,.pdf', true).setInputFiles([file('agreement.pdf'), file('annex.pdf')]);
+    await page.getByRole('dialog', { name: 'Merging is a Pro tool' }).waitFor();
+    ok('combining is merging, so it asks too');
+
+    const inMonth = new Date(Date.now() + 10 * 86400000).toISOString();
+    site.access = { access: 'trial', until: inMonth };
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.locator('.edit-layer').first().waitFor();
+    ok('in the free month, Edit opens');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    site.offline = true;
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.locator('.edit-layer').first().waitFor();
+    ok('offline, the last answer still lets Edit open until its date');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    site.offline = false;
+
+    await openPdf('agreement.pdf');
+    await page.evaluate(() => localStorage.removeItem('rokela-auth'));
+    await page.getByRole('button', { name: 'Fill & Sign', exact: true }).click();
+    const signin = page.getByRole('dialog', { name: 'Signing is a Pro tool' });
+    await signin.waitFor();
+    check(await signin.getByRole('button', { name: 'Sign in' }).isVisible(), 'signed out, a Pro tool offers to sign in');
+    site.launched = null;
 
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
     await browser.close();

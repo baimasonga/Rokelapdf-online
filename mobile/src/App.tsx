@@ -59,7 +59,9 @@ import { OFFICE_EXTENSIONS, SITE, convert, currentSession, renamed, signIn, sign
 import { SignLayer, SignaturePad, signPdf, type Placed } from './sign';
 import { COLORS, EditLayer, HINTS, TOOLS, TextSheet, editPdf, newItemId, type EditState, type Item, type Tool } from './edit';
 import { Pages, moveSelected, organize, sheetsOf, type Sheet as PageSheet } from './pages';
-import { CompressSheet, FormSheet, PartsSheet, ProtectSheet, SplitSheet, ToolsSheet, UnlockSheet, type Part } from './tools';
+import { CompressSheet, FormSheet, PaidSheet, PartsSheet, ProtectSheet, SplitSheet, ToolsSheet, UnlockSheet, type Part } from './tools';
+import { paidBlock, type Why } from './access';
+import type { PaidFeature } from '@/lib/licensing';
 import { AppBar, BarButton, IconButton, Progress, Row, Sheet, ToolTile, type ToolDef } from './ui';
 import { forget, openRecent, recentFiles, remember, type Recent } from './recent';
 import logo from '@/../public/brand/rokela-icon.png';
@@ -78,12 +80,15 @@ interface Ready {
 }
 /** Tools that work on an open PDF; from the home screen they first ask for the file. */
 type FileTool = 'edit' | 'sign' | 'organize' | 'split' | 'compress' | 'protect' | 'ocr' | 'form' | 'export';
+/** File tools that are paid (src/lib/licensing.ts). Combining and adding another PDF's pages are merging. */
+const TOOL_FEATURE: Partial<Record<FileTool, PaidFeature>> = { edit: 'edit', sign: 'sign', split: 'split', protect: 'protect', ocr: 'ocr' };
 type Panel =
   | { k: 'tools' }
   | { k: 'export' }
   | { k: 'compress' }
   | { k: 'split' }
   | { k: 'parts'; parts: Part[] }
+  | { k: 'paid'; feature: PaidFeature; why: Why }
   | { k: 'protect' }
   | { k: 'unlock'; file: PdfFile }
   | { k: 'form'; fields: FormFieldInfo[] }
@@ -200,6 +205,19 @@ export function App() {
     }
   }, []);
 
+  /** Runs a paid tool after the access check; otherwise says why it cannot run yet. */
+  const paid = async (feature: PaidFeature, go: () => void) => {
+    setBusy('Checking your access…');
+    let why: Why | undefined;
+    try {
+      why = await paidBlock();
+    } finally {
+      setBusy(undefined);
+    }
+    if (why) setPanel({ k: 'paid', feature, why });
+    else go();
+  };
+
   // The installed build, shown on the home screen so testers can tell which version they have.
   useEffect(() => {
     if (native)
@@ -286,9 +304,13 @@ export function App() {
     pickingFor.current = undefined;
     picker.current?.click();
   };
-  const combine = (e: ChangeEvent<HTMLInputElement>) =>
-    void run('Combining…', async () => {
-      const files = await readFiles(e);
+  const combine = (e: ChangeEvent<HTMLInputElement>) => {
+    const reading = readFiles(e);
+    void paid('merge', () => void combineNow(reading));
+  };
+  const combineNow = (reading: ReturnType<typeof readFiles>) =>
+    run('Combining…', async () => {
+      const files = await reading;
       if (!files.length) return;
       if (files.length < 2) throw new Error('Choose two or more PDFs to combine.');
       if (files.some((f) => !isPdf(f.bytes))) throw new Error('Choose PDF files only.');
@@ -351,9 +373,13 @@ export function App() {
     setSelected(new Set());
     setScreen({ k: 'pages', from: v, sources: [v.file.bytes], docs: [v.pdf.doc], extra: [], sheets: sheetsOf(0, v.pdf.doc.numPages) });
   };
-  const addPages = (e: ChangeEvent<HTMLInputElement>) =>
-    void run('Adding pages…', async () => {
-      const [f] = await readFiles(e);
+  const addPages = (e: ChangeEvent<HTMLInputElement>) => {
+    const reading = readFiles(e);
+    void paid('merge', () => void addPagesNow(reading));
+  };
+  const addPagesNow = (reading: ReturnType<typeof readFiles>) =>
+    run('Adding pages…', async () => {
+      const [f] = await reading;
       if (!f || screen.k !== 'pages') return;
       if (!isPdf(f.bytes)) throw new Error('That file is not a PDF.');
       const d = await openPdf(f.bytes);
@@ -440,6 +466,11 @@ export function App() {
     });
 
   const startTool = (v: View, tool: FileTool) => {
+    const feature = TOOL_FEATURE[tool];
+    if (feature) void paid(feature, () => openTool(v, tool));
+    else openTool(v, tool);
+  };
+  const openTool = (v: View, tool: FileTool) => {
     if (tool === 'edit') setEdit({ tool: 'text', color: COLORS[0]!, size: 0.03, items: [] });
     else if (tool === 'sign') {
       if (signature) startSigning(signature);
@@ -816,6 +847,17 @@ export function App() {
         </Sheet>
       ) : null}
       {panel?.k === 'compress' && view ? <CompressSheet onClose={() => setPanel(undefined)} onPick={(level) => void compress(view, level)} /> : null}
+      {panel?.k === 'paid' ? (
+        <PaidSheet
+          feature={panel.feature}
+          why={panel.why}
+          onClose={() => setPanel(undefined)}
+          onSignIn={() => {
+            setPanel(undefined);
+            openAccount(view);
+          }}
+        />
+      ) : null}
       {panel?.k === 'split' && view ? (
         <SplitSheet pages={view.pdf.doc.numPages} onClose={() => setPanel(undefined)} onSplit={(m) => void split(view, m)} />
       ) : null}

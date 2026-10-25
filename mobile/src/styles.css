@@ -270,10 +270,17 @@ button.primary,
   border-radius: 999px;
   font-weight: 600;
 }
-button.primary {
+button.primary,
+a.primary {
   border: 0;
   background: var(--coral);
   color: #fff;
+}
+/* A link styled as the primary button (e.g. "Get a licence", which opens the mail app). */
+a.primary {
+  display: inline-grid;
+  place-items: center;
+  text-decoration: none;
 }
 button.primary:active {
   background: var(--coral-press);

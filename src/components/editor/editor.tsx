@@ -32,6 +32,8 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { Button, Form, Modal, Progress, useNotice } from '@/components/ui';
+import { usePaid } from '@/components/paid';
+import type { PaidFeature } from '@/lib/licensing';
 import { ownerUpload, type Workspace } from '@/components/workspace/context';
 import { api, enc, fetchSigned, sharingPath } from '@/lib/client/api';
 import { useAuth } from '@/lib/client/auth';
@@ -73,6 +75,16 @@ const TOOLS: Array<[Tool, string, string]> = [
   ['signature', 'Sign', 'Click on the page to place your signature'],
   ['field', 'Form field', 'Drag to add a fillable text field, or click to place a checkbox'],
 ];
+/** Editor tools that are paid (src/lib/licensing.ts). Selecting and form fields stay free. */
+const PAID_EDITOR_TOOLS: Partial<Record<Tool, PaidFeature>> = {
+  text: 'edit',
+  highlight: 'edit',
+  rect: 'edit',
+  ink: 'edit',
+  redact: 'edit',
+  whiteout: 'edit',
+  signature: 'sign',
+};
 const TOOL_ICONS: Record<Tool, LucideIcon> = {
   select: MousePointer2,
   text: Type,
@@ -138,6 +150,14 @@ export function Editor({
   const [colors, setColors] = useState<Record<string, string>>({ text: '#111827', highlight: '#ffeb3b', rect: '#d32f2f', ink: '#1565c0', field: '#1565c0' });
   const [signature, setSignature] = useState<Signature>();
   const [sigOpen, setSigOpen] = useState(false);
+  const paid = usePaid();
+  /** Picks a tool, after the access check for a paid one. Resolves false when the person may not use it. */
+  const choose = async (t: Tool) => {
+    const f = PAID_EDITOR_TOOLS[t];
+    if (f && !(await paid.require(f))) return false;
+    setTool(t);
+    return true;
+  };
   const [fieldType, setFieldType] = useState<FieldAnnot['field']>('text');
   const [customFont, setCustomFont] = useState<Uint8Array>();
   const [fontName, setFontName] = useState('Automatic (Unicode fallback)');
@@ -244,7 +264,7 @@ export function Editor({
   // A file handed over by a tool page or the home page, optionally with a tool already chosen.
   useEffect(() => {
     if (!handoff) {
-      if (isTool(initialTool)) setTool(initialTool);
+      if (isTool(initialTool)) void choose(initialTool);
       return;
     }
     // The file can be taken only once, so a re-run of this effect (React StrictMode) must not discard it.
@@ -254,10 +274,7 @@ export function Editor({
         const f = await takeHandoff();
         if (!f) return;
         await openBytes(f.bytes, baseName(f.name));
-        if (isTool(initialTool)) {
-          setTool(initialTool);
-          if (initialTool === 'signature') setSigOpen(true);
-        }
+        if (isTool(initialTool) && (await choose(initialTool)) && initialTool === 'signature') setSigOpen(true);
       } catch (e) {
         notice((e as Error).message, true);
       } finally {
@@ -395,10 +412,11 @@ export function Editor({
                 title={hint}
                 className={tool === t ? 'active' : ''}
                 disabled={!s.pages.length}
-                onClick={() => {
-                  setTool(t);
-                  if (t === 'signature' && !signature) setSigOpen(true);
-                }}
+                onClick={() =>
+                  void choose(t).then((ok) => {
+                    if (ok && t === 'signature' && !signature) setSigOpen(true);
+                  })
+                }
               >
                 <Icon size={18} aria-hidden="true" />
                 <span>{label}</span>
@@ -740,6 +758,7 @@ export function Editor({
         </div>
       </div>
 
+      {paid.prompt}
       <SignaturePad
         open={sigOpen}
         onClose={() => setSigOpen(false)}

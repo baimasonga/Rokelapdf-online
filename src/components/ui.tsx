@@ -296,7 +296,7 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} onClose={onClose} className="modal">
+    <dialog ref={ref} onClose={onClose} className="modal" aria-label={title}>
       <div className="panel-head">
         <h2>{title}</h2>
         <button type="button" className="ghost" onClick={onClose} aria-label="Close">
