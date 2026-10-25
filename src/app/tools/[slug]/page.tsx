@@ -37,7 +37,7 @@ export default async function ToolPage({ params }: { params: Params }) {
         <ToolRunner slug={tool.slug} />
         <section className="tool-more" aria-labelledby="more-tools">
           <h2 id="more-tools">More tools</h2>
-          <div className="tiles">
+          <div className="tiles tool-tiles">
             {related.map((t) => (
               <ToolTile key={t.slug} t={t} />
             ))}
