@@ -455,6 +455,8 @@ button.ghost {
 }
 .snackbar.error {
   background: #8f1f17;
+  /* Two classes, so the plain .error text colour (dark red, for forms) never applies on the red background. */
+  color: #fff;
 }
 .snackbar button {
   flex: none;
