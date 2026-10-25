@@ -16,7 +16,8 @@ Nothing is locked until `PAID_FEATURES_FROM` is set to a date (`2026-12-01`, mid
 it is unset, every tool is free for everyone. On that date the locks switch on everywhere at once, website and app,
 with no app update: the app asks the server.
 
-Set it in Railway (and any Cloudflare backup) and redeploy. `npm run config` checks the value before a deploy.
+Set it in Railway (and any Cloudflare backup) and redeploy. The pre-deploy step (`npm run deploy:prepare`) refuses a
+value it cannot read, so a typo fails the deploy instead of locking or unlocking anything.
 
 ## Granting a licence
 
