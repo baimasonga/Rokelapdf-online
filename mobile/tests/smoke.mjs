@@ -233,6 +233,8 @@ async function main() {
     await openPdf('long.pdf');
     await more('Split');
     const tooMany = page.getByRole('dialog', { name: 'Split PDF' });
+    // The sheet opens after the access check, so wait for it rather than reading it at once.
+    await tooMany.getByText('That makes 16 files').waitFor();
     check(
       (await tooMany.getByText('That makes 16 files').isVisible()) && (await tooMany.getByRole('button', { name: 'Split', exact: true }).isDisabled()),
       'a split into more than 15 files is explained and cannot start',
