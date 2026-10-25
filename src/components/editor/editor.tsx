@@ -154,7 +154,9 @@ export function Editor({
   /** Picks a tool, after the access check for a paid one. Resolves false when the person may not use it. */
   const choose = async (t: Tool) => {
     const f = PAID_EDITOR_TOOLS[t];
-    if (f && !(await paid.require(f))) return false;
+    // Free tools, and paid ones while they are free, switch at once (no await), so the next click uses the new tool.
+    const ok = f ? paid.require(f) : true;
+    if (ok !== true && !(await ok)) return false;
     setTool(t);
     return true;
   };

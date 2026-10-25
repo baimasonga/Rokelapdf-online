@@ -33,7 +33,7 @@ export function Organizer({
   file: { name: string; bytes: Uint8Array };
   onReset: () => void;
   /** Adding pages from another PDF is merging, a paid tool (src/lib/licensing.ts). */
-  require: (f: PaidFeature) => Promise<boolean>;
+  require: (f: PaidFeature) => boolean | Promise<boolean>;
 }) {
   const router = useRouter();
   const [sources, setSources] = useState<Uint8Array[]>([file.bytes]);

@@ -146,7 +146,7 @@ export function ToolRunner({ slug }: { slug: ToolSlug }) {
   );
 }
 
-function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) => Promise<boolean> }) {
+function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) => boolean | Promise<boolean> }) {
   const tool = toolBySlug(slug)!;
   const router = useRouter();
   const [files, setFiles] = useState<Picked[]>([]);

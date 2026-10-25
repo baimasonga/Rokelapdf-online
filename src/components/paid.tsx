@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ApiError, api } from '@/lib/client/api';
 import { sessionToken } from '@/lib/client/auth';
 import { COMPANY } from '@/lib/company';
@@ -12,20 +12,31 @@ import { Modal } from './ui';
 // browser, so this is the lock: the server only answers who has access.
 
 let launch: Promise<Date | null> | undefined;
+/** The launch date once known (null: not set); undefined until the configuration has been read. */
+let launchKnown: Date | null | undefined;
 /** When the paid tools stop being free for everyone (null: not set). Read once per page load. */
 function launchDate(): Promise<Date | null> {
-  launch ??= api<{ paid_features_from: string | null }>('/api/v1/config', { auth: false }).then((c) =>
-    c.paid_features_from ? new Date(c.paid_features_from) : null,
-  );
+  launch ??= api<{ paid_features_from: string | null }>('/api/v1/config', { auth: false }).then((c) => {
+    launchKnown = c.paid_features_from ? new Date(c.paid_features_from) : null;
+    return launchKnown;
+  });
   launch.catch(() => (launch = undefined));
   return launch;
 }
+/** True when the paid tools are known to be free right now, so a tool can start in the same click. */
+const knownOpen = () => launchKnown !== undefined && (launchKnown === null || new Date() < launchKnown);
 
 type Why = 'signin' | 'trial_ended' | 'license_ended' | 'verify_email' | 'error';
 
-export function usePaid(): { require: (f: PaidFeature) => Promise<boolean>; prompt: ReactNode } {
+/**
+ * `require` answers synchronously (true) while the paid tools are free for everyone and the launch date is already
+ * known, so a tool picked in the editor is active for the very next click; otherwise it asks the server first.
+ */
+export function usePaid(): { require: (f: PaidFeature) => boolean | Promise<boolean>; prompt: ReactNode } {
   const [blocked, setBlocked] = useState<{ feature: PaidFeature; why: Why }>();
-  const require = useCallback(async (feature: PaidFeature) => {
+  // Read the launch date as soon as a page with paid tools opens, not on the first click.
+  useEffect(() => void launchDate().catch(() => undefined), []);
+  const check = useCallback(async (feature: PaidFeature) => {
     try {
       const from = await launchDate();
       if (!from || new Date() < from) return true;
@@ -40,6 +51,7 @@ export function usePaid(): { require: (f: PaidFeature) => Promise<boolean>; prom
     }
     return false;
   }, []);
+  const require = useCallback((feature: PaidFeature) => (knownOpen() ? true : check(feature)), [check]);
   const prompt = blocked ? <PaidPrompt feature={blocked.feature} why={blocked.why} onClose={() => setBlocked(undefined)} /> : null;
   return { require, prompt };
 }
