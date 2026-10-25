@@ -5,6 +5,11 @@ import { createClient, type Session, type SupabaseClient } from '@supabase/supab
 // the access token. Files are converted and returned in the same response and never stored.
 
 export const SITE = (import.meta.env.VITE_SITE_ORIGIN as string | undefined) ?? 'https://www.rokelapdf.com';
+/**
+ * True in the Google Play build (VITE_DISTRIBUTION=play; docs/google-play.md). Google Play does not allow an app to
+ * point people to a way of paying outside Google Play, so that build never says how to buy a licence.
+ */
+export const PLAY_BUILD = import.meta.env.VITE_DISTRIBUTION === 'play';
 
 export interface SiteConfig {
   supabase_url: string;
