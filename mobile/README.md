@@ -49,13 +49,30 @@ key.
 
 `npm run ads` makes three adverts from the real app: a 30 s and a 15 s vertical video (1080×1920, for TikTok, Reels and
 WhatsApp Status) and a 30 s 16:9 video (1920×1080, for YouTube and Facebook). It needs ffmpeg on the PATH and takes about
-15 minutes. The MP4s land in `ads-out/` (not committed); they are silent, so add music on the platform.
+15 minutes. The MP4s land in `ads-out/` (not committed).
+
+Sound is optional, and neither file is committed (music licences allow use in a video, not redistributing the file):
+
+```sh
+ADS_MUSIC=~/music.mp3 ADS_VOICE=~/voices/en_GB-cori-high.onnx npm run ads
+```
+
+- `ADS_MUSIC`: background music, faded in and out, and lowered by about 13 dB while the voice speaks.
+- `ADS_VOICE`: a [Piper](https://github.com/rhasspy/piper) voice (`pip install piper-tts`; voices at
+  <https://huggingface.co/rhasspy/piper-voices>) that reads each scene's `vo` line. Set `PIPER` if the `piper` command is
+  not on the PATH. A scene stretches when its line needs longer. Check a voice's licence before using it in an ad: Cori
+  (`en_GB-cori-high`) is public domain, while several others are for non-commercial use only.
+
+Without either, the adverts are silent and music can be added on the platform. The mix is levelled to -14 LUFS, the
+loudness TikTok, Instagram and YouTube play at.
 
 - `tools/ads/capture.mjs` builds sample documents, drives the app through each feature in a phone-sized browser and
   screenshots it, recording where each tap lands.
 - `tools/ads/ad.html` lays out the phone, captions and tap marks; every frame is a function of time, set by `render(t)`.
-  The scenes, their wording and timings are the `FULL` and `SHORT` lists in it.
-- `tools/ads/render.mjs` renders every frame and encodes it with ffmpeg. `node tools/ads/render.mjs 1080 1920 short test`
+  The scenes, their captions, voiceover lines (`vo`) and timings are the `FULL` and `SHORT` lists in it. Keep `SHORT`
+  within 15 s, the limit of an Instagram story.
+- `tools/ads/render.mjs` speaks the lines, fits the scenes to them, renders every frame, encodes it with ffmpeg and mixes
+  the sound. `node tools/ads/render.mjs 1080 1920 short test`
   re-renders one advert without capturing again.
 
 Re-run it after changing the app's look so the adverts show the current version.
