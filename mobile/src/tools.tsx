@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Gauge, Feather, Zap } from 'lucide-react';
+import { FileText, Gauge, Feather, Zap } from 'lucide-react';
 import { Row, Sheet, ToolTile, type ToolDef } from './ui';
-import type { FormFieldInfo, CompressLevel } from '@/lib/tools/ops';
+import type { FormFieldInfo, CompressLevel, SplitMode } from '@/lib/tools/ops';
 
-// Bottom sheets for the PDF tools: all tools, compress, password, unlock and form filling.
+// Bottom sheets for the PDF tools: all tools, compress, split, password, unlock and form filling.
 
 /** "All tools" for the open PDF: a grid of tools, then quick actions (save, share). */
 export function ToolsSheet({
@@ -50,6 +50,96 @@ export function CompressSheet({ onClose, onPick }: { onClose: () => void; onPick
         {LEVELS.map(([level, label, hint], i) => (
           <Row key={level} icon={[Feather, Gauge, Zap][i]!} iconColor="#e8890c" title={label} detail={hint} onClick={() => onPick(level)} />
         ))}
+      </div>
+    </Sheet>
+  );
+}
+
+type SplitKind = SplitMode['kind'];
+const SPLIT_KINDS: Array<[SplitKind, string]> = [
+  ['each', 'Every page'],
+  ['every', 'Every few pages'],
+  ['ranges', 'Page ranges'],
+];
+
+/** Split into several PDFs: one per page, a fixed number of pages each, or ranges the person types. */
+export function SplitSheet({ pages, onClose, onSplit }: { pages: number; onClose: () => void; onSplit: (mode: SplitMode) => void }) {
+  const [kind, setKind] = useState<SplitKind>('each');
+  const [n, setN] = useState('2');
+  const [ranges, setRanges] = useState('');
+  const every = Math.max(1, Math.floor(Number(n)) || 1);
+  const files = kind === 'each' ? pages : kind === 'every' ? Math.ceil(pages / every) : undefined;
+  const mode: SplitMode = kind === 'each' ? { kind } : kind === 'every' ? { kind, n: every } : { kind, spec: ranges };
+  return (
+    <Sheet title="Split PDF" onClose={onClose}>
+      <p className="muted">Each part becomes its own PDF. This one has {pages === 1 ? '1 page' : `${pages} pages`}.</p>
+      <div className="seg" role="tablist" aria-label="How to split">
+        {SPLIT_KINDS.map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {kind === 'every' ? (
+        <label className="field">
+          Pages in each file
+          <input type="number" inputMode="numeric" min={1} max={pages} value={n} onChange={(e) => setN(e.target.value)} />
+        </label>
+      ) : null}
+      {kind === 'ranges' ? (
+        <label className="field">
+          Page ranges, one file each
+          <input inputMode="numeric" placeholder="For example 1-2, 3, 4-6" value={ranges} onChange={(e) => setRanges(e.target.value)} />
+        </label>
+      ) : null}
+      <div className="row">
+        <span className="muted">{files ? `Makes ${files === 1 ? '1 file' : `${files} files`}` : ''}</span>
+        <span className="actions">
+          <button className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" onClick={() => onSplit(mode)}>
+            Split
+          </button>
+        </span>
+      </div>
+    </Sheet>
+  );
+}
+
+export interface Part {
+  name: string;
+  bytes: Uint8Array;
+  pages: number;
+}
+
+/** The files a split made: open any of them, or share them all at once. */
+export function PartsSheet({ parts, onOpen, onShareAll, onClose }: { parts: Part[]; onOpen: (p: Part) => void; onShareAll: () => void; onClose: () => void }) {
+  return (
+    <Sheet title={`Split into ${parts.length} files`} onClose={onClose}>
+      <p className="muted">Tap a file to open it. They are all in Recent too.</p>
+      <div className="sheet-rows">
+        {parts.map((p) => (
+          <Row
+            key={p.name}
+            icon={FileText}
+            iconColor="#1e8a5a"
+            title={p.name}
+            detail={p.pages === 1 ? '1 page' : `${p.pages} pages`}
+            onClick={() => onOpen(p)}
+          />
+        ))}
+      </div>
+      <div className="row">
+        <span />
+        <span className="actions">
+          <button className="ghost" onClick={onClose}>
+            Done
+          </button>
+          <button className="primary" onClick={onShareAll}>
+            Share all
+          </button>
+        </span>
       </div>
     </Sheet>
   );

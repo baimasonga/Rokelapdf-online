@@ -149,6 +149,7 @@ async function main() {
       'Edit PDF',
       'Fill & Sign',
       'Organize pages',
+      'Split',
       'Compress',
       'Protect',
       'Make text searchable',
@@ -189,6 +190,30 @@ async function main() {
     await notice(/Combined 2 PDFs/);
     let r = await textOf(await saved());
     check(r.pages === 3 && /TENANCY/.test(r.text) && /Annex B/.test(r.text), 'combined PDF has all 3 pages in order');
+
+    step('Split');
+    await more('Split');
+    await page.getByRole('button', { name: 'Split', exact: true }).click();
+    const parts = page.getByRole('dialog', { name: 'Split into 3 files' });
+    await parts.waitFor();
+    check((await parts.locator('.row-item').count()) === 3, 'every page becomes its own file');
+    await parts.getByRole('button', { name: /pages-2\.pdf/ }).click();
+    r = await textOf(await saved());
+    check(r.pages === 1 && /Annex A/.test(r.text), 'a part opens and holds just its page');
+    await page.goto(ORIGIN);
+    await input('application/pdf,.pdf', true).setInputFiles([file('agreement.pdf'), file('annex.pdf')]);
+    await notice(/Combined 2 PDFs/);
+    await more('Split');
+    await page.getByRole('tab', { name: 'Page ranges' }).click();
+    await page.getByLabel('Page ranges, one file each').fill('9');
+    await page.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.locator('.snackbar.error').waitFor();
+    ok('a range beyond the last page is refused with a message');
+    await page.getByLabel('Page ranges, one file each').fill('1, 2-3');
+    await page.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Split into 2 files' }).waitFor();
+    check(await page.getByRole('button', { name: /pages-2-3\.pdf/ }).isVisible(), 'page ranges make one file each');
+    await page.getByRole('dialog', { name: 'Split into 2 files' }).getByRole('button', { name: 'Done' }).click();
 
     step('Photos → PDF');
     await page.goto(ORIGIN);

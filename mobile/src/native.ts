@@ -80,6 +80,14 @@ export async function shareFile(name: string, bytes: Uint8Array, mime = PDF_MIME
   await Share.share({ title: n, files: [written.uri] });
 }
 
+/** Shares several files in one go (e.g. the parts of a split PDF). */
+export async function shareFiles(files: Array<{ name: string; bytes: Uint8Array }>, mime = PDF_MIME) {
+  if (!native) return files.forEach((f) => download(safeName(f.name), f.bytes, mime));
+  const uris: string[] = [];
+  for (const f of files) uris.push((await Filesystem.writeFile({ path: safeName(f.name), data: toBase64(f.bytes), directory: Directory.Cache })).uri);
+  await Share.share({ title: `${files.length} PDFs`, files: uris });
+}
+
 /** Saves to a folder the person chooses. Resolves false when they cancel. */
 export async function saveFile(name: string, bytes: Uint8Array, mime = PDF_MIME): Promise<boolean> {
   const n = safeName(name);

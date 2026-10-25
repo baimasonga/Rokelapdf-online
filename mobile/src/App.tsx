@@ -3,7 +3,18 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { App as Native } from '@capacitor/app';
 import type { Session } from '@supabase/supabase-js';
 import type { SignatureImage } from '@/lib/editor/signature';
-import { compressPdf, fillForm, imagesToPdf, listFormFields, mergePdfs, type CompressLevel, type FormFieldInfo } from '@/lib/tools/ops';
+import {
+  compressPdf,
+  fillForm,
+  imagesToPdf,
+  listFormFields,
+  mergePdfs,
+  pageCount,
+  splitPdf,
+  type CompressLevel,
+  type FormFieldInfo,
+  type SplitMode,
+} from '@/lib/tools/ops';
 import { protectPdf, unlockPdf } from '@/lib/tools/security';
 import { browserRecoder, imageForPdf } from '@/lib/client/raster';
 import { ocrPdf } from '@/lib/client/ocr';
@@ -33,6 +44,7 @@ import {
   Presentation,
   RotateCw,
   ScanText,
+  Scissors,
   Share2,
   Shrink,
   Signature,
@@ -41,13 +53,13 @@ import {
   X,
 } from 'lucide-react';
 import { norm } from '@/lib/editor/model';
-import { MIME, PDF_MIME, isPdf, native, onIncoming, saveFile, scanDocument, shareFile, takeIncoming, type PdfFile } from './native';
+import { MIME, PDF_MIME, isPdf, native, onIncoming, saveFile, scanDocument, shareFile, shareFiles, takeIncoming, type PdfFile } from './native';
 import { PasswordRequired, openPdf, renderPage, type OpenPdf } from './pdf';
 import { OFFICE_EXTENSIONS, SITE, convert, currentSession, renamed, signIn, signOut, type Target } from './account';
 import { SignLayer, SignaturePad, signPdf, type Placed } from './sign';
 import { COLORS, EditLayer, HINTS, TOOLS, TextSheet, editPdf, newItemId, type EditState, type Item, type Tool } from './edit';
 import { Pages, moveSelected, organize, sheetsOf, type Sheet as PageSheet } from './pages';
-import { CompressSheet, FormSheet, ProtectSheet, ToolsSheet, UnlockSheet } from './tools';
+import { CompressSheet, FormSheet, PartsSheet, ProtectSheet, SplitSheet, ToolsSheet, UnlockSheet, type Part } from './tools';
 import { AppBar, BarButton, IconButton, Progress, Row, Sheet, ToolTile, type ToolDef } from './ui';
 import { forget, openRecent, recentFiles, remember, type Recent } from './recent';
 import logo from '@/../public/brand/rokela-icon.png';
@@ -65,11 +77,13 @@ interface Ready {
   mime: string;
 }
 /** Tools that work on an open PDF; from the home screen they first ask for the file. */
-type FileTool = 'edit' | 'sign' | 'organize' | 'compress' | 'protect' | 'ocr' | 'form' | 'export';
+type FileTool = 'edit' | 'sign' | 'organize' | 'split' | 'compress' | 'protect' | 'ocr' | 'form' | 'export';
 type Panel =
   | { k: 'tools' }
   | { k: 'export' }
   | { k: 'compress' }
+  | { k: 'split' }
+  | { k: 'parts'; parts: Part[] }
   | { k: 'protect' }
   | { k: 'unlock'; file: PdfFile }
   | { k: 'form'; fields: FormFieldInfo[] }
@@ -378,6 +392,14 @@ export function App() {
       await show({ name: suffixed(v.file.name, 'compressed'), bytes: r.bytes });
       setNotice(`${Math.round((1 - r.after / r.before) * 100)}% smaller: ${size(r.before)} → ${size(r.after)}. Save or share it.`);
     });
+  const split = (v: View, mode: SplitMode) =>
+    run('Splitting…', async () => {
+      const made = await splitPdf(v.file.bytes, mode, v.file.name.replace(/\.pdf$/i, ''));
+      const parts = await Promise.all(made.map(async (p) => ({ ...p, pages: await pageCount(p.bytes) })));
+      // Every part goes into Recent, so none is lost when another one is opened.
+      for (const p of parts) setRecent(await remember({ name: p.name, bytes: p.bytes }, p.pages));
+      setPanel({ k: 'parts', parts });
+    });
   const protect = (v: View, o: Parameters<typeof protectPdf>[1]) =>
     run('Protecting…', async () => {
       setPanel(undefined);
@@ -423,6 +445,7 @@ export function App() {
       if (signature) startSigning(signature);
       else setPad(true);
     } else if (tool === 'organize') openPages(v);
+    else if (tool === 'split') setPanel({ k: 'split' });
     else if (tool === 'compress') setPanel({ k: 'compress' });
     else if (tool === 'protect') setPanel({ k: 'protect' });
     else if (tool === 'ocr') void ocr(v);
@@ -465,6 +488,7 @@ export function App() {
     { id: 'edit', label: 'Edit PDF', icon: FilePenLine, color: C.edit, run: () => go('edit') },
     { id: 'sign', label: 'Fill & Sign', icon: Signature, color: C.sign, run: () => go('sign') },
     { id: 'organize', label: 'Organize pages', icon: LayoutGrid, color: C.organize, run: () => go('organize') },
+    { id: 'split', label: 'Split', icon: Scissors, color: C.organize, run: () => go('split') },
     { id: 'compress', label: 'Compress', icon: Shrink, color: C.compress, run: () => go('compress') },
     { id: 'protect', label: 'Protect', icon: Lock, color: C.protect, run: () => go('protect') },
     { id: 'ocr', label: 'Make text searchable', icon: ScanText, color: C.ocr, run: () => go('ocr') },
@@ -792,6 +816,22 @@ export function App() {
         </Sheet>
       ) : null}
       {panel?.k === 'compress' && view ? <CompressSheet onClose={() => setPanel(undefined)} onPick={(level) => void compress(view, level)} /> : null}
+      {panel?.k === 'split' && view ? (
+        <SplitSheet pages={view.pdf.doc.numPages} onClose={() => setPanel(undefined)} onSplit={(m) => void split(view, m)} />
+      ) : null}
+      {panel?.k === 'parts' ? (
+        <PartsSheet
+          parts={panel.parts}
+          onClose={() => setPanel(undefined)}
+          onOpen={(p) =>
+            void run('Opening…', async () => {
+              setPanel(undefined);
+              await show({ name: p.name, bytes: p.bytes });
+            })
+          }
+          onShareAll={() => void run('Preparing…', () => shareFiles(panel.parts))}
+        />
+      ) : null}
       {panel?.k === 'protect' && view ? <ProtectSheet onClose={() => setPanel(undefined)} onDone={(o) => void protect(view, o)} /> : null}
       {panel?.k === 'unlock' ? <UnlockSheet name={panel.file.name} onClose={() => setPanel(undefined)} onDone={(pw) => void unlock(panel.file, pw)} /> : null}
       {panel?.k === 'form' && view ? (
