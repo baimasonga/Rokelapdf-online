@@ -384,7 +384,10 @@ export function Editor({
         multiple
         onChange={async (e) => {
           try {
-            for (const f of e.target.files ?? []) await addSource(await fileBytes(f));
+            // Appending another PDF's pages is merging, a paid tool, like on the Merge and Add pages tools.
+            const files = Array.from(e.target.files ?? []);
+            if (!files.length || !(await paid.require('merge'))) return;
+            for (const f of files) await addSource(await fileBytes(f));
           } catch (err) {
             notice((err as Error).message, true);
           } finally {

@@ -63,7 +63,7 @@ import { CompressSheet, FormSheet, PaidSheet, PartsSheet, ProtectSheet, SplitShe
 import { paidBlock, type Why } from './access';
 import type { PaidFeature } from '@/lib/licensing';
 import { AppBar, BarButton, IconButton, Progress, Row, Sheet, ToolTile, type ToolDef } from './ui';
-import { forget, openRecent, recentFiles, remember, type Recent } from './recent';
+import { RECENT_MAX, forget, openRecent, recentFiles, remember, type Recent } from './recent';
 import logo from '@/../public/brand/rokela-icon.png';
 
 type View = { k: 'view'; file: PdfFile; pdf: OpenPdf; id: number };
@@ -421,6 +421,9 @@ export function App() {
   const split = (v: View, mode: SplitMode) =>
     run('Splitting…', async () => {
       const made = await splitPdf(v.file.bytes, mode, v.file.name.replace(/\.pdf$/i, ''));
+      // Recent keeps RECENT_MAX files; more parts would push the first ones out (and off the phone).
+      if (made.length > RECENT_MAX)
+        throw new Error(`That makes ${made.length} files. Split into ${RECENT_MAX} or fewer at a time, so every part is kept in Recent.`);
       const parts = await Promise.all(made.map(async (p) => ({ ...p, pages: await pageCount(p.bytes) })));
       // Every part goes into Recent, so none is lost when another one is opened.
       for (const p of parts) setRecent(await remember({ name: p.name, bytes: p.bytes }, p.pages));

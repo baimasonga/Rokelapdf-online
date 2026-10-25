@@ -6,6 +6,7 @@ import type { FormFieldInfo, CompressLevel, SplitMode } from '@/lib/tools/ops';
 import { COMPANY } from '@/lib/company';
 import { FEATURE_NAMES, TRIAL_DAYS, type PaidFeature } from '@/lib/licensing';
 import type { Why } from './access';
+import { RECENT_MAX } from './recent';
 
 // Bottom sheets for the PDF tools: all tools, compress, split, password, unlock, form filling and the Pro prompt.
 
@@ -95,13 +96,18 @@ export function SplitSheet({ pages, onClose, onSplit }: { pages: number; onClose
           <input inputMode="numeric" placeholder="For example 1-2, 3, 4-6" value={ranges} onChange={(e) => setRanges(e.target.value)} />
         </label>
       ) : null}
+      {files && files > RECENT_MAX ? (
+        <p className="error-inline">
+          That makes {files} files. Split into {RECENT_MAX} or fewer at a time, so every part is kept in Recent.
+        </p>
+      ) : null}
       <div className="row">
         <span className="muted">{files ? `Makes ${files === 1 ? '1 file' : `${files} files`}` : ''}</span>
         <span className="actions">
           <button className="ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="primary" onClick={() => onSplit(mode)}>
+          <button className="primary" disabled={!!files && files > RECENT_MAX} onClick={() => onSplit(mode)}>
             Split
           </button>
         </span>

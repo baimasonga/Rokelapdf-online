@@ -117,6 +117,11 @@ async function main() {
     await p.getByRole('radio', { name: 'Text', exact: true }).click();
     await prompt('Editing').waitFor();
     check((await p.getByRole('radio', { name: 'Text', exact: true }).getAttribute('aria-checked')) === 'false', 'in the editor, the Text tool is locked too');
+    await prompt('Editing').getByRole('button', { name: 'Close' }).click();
+    const pagesBefore = await p.locator('.thumb-page').count();
+    await p.locator('input[type=file][multiple]').setInputFiles([await pdf('g')]);
+    await prompt('Merging').waitFor();
+    check((await p.locator('.thumb-page').count()) === pagesBefore, "and so is the editor's Add PDF (merging)");
 
     step('Licence granted by an operator');
     admin('operator', '--email', 'buyer@example.test', '--reason', 'e2e operator');

@@ -41,6 +41,10 @@ async function fixtures(page) {
   for (const t of ['Annex A', 'Annex B']) annex.addPage([595, 842]).drawText(t, { x: 50, y: 780, size: 20, font: await font(annex) });
   writeFileSync(join(dir, 'annex.pdf'), await annex.save());
 
+  const long = await PDFDocument.create();
+  for (let n = 1; n <= 16; n++) long.addPage([595, 842]).drawText(`Page ${n}`, { x: 50, y: 780, size: 20, font: await font(long) });
+  writeFileSync(join(dir, 'long.pdf'), await long.save());
+
   const form = await PDFDocument.create();
   const fp = form.addPage([595, 842]);
   form.getForm().createTextField('Full name').addToPage(fp, { x: 50, y: 700, width: 300, height: 24 });
@@ -225,6 +229,24 @@ async function main() {
     await page.getByRole('dialog', { name: 'Split into 2 files' }).waitFor();
     check(await page.getByRole('button', { name: /pages-2-3\.pdf/ }).isVisible(), 'page ranges make one file each');
     await page.getByRole('dialog', { name: 'Split into 2 files' }).getByRole('button', { name: 'Done' }).click();
+    // Recent keeps 15 files, so a split may make at most 15: more would push the first parts out.
+    await openPdf('long.pdf');
+    await more('Split');
+    const tooMany = page.getByRole('dialog', { name: 'Split PDF' });
+    check(
+      (await tooMany.getByText('That makes 16 files').isVisible()) && (await tooMany.getByRole('button', { name: 'Split', exact: true }).isDisabled()),
+      'a split into more than 15 files is explained and cannot start',
+    );
+    await tooMany.getByRole('tab', { name: 'Page ranges' }).click();
+    await tooMany.getByLabel('Page ranges, one file each').fill(Array.from({ length: 16 }, (_, i) => i + 1).join(', '));
+    await tooMany.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.locator('.snackbar.error', { hasText: 'That makes 16 files' }).waitFor();
+    ok('16 typed ranges are refused too');
+    await tooMany.getByRole('tab', { name: 'Every few pages' }).click();
+    await tooMany.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Split into 8 files' }).waitFor();
+    ok('every 2 pages makes 8 files');
+    await page.getByRole('dialog', { name: 'Split into 8 files' }).getByRole('button', { name: 'Done' }).click();
 
     step('Photos → PDF');
     await page.goto(ORIGIN);
