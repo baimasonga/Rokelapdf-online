@@ -195,6 +195,12 @@ async function main() {
     await notice(/Combined 2 PDFs/);
     let r = await textOf(await saved());
     check(r.pages === 3 && /TENANCY/.test(r.text) && /Annex B/.test(r.text), 'combined PDF has all 3 pages in order');
+    await page.waitForTimeout(800);
+    check((await page.locator('.page-pill').textContent()).replace(/\s/g, '') === '1/3', 'the page counter starts at the first page');
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(800);
+    check((await page.locator('.page-pill').textContent()).replace(/\s/g, '') === '3/3', 'and follows scrolling to the last page');
+    await page.evaluate(() => window.scrollTo(0, 0));
 
     step('Split');
     await more('Split');

@@ -1031,7 +1031,9 @@ function Page({ doc, n, layer, onVisible }: { doc: PDFDocumentProxy; n: number; 
   useEffect(() => {
     const el = canvas.current?.parentElement;
     if (!el) return;
-    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && onVisible(n), { threshold: 0.5 });
+    // The current page is the one crossing the middle of the screen. ("Half of it visible" picked the last page on open:
+    // before they render, short pages are all half visible at once.)
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && onVisible(n), { rootMargin: '-50% 0px -50% 0px' });
     io.observe(el);
     return () => io.disconnect();
   }, [n, onVisible]);
