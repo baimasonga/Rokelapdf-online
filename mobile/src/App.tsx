@@ -69,6 +69,7 @@ export function App() {
   const [placed, setPlaced] = useState<Placed[]>();
   const [edit, setEdit] = useState<EditState>();
   const [panel, setPanel] = useState<Panel>();
+  const [version, setVersion] = useState<string>();
   const picker = useRef<HTMLInputElement>(null);
   const many = useRef<HTMLInputElement>(null);
   const photos = useRef<HTMLInputElement>(null);
@@ -116,6 +117,15 @@ export function App() {
     } finally {
       setBusy(undefined);
     }
+  }, []);
+
+  // The installed build, shown on the home screen so testers can tell which version they have.
+  useEffect(() => {
+    if (native)
+      void Native.getInfo().then(
+        (i) => setVersion(i.version),
+        () => undefined,
+      );
   }, []);
 
   // A PDF opened from WhatsApp, Files or email ("Open with" / "Share") — at launch or while running.
@@ -295,7 +305,12 @@ export function App() {
     });
   const ocr = (v: View) =>
     run('Preparing to read the pages…', async () => {
-      const r = await ocrPdf(v.file.bytes, (p) => setBusy(p.stage === 'loading' ? 'Loading the text reader…' : `Reading page ${p.page} of ${p.pages}…`));
+      const r = await ocrPdf(
+        v.file.bytes,
+        (p) => setBusy(p.stage === 'loading' ? 'Loading the text reader…' : `Reading page ${p.page} of ${p.pages}…`),
+        'eng',
+        { gzip: false },
+      );
       if (!r.words) return setNotice(r.pagesSkipped ? 'This PDF already has text you can search and copy.' : 'No text was found on these pages.');
       await show({ name: suffixed(v.file.name, 'searchable'), bytes: r.bytes });
       setNotice(`Found ${r.words} words. You can now search and copy the text.`);
@@ -390,6 +405,7 @@ export function App() {
             <Tile label="PDF → Office" hint="Word, Excel or PowerPoint" disabled={busyOr} onClick={() => openAccount()} />
           </div>
           {!native ? <p className="note">Preview in a browser: scanning and “Open with” need the Android app.</p> : null}
+          {version ? <p className="version">Version {version}</p> : null}
         </main>
       ) : null}
 

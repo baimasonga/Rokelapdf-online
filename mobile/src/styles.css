@@ -600,3 +600,9 @@ button:disabled {
   display: grid;
   gap: 12px;
 }
+.version {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}

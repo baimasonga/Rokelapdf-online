@@ -53,6 +53,8 @@ jobs:
           key: android-debug-keystore-v1
       - name: Build the debug APK
         working-directory: mobile/android
+        env:
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
         run: ./gradlew --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
         with:
