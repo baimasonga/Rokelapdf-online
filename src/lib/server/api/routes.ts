@@ -5,6 +5,7 @@ import { ROLES } from '../workspaces';
 import { FILE_KINDS } from '../sharing';
 import { Router, created, json, parse, type Ctx } from './router';
 import { attachment, readBody } from '../convert';
+import { PAID_FEATURES, TRIAL_DAYS } from '../../licensing';
 
 const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
 const dateOpt = (v: string | undefined) => (v === undefined ? undefined : new Date(v));
@@ -37,6 +38,8 @@ export function buildRouter(): Router {
       emailSender: x.c.config.mail?.from ?? null,
       convert: x.c.conversions.enabled,
       transferTypes: Object.keys(FILE_KINDS),
+      // When the paid tools stop being free for everyone (null: not set), so clients know before anyone signs in.
+      paidFeaturesFrom: x.c.config.paidFeaturesFrom?.toISOString() ?? null,
     }),
     600,
   );
@@ -63,6 +66,8 @@ export function buildRouter(): Router {
     workspaces: await x.c.workspaces.list(me(x)),
     invitations: await x.c.workspaces.myInvitations(me(x)),
   }));
+  // Access to the paid tools (src/lib/licensing.ts) for the website and the Android app.
+  r.add('GET', '/api/v1/me/access', 'user', async (x) => ({ ...(await x.c.licenses.access(me(x))), features: PAID_FEATURES, trialDays: TRIAL_DAYS }));
   r.add('GET', '/api/v1/workspaces/:orgId/subscription', 'user', async (x) => x.c.workspaces.subscription(me(x), org(x)));
   r.add('GET', '/api/v1/workspaces/:orgId/audit', 'user', async (x) => {
     const q = parse(
@@ -134,8 +139,9 @@ export function buildRouter(): Router {
     });
   });
 
-  // The Android app reads its configuration and converts Word ⇄ PDF; nothing else is reachable from it.
-  r.allowApp('GET', '/api/v1/config').allowApp('POST', '/api/v1/convert/:target');
+  // The Android app reads its configuration, checks access to the paid tools and converts Word ⇄ PDF; nothing else is
+  // reachable from it.
+  r.allowApp('GET', '/api/v1/config').allowApp('POST', '/api/v1/convert/:target').allowApp('GET', '/api/v1/me/access');
 
   // ---- overview and documents ------------------------------------------------------------------------
   r.add('GET', `${P}/overview`, 'user', async (x) => sh(x).overview(me(x), org(x)));

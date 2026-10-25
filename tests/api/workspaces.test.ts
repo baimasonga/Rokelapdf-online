@@ -258,7 +258,15 @@ describe('accounts and workspaces', () => {
     const converterToken = 'converter-secret-'.padEnd(48, 'z');
     env = await makeEnv({ env: { CONVERTER_URL: 'http://127.0.0.1:9', CONVERTER_TOKEN: converterToken } });
     const r = await env.call('GET', '/api/v1/config');
-    expect(Object.keys(r.body).sort()).toEqual(['convert', 'email', 'email_sender', 'supabase_publishable_key', 'supabase_url', 'transfer_types']);
+    expect(Object.keys(r.body).sort()).toEqual([
+      'convert',
+      'email',
+      'email_sender',
+      'paid_features_from',
+      'supabase_publishable_key',
+      'supabase_url',
+      'transfer_types',
+    ]);
     expect([r.body.email, r.body.convert]).toEqual([false, true]);
     expect(r.body.email_sender).toBeNull();
     expect(r.text).not.toContain(env.c.config.sharingSecret);

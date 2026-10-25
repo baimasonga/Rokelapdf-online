@@ -5,12 +5,15 @@
 //   grants   [--role <app_role>]               least-privilege grants for the web app's role (default: APP_DB_ROLE)
 //   operator --email <e> --reason <r>          promote a user (who has signed in once) to operator
 //   plan     --org <id> --plan <name> --entitlements '<json>' --by <operator email> --reason <r>
+//   license         --email <e> [--years 1] --by <operator email> --reason <r>   grant or renew a licence (docs/licensing.md)
+//   license-revoke  --email <e> --by <operator email> --reason <r>              end a licence now
+//   license-show    --email <e>                                                 show the licence for an email
 //
 // Connection: DATABASE_MIGRATE_URL (preferred) or DATABASE_URL; DATABASE_CA_PEM enables verified TLS.
 import { parseArgs } from 'node:util';
 import pg from 'pg';
 import { applyGrants, applyMigrations, assertIdent, MIGRATIONS_DIR } from '../src/lib/server/db/schema';
-import { bootstrapOperator, setPlan } from '../src/lib/server/admin';
+import { bootstrapOperator, grantLicense, revokeLicense, setPlan, showLicense } from '../src/lib/server/admin';
 import { connectionConfig } from '../src/lib/server/db/connect';
 import { loadConfig } from '../src/lib/server/config';
 import { authEmailOptions } from '../src/lib/server/auth-email';
@@ -26,6 +29,7 @@ const { values } = parseArgs({
     plan: { type: 'string' },
     entitlements: { type: 'string' },
     by: { type: 'string' },
+    years: { type: 'string' },
   },
   strict: true,
 });
@@ -84,8 +88,28 @@ async function main() {
         console.log(`workspace ${r.orgId} is on plan ${r.plan}`);
         break;
       }
+      case 'license': {
+        const years = values.years === undefined ? 1 : Number(values.years);
+        const r = await grantLicense(client, { email: need('email'), years, byEmail: need('by'), reason: values.reason });
+        console.log(`${r.email} is licensed until ${r.validUntil.toISOString().slice(0, 10)}`);
+        break;
+      }
+      case 'license-revoke': {
+        const r = await revokeLicense(client, { email: need('email'), byEmail: need('by'), reason: values.reason });
+        console.log(r.changed ? `licence for ${r.email} ended now` : `licence for ${r.email} had already ended`);
+        break;
+      }
+      case 'license-show': {
+        const l = await showLicense(client, need('email'));
+        console.log(
+          l
+            ? `${l.email}: ${l.valid_from.toISOString().slice(0, 10)} to ${l.valid_until.toISOString().slice(0, 10)} (${l.reason})`
+            : 'no licence for that email',
+        );
+        break;
+      }
       default:
-        throw new Error('usage: admin.ts migrate | grants | operator | plan (see header)');
+        throw new Error('usage: admin.ts migrate | grants | operator | plan | license | license-revoke | license-show (see header)');
     }
   } finally {
     await client.end();

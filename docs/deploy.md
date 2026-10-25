@@ -16,6 +16,12 @@ grants, and existing requests are not deleted when the trial ends. Keep this fla
 consistent between Railway and any Cloudflare backup. No new plan-selection UI or
 billing flow is introduced by the trial.
 
+## Paid tools
+
+Editing, signing, OCR, password protection, splitting and merging become paid on the date in `PAID_FEATURES_FROM`
+(unset: free for everyone). Each account then gets a free month, then needs a yearly licence that operators grant with
+`npm run license:grant`. See [licensing.md](licensing.md).
+
 Nothing here is created automatically: you create the three accounts' resources, then Railway deploys from GitHub.
 Status: the configuration is tested locally (production build, production CSP, PostgreSQL, browser end-to-end test);
 the R2 and Supabase connections are exercised for the first time on your first deploy — use the checklist in §5.

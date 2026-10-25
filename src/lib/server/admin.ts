@@ -96,3 +96,90 @@ export async function setPlan(client: Queryable, o: { orgId: string; plan: strin
     return { orgId: o.orgId, plan, entitlements: ents };
   });
 }
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const YEAR_MS = 365 * 86_400_000;
+
+function licenseEmail(raw: string): string {
+  const e = raw.trim().toLowerCase();
+  if (e.length < 3 || e.length > 254 || !EMAIL.test(e)) throw new DomainError('invalid_request', 'a valid email is required');
+  return e;
+}
+
+async function operator(client: Queryable, byEmail: string): Promise<string> {
+  const by = await userByEmail(client, byEmail);
+  if (!by.is_operator) throw new DomainError('forbidden', 'only operators can change licences');
+  return by.id;
+}
+
+/**
+ * Grants or renews a person's licence for the paid tools (src/lib/licensing.ts), tied to their email. The person need
+ * not have signed in yet. Renewing adds the years to the end of a licence that is still running, so paying early
+ * loses nothing; otherwise the licence starts now.
+ */
+export async function grantLicense(client: Queryable, o: { email: string; years?: number; byEmail: string; reason: string | undefined; now?: Date }) {
+  const reason = needReason(o.reason);
+  const email = licenseEmail(o.email);
+  const years = o.years ?? 1;
+  if (!Number.isInteger(years) || years < 1 || years > 5) throw new DomainError('invalid_request', 'years must be 1 to 5');
+  return tx(client, async (audit) => {
+    const by = await operator(client, o.byEmail);
+    const now = o.now ?? new Date();
+    const prev = (await client.query('SELECT valid_from, valid_until FROM user_licenses WHERE email = $1 FOR UPDATE', [email])).rows[0] as
+      { valid_from: Date; valid_until: Date } | undefined;
+    const running = prev && prev.valid_until > now;
+    const from = running ? prev.valid_from : now;
+    const until = new Date((running ? prev.valid_until : now).getTime() + years * YEAR_MS);
+    await client.query(
+      `INSERT INTO user_licenses (email, valid_from, valid_until, updated_at, updated_by, reason) VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (email) DO UPDATE SET valid_from = EXCLUDED.valid_from, valid_until = EXCLUDED.valid_until,
+         updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, reason = EXCLUDED.reason`,
+      [email, from, until, now, by, reason],
+    );
+    audit.push({
+      actor: { type: 'operator', id: by },
+      action: 'license.granted',
+      target: { type: 'license', id: email },
+      reason,
+      metadata: { years, validFrom: from.toISOString(), validUntil: until.toISOString(), previousUntil: prev?.valid_until.toISOString() ?? null },
+    });
+    return { email, validFrom: from, validUntil: until };
+  });
+}
+
+/** Ends a licence now (a refund or a mistake). The record stays, so the history is kept. */
+export async function revokeLicense(client: Queryable, o: { email: string; byEmail: string; reason: string | undefined; now?: Date }) {
+  const reason = needReason(o.reason);
+  const email = licenseEmail(o.email);
+  return tx(client, async (audit) => {
+    const by = await operator(client, o.byEmail);
+    const now = o.now ?? new Date();
+    const prev = (await client.query('SELECT valid_from, valid_until FROM user_licenses WHERE email = $1 FOR UPDATE', [email])).rows[0] as
+      { valid_from: Date; valid_until: Date } | undefined;
+    if (!prev) throw new DomainError('not_found', 'no licence for that email');
+    if (prev.valid_until <= now) return { email, changed: false };
+    // A licence that has not started yet ends at its start (valid_until may not precede valid_from).
+    const until = prev.valid_from > now ? prev.valid_from : now;
+    await client.query('UPDATE user_licenses SET valid_until = $2, updated_at = $3, updated_by = $4, reason = $5 WHERE email = $1', [
+      email,
+      until,
+      now,
+      by,
+      reason,
+    ]);
+    audit.push({
+      actor: { type: 'operator', id: by },
+      action: 'license.revoked',
+      target: { type: 'license', id: email },
+      reason,
+      metadata: { previousUntil: prev.valid_until.toISOString() },
+    });
+    return { email, changed: true };
+  });
+}
+
+/** The licence held for an email, if any (read-only). */
+export async function showLicense(client: Queryable, email: string) {
+  const r = await client.query('SELECT email, valid_from, valid_until, updated_at, reason FROM user_licenses WHERE email = $1', [licenseEmail(email)]);
+  return r.rows[0] as { email: string; valid_from: Date; valid_until: Date; updated_at: Date; reason: string } | undefined;
+}

@@ -7,6 +7,8 @@ import { assertIdent } from './db/schema';
 export interface AppConfig {
   /** Temporary trial access; quotas and workspace authorization still apply. */
   trialMode: boolean;
+  /** Launch of the paid tools (src/lib/licensing.ts). Unset: they stay free for everyone. */
+  paidFeaturesFrom: Date | undefined;
   warrior?: WarriorConfig;
   env: 'development' | 'test' | 'production';
   databaseUrl: string;
@@ -66,6 +68,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const prod = mode === 'production';
   const trial = env['TRIAL_MODE'] ?? 'true';
   if (!['true', 'false'].includes(trial)) throw new Error('TRIAL_MODE must be true or false');
+  const paidFromRaw = env['PAID_FEATURES_FROM']?.trim();
+  let paidFeaturesFrom: Date | undefined;
+  if (paidFromRaw) {
+    // A date (midnight UTC) or a full timestamp; anything else is refused rather than silently ignored.
+    paidFeaturesFrom = new Date(/^\d{4}-\d{2}-\d{2}$/.test(paidFromRaw) ? `${paidFromRaw}T00:00:00Z` : paidFromRaw);
+    if (!/^\d{4}-\d{2}-\d{2}/.test(paidFromRaw) || Number.isNaN(paidFeaturesFrom.getTime()))
+      throw new Error('PAID_FEATURES_FROM must be a date like 2026-12-01');
+  }
   const need = (name: string) => {
     const v = env[name];
     if (!v) throw new Error(`${name} is required`);
@@ -161,6 +171,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   return {
     trialMode: trial === 'true',
+    paidFeaturesFrom,
     env: mode,
     databaseUrl,
     databaseCaPem: env['DATABASE_CA_PEM'] || undefined,
