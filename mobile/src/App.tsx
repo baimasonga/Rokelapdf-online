@@ -1,3 +1,4 @@
+import { createUsageReporter } from './analytics';
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { App as Native } from '@capacitor/app';
@@ -150,6 +151,50 @@ export function App() {
   const [edit, setEdit] = useState<EditState>();
   const [panel, setPanel] = useState<Panel>();
   const [version, setVersion] = useState<string>();
+  const usage = useRef<ReturnType<typeof createUsageReporter> | undefined>(undefined);
+  const [usageEnabled, setUsageEnabled] = useState(true);
+  const trackUsage = (feature: Parameters<ReturnType<typeof createUsageReporter>['track']>[0]) => {
+    if (!native) return;
+    const major = /Android (\d{1,2})(?:[.; ]|$)/.exec(navigator.userAgent)?.[1];
+    usage.current?.track(
+      feature,
+      version ?? '0',
+      major ? Number(major) : null,
+      Math.min(window.screen.width, window.screen.height) >= 600 ? 'tablet' : 'phone',
+    );
+  };
+  useEffect(() => {
+    if (!native) return;
+    try {
+      usage.current = createUsageReporter({ storage: localStorage });
+    } catch {
+      setUsageEnabled(false);
+      return;
+    }
+    setUsageEnabled(usage.current.enabled());
+    void Native.getInfo().then(
+      (info) => {
+        const major = /Android (\d{1,2})(?:[.; ]|$)/.exec(navigator.userAgent)?.[1];
+        usage.current?.track(
+          'app_open',
+          info.version,
+          major ? Number(major) : null,
+          Math.min(window.screen.width, window.screen.height) >= 600 ? 'tablet' : 'phone',
+        );
+      },
+      () => undefined,
+    );
+    const retry = () => {
+      void usage.current?.flush();
+    };
+    window.addEventListener('online', retry);
+    const timer = window.setInterval(retry, 60000);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('online', retry);
+    };
+  }, []);
+
   const [recent, setRecent] = useState<Recent[]>(() => recentFiles());
   const [pending, setPending] = useState<FileTool>();
   /** The tool a home-screen tile asked for; it belongs to the next file picked, and only to that. */
@@ -595,7 +640,32 @@ export function App() {
               </h2>
               <div className="tool-grid">
                 {homeTools.map((t) => (
-                  <ToolTile key={t.id} tool={t} disabled={busyOr} />
+                  <ToolTile
+                    key={t.id}
+                    tool={{
+                      ...t,
+                      run: () => {
+                        const features: Record<string, Parameters<typeof trackUsage>[0]> = {
+                          scan: 'scan',
+                          edit: 'edit',
+                          sign: 'sign',
+                          organize: 'pages',
+                          split: 'pages',
+                          compress: 'compress',
+                          protect: 'protect',
+                          ocr: 'ocr',
+                          form: 'fill',
+                          export: 'convert',
+                          combine: 'merge',
+                          photos: 'photos',
+                          office: 'convert',
+                        };
+                        trackUsage(features[t.id] ?? 'open');
+                        t.run();
+                      },
+                    }}
+                    disabled={busyOr}
+                  />
                 ))}
               </div>
             </section>
@@ -633,6 +703,26 @@ export function App() {
             </section>
             {!native ? <p className="note">Preview in a browser: scanning and “Open with” need the Android app.</p> : null}
             {version ? <p className="version">Version {version}</p> : null}
+            {native ? (
+              <section aria-label="Usage privacy" className="note">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={usageEnabled}
+                    onChange={(e) => {
+                      usage.current?.setEnabled(e.target.checked);
+                      setUsageEnabled(usage.current?.enabled() ?? false);
+                    }}
+                  />{' '}
+                  Share basic app usage
+                </label>
+                <p>
+                  Reports app launches, home-screen tool selections, app/Android version and device class using a random app identifier. Country is estimated
+                  from IP where configured. No documents, account details or GPS are sent; raw IP is not stored in analytics. Reports expire after 30 days.
+                  Turning this off clears unsent reports; previously received reports expire normally.
+                </p>
+              </section>
+            ) : null}
           </main>
           <button className="fab" aria-label="Scan a document" disabled={busyOr} onClick={scan}>
             <Camera size={26} aria-hidden="true" />

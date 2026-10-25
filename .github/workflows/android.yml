@@ -36,6 +36,8 @@ jobs:
           java-version: 21
           cache: gradle
       - run: npm ci
+      - name: Test bounded mobile usage reporting
+        run: npm run test:analytics
       - name: Typecheck and build the web layer
         run: npm run build
       - name: Browser smoke test of every tool

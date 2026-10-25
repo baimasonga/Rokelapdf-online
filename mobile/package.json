@@ -12,7 +12,8 @@
     "apk": "npm run sync && cd android && ./gradlew assembleDebug",
     "assets": "node tools/copy-assets.mjs",
     "smoke": "node tests/smoke.mjs",
-    "ads": "npm run build && node tools/ads/capture.mjs && node tools/ads/render.mjs"
+    "ads": "npm run build && node tools/ads/capture.mjs && node tools/ads/render.mjs",
+    "test:analytics": "node tests/analytics.test.mjs"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "2.11.1",

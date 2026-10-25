@@ -91,3 +91,23 @@ npm run apk   # typecheck, build, cap sync, then android/app/build/outputs/apk/d
 `android/` is the generated Capacitor project and is committed; native additions live in
 `android/app/src/main/java/com/rokelapdf/app/` (`IncomingFilePlugin.java`) and the intent filters in
 `AndroidManifest.xml`. App ID `com.rokelapdf.app`, minimum Android 7.0 (API 24), target API 36.
+
+## Basic usage reporting
+
+Native Android builds report app opens and home-screen tool selections to Warrior's
+fixed `/v1/mobile/rokela-pdf/events` endpoint. **Usage privacy → Share basic app usage**
+on the home screen disables reporting and clears unsent events. Reports contain a
+random installation ID, app version, Android major version and phone/tablet class;
+no document content, filename, account ID, advertising ID or GPS is sent. Warrior
+hashes the installation ID and retains reports for 30 days. Country is inferred
+server-side from IP only when trusted ingress and a local country database are
+configured; otherwise it remains unknown. The client does not request location access.
+
+The offline queue holds at most 100 events for seven days and sends at most 20 per
+batch, with stable IDs for retries. A five-second timeout and backoff keep failures
+independent of document tools. These are unverified usage assertions, not installation
+verification or completed-tool results. Browser preview builds do not send reports.
+
+Run `npm run test:analytics` in `mobile/` for queue, retry, privacy and acknowledgement
+checks. The Android release workflow runs these before building the APK. Existing
+installed APKs require an update to start reporting.
