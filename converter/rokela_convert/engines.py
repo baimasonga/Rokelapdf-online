@@ -311,8 +311,12 @@ def _cell_value(text: str):
     t = text.strip()
     if _NUMBER.match(t):
         n = t.replace(",", "")
+        whole = n.lstrip("-").split(".")[0]
+        # Identifiers stay text: Excel keeps 15 significant digits, and a number would drop leading zeros ("007").
+        if len(n.lstrip("-").replace(".", "").lstrip("0")) > 15 or (len(whole) > 1 and whole.startswith("0")):
+            return t
         try:
-            return int(n) if "." not in n and len(n) < 16 else float(n)
+            return float(n) if "." in n else int(n)
         except ValueError:
             return t
     return t

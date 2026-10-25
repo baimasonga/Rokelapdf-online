@@ -123,12 +123,13 @@ describe('short-link destinations and aliases', () => {
   });
   it('allows readable aliases and refuses reserved or malformed ones', () => {
     expect(validateAlias(' Spring-Sale ')).toBe('spring-sale');
-    for (const bad of ['ab', 'login', 'admin', 'edit', 'send', 'shorten', 'tools', 'unlock', 'brand', '-x-', 'a--b', 'ünï', 'a b', 'x'.repeat(65)])
+    for (const bad of ['ab', 'login', 'admin', 'edit', 'send', 'shorten', 'tools', 'unlock', 'brand', 'android', '-x-', 'a--b', 'ünï', 'a b', 'x'.repeat(65)])
       expect(() => validateAlias(bad), bad).toThrow();
   });
   it('uses clean paths and keeps legacy aliases that overlap app routes reachable', () => {
     expect(publicShortPath('spring-sale')).toBe('/spring-sale');
     expect(publicShortPath('edit')).toBe('/l/edit');
+    expect(publicShortPath('android')).toBe('/l/android');
   });
   it('validates custom hostnames', () => {
     expect(validateHostname('Go.Example.COM.')).toBe('go.example.com');

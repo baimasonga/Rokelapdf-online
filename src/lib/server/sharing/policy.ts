@@ -278,6 +278,7 @@ export function validateExternalDestination(raw: string, policy: DestinationPoli
 
 const RESERVED_ALIASES = new Set([
   'admin',
+  'android',
   'api',
   'app',
   'abuse',
