@@ -447,7 +447,8 @@
           ],
           taps: [['all_export', 0.85]],
         },
-        { id: 'cta', dur: 3.4, vo: 'Download it free at [[ ɹˈəʊkɛlə ]] P D F dot com slash android.' },
+        // The homepage links to the app, so the short cut says only the domain to stay within 15 s.
+        { id: 'cta', dur: 3.4, vo: 'Get it free at [[ ɹˈəʊkɛlə ]] P D F dot com.' },
       ];
       const SCENES = CUT === 'short' ? SHORT : FULL;
       let acc = 0;
