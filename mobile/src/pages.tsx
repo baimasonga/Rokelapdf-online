@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { buildPdf } from '@/lib/editor/export';
 import { norm, type Rotation } from '@/lib/editor/model';
+import { Check } from 'lucide-react';
 import { renderPage } from './pdf';
 
 // Organizing pages on the phone: reorder, rotate, delete, and add pages from other PDFs. The result is built on the
@@ -25,43 +26,48 @@ export function organize(sources: Uint8Array[], sheets: readonly Sheet[]): Promi
   return buildPdf(sources, { pages: sheets.map((s) => ({ id: `k${s.key}`, src: s.src, index: s.index, rotation: s.rotation })), annots: {} });
 }
 
-export function Pages({ docs, sheets, onChange }: { docs: readonly PDFDocumentProxy[]; sheets: Sheet[]; onChange: (next: Sheet[]) => void }) {
-  const move = (i: number, by: number) => {
+/** Moves the selected pages one place earlier (-1) or later (+1), keeping their order. */
+export function moveSelected(sheets: Sheet[], selected: ReadonlySet<number>, by: -1 | 1): Sheet[] {
+  const next = [...sheets];
+  const order = by < 0 ? next.map((_, i) => i) : next.map((_, i) => next.length - 1 - i);
+  for (const i of order) {
     const j = i + by;
-    if (j < 0 || j >= sheets.length) return;
-    const next = [...sheets];
+    if (!selected.has(next[i]!.key) || j < 0 || j >= next.length || selected.has(next[j]!.key)) continue;
     [next[i], next[j]] = [next[j]!, next[i]!];
-    onChange(next);
-  };
+  }
+  return next;
+}
+
+/** Page thumbnails; tap to select, then act on the selection from the bottom bar. */
+export function Pages({
+  docs,
+  sheets,
+  selected,
+  onToggle,
+}: {
+  docs: readonly PDFDocumentProxy[];
+  sheets: Sheet[];
+  selected: ReadonlySet<number>;
+  onToggle: (key: number) => void;
+}) {
   return (
     <main className="pages">
-      {sheets.map((s, i) => (
-        <figure key={s.key} className="thumb">
-          <div className="thumb-img">
-            <Thumb doc={docs[s.src]!} index={s.index} rotation={s.rotation} />
-          </div>
-          <figcaption>
-            <span className="num">{i + 1}</span>
-            <span className="tbtns">
-              <button aria-label={`Move page ${i + 1} earlier`} disabled={i === 0} onClick={() => move(i, -1)}>
-                ‹
-              </button>
-              <button
-                aria-label={`Rotate page ${i + 1}`}
-                onClick={() => onChange(sheets.map((x) => (x.key === s.key ? { ...x, rotation: norm(x.rotation + 90) } : x)))}
-              >
-                ↻
-              </button>
-              <button aria-label={`Delete page ${i + 1}`} disabled={sheets.length === 1} onClick={() => onChange(sheets.filter((x) => x.key !== s.key))}>
-                ✕
-              </button>
-              <button aria-label={`Move page ${i + 1} later`} disabled={i === sheets.length - 1} onClick={() => move(i, 1)}>
-                ›
-              </button>
+      {sheets.map((s, i) => {
+        const on = selected.has(s.key);
+        return (
+          <button key={s.key} className={`thumb${on ? ' on' : ''}`} aria-pressed={on} aria-label={`Page ${i + 1}`} onClick={() => onToggle(s.key)}>
+            <span className="thumb-img">
+              <Thumb doc={docs[s.src]!} index={s.index} rotation={s.rotation} />
+              {on ? (
+                <span className="thumb-check" aria-hidden="true">
+                  <Check size={16} strokeWidth={3} />
+                </span>
+              ) : null}
             </span>
-          </figcaption>
-        </figure>
-      ))}
+            <span className="num">{i + 1}</span>
+          </button>
+        );
+      })}
     </main>
   );
 }
