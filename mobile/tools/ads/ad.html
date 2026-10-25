@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rokela PDF advert</title>
+    <style>
+      :root {
+        --navy: #0f1f3d;
+        --navy2: #182c52;
+        --coral: #e2483d;
+        --ink: #fff;
+        --soft: #c9d3e6;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--navy);
+      }
+      body {
+        font-family: 'Inter', 'Inter Display', sans-serif;
+        color: var(--ink);
+      }
+      #stage {
+        position: relative;
+        overflow: hidden;
+        background: var(--navy);
+      }
+      .glow {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(60px);
+      }
+      #g1 {
+        background: radial-gradient(circle, rgba(226, 72, 61, 0.55), rgba(226, 72, 61, 0) 70%);
+      }
+      #g2 {
+        background: radial-gradient(circle, rgba(47, 111, 219, 0.45), rgba(47, 111, 219, 0) 70%);
+      }
+      #brand {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      #brand img {
+        border-radius: 22%;
+      }
+      #caption {
+        position: absolute;
+      }
+      .kicker {
+        display: inline-block;
+        padding: 0.32em 0.9em;
+        border-radius: 999px;
+        background: var(--coral);
+        color: #fff;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .title {
+        font-family: 'Inter Display', 'Inter', sans-serif;
+        font-weight: 800;
+        line-height: 1.06;
+        letter-spacing: -0.025em;
+        white-space: pre-line;
+        margin-top: 0.42em;
+      }
+      .sub {
+        color: var(--soft);
+        font-weight: 500;
+        line-height: 1.3;
+        margin-top: 0.7em;
+        white-space: pre-line;
+      }
+      #phone {
+        position: absolute;
+        border-radius: 9%/4.3%;
+        background: #05080f;
+        box-shadow:
+          0 40px 90px rgba(0, 0, 0, 0.55),
+          0 0 0 3px #2a3550 inset;
+      }
+      #screen {
+        position: absolute;
+        overflow: hidden;
+        background: #fff;
+      }
+      #screen img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+      }
+      #notch {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        border-radius: 999px;
+        background: #05080f;
+        z-index: 3;
+      }
+      .tap {
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 4;
+        opacity: 0;
+      }
+      .tap .dot {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow:
+          0 0 0 4px rgba(226, 72, 61, 0.9),
+          0 6px 18px rgba(0, 0, 0, 0.35);
+      }
+      .tap .ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 4px solid var(--coral);
+      }
+      #hook,
+      #cta {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        text-align: center;
+      }
+      #hook .inner,
+      #cta .inner {
+        display: grid;
+        justify-items: center;
+      }
+      #hook .title,
+      #cta .title {
+        margin-top: 0.3em;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5em;
+        padding: 0.45em 1.1em;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        color: var(--soft);
+        font-weight: 600;
+      }
+      .btn {
+        display: inline-block;
+        margin-top: 1.1em;
+        padding: 0.7em 1.6em;
+        border-radius: 999px;
+        background: var(--coral);
+        font-weight: 800;
+        box-shadow: 0 16px 40px rgba(226, 72, 61, 0.45);
+      }
+      .url {
+        margin-top: 0.8em;
+        font-weight: 700;
+        color: #fff;
+      }
+      .small {
+        margin-top: 0.6em;
+        color: var(--soft);
+        font-weight: 500;
+      }
+      #fine {
+        position: absolute;
+        color: var(--soft);
+        font-weight: 500;
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div class="glow" id="g1"></div>
+      <div class="glow" id="g2"></div>
+      <div id="brand"><img src="logo.png" alt="" /><span>Rokela PDF</span></div>
+      <div id="caption">
+        <span class="kicker"></span>
+        <div class="title"></div>
+        <div class="sub"></div>
+      </div>
+      <div id="phone">
+        <div id="screen"></div>
+        <div id="notch"></div>
+      </div>
+      <div id="fine"></div>
+      <div id="hook">
+        <div class="inner">
+          <img src="logo.png" alt="" class="logo" />
+          <div class="title">Your documents,<br />sorted on your phone.</div>
+          <div class="badge" style="margin-top: 1em">New look · Rokela PDF for Android</div>
+        </div>
+      </div>
+      <div id="cta">
+        <div class="inner">
+          <img src="logo.png" alt="" class="logo" />
+          <div class="title">Rokela PDF<br />for Android</div>
+          <div class="sub">Scan · Edit · Sign · Convert</div>
+          <div class="btn">Download free</div>
+          <div class="url">rokelapdf.com/android</div>
+          <div class="small">Free · Android 7.0 or newer</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      // Everything on screen is a pure function of time t (seconds), so each video frame can be rendered exactly.
+      const P = new URLSearchParams(location.search);
+      const W = +P.get('w') || 1080,
+        H = +P.get('h') || 1920;
+      const CUT = P.get('cut') || 'full';
+      const WIDE = W > H;
+      const $ = (s) => document.querySelector(s);
+      const stage = $('#stage');
+      stage.style.width = W + 'px';
+      stage.style.height = H + 'px';
+
+      // Screen size inside the phone, in CSS px of the captured app (390x844).
+      const APP_W = 390,
+        APP_H = 844;
+      const L = WIDE
+        ? {
+            s: 1.06,
+            phoneCx: 1395,
+            phoneTop: 80,
+            capX: 150,
+            capY: 300,
+            capW: 760,
+            kicker: 30,
+            title: 86,
+            sub: 34,
+            brandX: 150,
+            brandY: 120,
+            brand: 40,
+            fineY: 960,
+          }
+        : {
+            s: 1.5,
+            phoneCx: 540,
+            phoneTop: 590,
+            capX: 90,
+            capY: 150,
+            capW: 900,
+            kicker: 30,
+            title: 78,
+            sub: 34,
+            brandX: 90,
+            brandY: 64,
+            brand: 34,
+            fineY: 1870,
+          };
+      const bezel = Math.round(16 * L.s);
+      const scrW = APP_W * L.s,
+        scrH = APP_H * L.s;
+      const phoneW = scrW + bezel * 2,
+        phoneH = scrH + bezel * 2;
+      const phone = $('#phone'),
+        screen = $('#screen');
+      Object.assign(phone.style, { width: phoneW + 'px', height: phoneH + 'px' });
+      Object.assign(screen.style, { left: bezel + 'px', top: bezel + 'px', width: scrW + 'px', height: scrH + 'px', borderRadius: 30 * L.s + 'px' });
+      Object.assign($('#notch').style, { top: bezel + 6 * L.s + 'px', width: 22 * L.s + 'px', height: 22 * L.s + 'px', opacity: 0 });
+      const cap = $('#caption');
+      Object.assign(cap.style, { left: L.capX + 'px', top: L.capY + 'px', width: L.capW + 'px' });
+      cap.querySelector('.kicker').style.fontSize = L.kicker + 'px';
+      cap.querySelector('.title').style.fontSize = L.title + 'px';
+      cap.querySelector('.sub').style.fontSize = L.sub + 'px';
+      const brand = $('#brand');
+      Object.assign(brand.style, { left: L.brandX + 'px', top: L.brandY + 'px', fontSize: L.brand + 'px' });
+      brand.querySelector('img').style.width = brand.querySelector('img').style.height = L.brand * 1.5 + 'px';
+      const fine = $('#fine');
+      Object.assign(
+        fine.style,
+        WIDE
+          ? { left: L.capX + 'px', top: L.fineY + 'px', fontSize: '26px' }
+          : { left: 0, right: 0, textAlign: 'center', top: L.fineY + 'px', fontSize: '26px' },
+      );
+      for (const id of ['#hook', '#cta']) {
+        const el = $(id);
+        el.querySelector('.logo').style.width = el.querySelector('.logo').style.height = (WIDE ? 170 : 200) + 'px';
+        el.querySelector('.logo').style.borderRadius = '22%';
+        el.querySelector('.title').style.fontSize = (WIDE ? 104 : 92) + 'px';
+        el.querySelectorAll('.badge, .small').forEach((b) => (b.style.fontSize = '30px'));
+        const sub = el.querySelector('.sub');
+        if (sub) sub.style.fontSize = '40px';
+        el.querySelector('.btn') && (el.querySelector('.btn').style.fontSize = '46px');
+        el.querySelector('.url') && (el.querySelector('.url').style.fontSize = '44px');
+      }
+      const g1 = $('#g1'),
+        g2 = $('#g2');
+      const G = Math.max(W, H);
+      Object.assign(g1.style, { width: G * 0.9 + 'px', height: G * 0.9 + 'px' });
+      Object.assign(g2.style, { width: G * 0.8 + 'px', height: G * 0.8 + 'px' });
+
+      const TAPS = JSON.parse(P.get('taps') ? atob(P.get('taps')) : '{}');
+
+      // Scenes: screens shown [image, from], taps [target, at] or drags [from, to, start, end], all in scene-local seconds.
+      const FULL = [
+        { id: 'hook', dur: 2.6 },
+        {
+          id: 'home',
+          dur: 3.4,
+          kicker: 'New look',
+          title: 'Every PDF tool,\none tap away',
+          sub: 'Your recent files are right there too',
+          screens: [['01-home', 0]],
+          taps: [['home_recent', 2.5]],
+        },
+        {
+          id: 'view',
+          dur: 3.0,
+          kicker: 'Open',
+          title: 'Open any PDF',
+          sub: 'From WhatsApp, email or your files',
+          screens: [['02-viewer', 0]],
+          taps: [['view_edit', 2.2]],
+        },
+        {
+          id: 'edit',
+          dur: 4.2,
+          kicker: 'Edit',
+          title: 'Add text, highlight\nand draw',
+          screens: [
+            ['02-viewer', 0],
+            ['03-edit-highlight', 0.35],
+            ['05-edit-done', 2.6],
+          ],
+          drags: [['edit_highlight_from', 'edit_highlight_to', 0.6, 1.5]],
+          taps: [['edit_text', 2.3]],
+        },
+        {
+          id: 'sign',
+          dur: 4.4,
+          kicker: 'Fill & Sign',
+          title: 'Sign with\nyour finger',
+          sub: 'Your signature never leaves your phone',
+          screens: [
+            ['06-sign-pad', 0],
+            ['07-sign-placed', 1.7],
+            ['08-signed', 3.0],
+          ],
+          taps: [
+            ['sign_use', 1.3],
+            ['sign_place', 1.6],
+            ['edit_done', 2.75],
+          ],
+        },
+        {
+          id: 'organize',
+          dur: 3.0,
+          kicker: 'Organize',
+          title: 'Rotate, reorder\nand delete pages',
+          screens: [
+            ['09a-organize', 0],
+            ['09-organize-selected', 0.75],
+          ],
+          taps: [['org_page2', 0.55]],
+        },
+        {
+          id: 'convert',
+          dur: 3.4,
+          kicker: 'Convert',
+          title: 'PDF to Word, Excel\nand PowerPoint',
+          sub: 'Needs internet and a free account',
+          screens: [
+            ['11-all-tools', 0],
+            ['12-export', 1.25],
+          ],
+          taps: [['all_export', 1.0]],
+        },
+        {
+          id: 'more',
+          dur: 2.6,
+          kicker: 'And more',
+          title: 'Compress, and protect\nwith a password',
+          screens: [
+            ['13-compress', 0],
+            ['14-protect', 1.3],
+          ],
+        },
+        { id: 'cta', dur: 3.4 },
+      ];
+      const SHORT = [
+        { id: 'hook', dur: 2.0 },
+        {
+          id: 'edit',
+          dur: 3.2,
+          kicker: 'Edit',
+          title: 'Add text, highlight\nand draw',
+          screens: [
+            ['03-edit-highlight', 0],
+            ['05-edit-done', 1.9],
+          ],
+          drags: [['edit_highlight_from', 'edit_highlight_to', 0.3, 1.1]],
+          taps: [['edit_text', 1.6]],
+        },
+        {
+          id: 'sign',
+          dur: 3.2,
+          kicker: 'Fill & Sign',
+          title: 'Sign with\nyour finger',
+          screens: [
+            ['07-sign-placed', 0],
+            ['08-signed', 1.6],
+          ],
+          taps: [
+            ['sign_place', 0.35],
+            ['edit_done', 1.35],
+          ],
+        },
+        {
+          id: 'convert',
+          dur: 3.0,
+          kicker: 'Convert',
+          title: 'PDF to Word, Excel\nand PowerPoint',
+          sub: 'Needs internet and a free account',
+          screens: [
+            ['11-all-tools', 0],
+            ['12-export', 1.1],
+          ],
+          taps: [['all_export', 0.85]],
+        },
+        { id: 'cta', dur: 3.6 },
+      ];
+      const SCENES = CUT === 'short' ? SHORT : FULL;
+      let acc = 0;
+      for (const sc of SCENES) {
+        sc.start = acc;
+        acc += sc.dur;
+      }
+      window.DURATION = acc;
+
+      const imgs = {};
+      for (const sc of SCENES)
+        for (const [name] of sc.screens || []) {
+          if (imgs[name]) continue;
+          const im = new Image();
+          im.src = `screens/${name}.png`;
+          screen.appendChild(im);
+          imgs[name] = im;
+        }
+      window.ready = Promise.all([...document.images].map((i) => i.decode().catch(() => {})));
+
+      const tapEls = [];
+      for (let i = 0; i < 3; i++) {
+        const el = document.createElement('div');
+        el.className = 'tap';
+        el.innerHTML = '<div class="ring"></div><div class="dot"></div>';
+        screen.appendChild(el);
+        tapEls.push(el);
+      }
+
+      const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+      const ease = (x) => {
+        x = clamp(x);
+        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+      };
+      const out = (x) => 1 - Math.pow(1 - clamp(x), 3);
+      const lerp = (a, b, x) => a + (b - a) * x;
+
+      function setCaption(sc, lt) {
+        const k = cap.querySelector('.kicker'),
+          t = cap.querySelector('.title'),
+          s = cap.querySelector('.sub');
+        if (k.textContent !== (sc.kicker || '')) k.textContent = sc.kicker || '';
+        if (t.textContent !== (sc.title || '')) t.textContent = sc.title || '';
+        if (s.textContent !== (sc.sub || '')) s.textContent = sc.sub || '';
+        s.style.display = sc.sub ? '' : 'none';
+        const inn = out((lt - 0.05) / 0.45),
+          gone = ease((lt - (sc.dur - 0.3)) / 0.3);
+        const a = inn * (1 - gone);
+        k.style.opacity = a;
+        k.style.transform = `translateY(${(1 - inn) * 30 - gone * 20}px)`;
+        t.style.opacity = out((lt - 0.12) / 0.45) * (1 - gone);
+        t.style.transform = `translateY(${(1 - out((lt - 0.12) / 0.45)) * 50 - gone * 20}px)`;
+        s.style.opacity = out((lt - 0.25) / 0.45) * (1 - gone);
+        s.style.transform = `translateY(${(1 - out((lt - 0.25) / 0.45)) * 40 - gone * 20}px)`;
+        fine.textContent = sc.fine || '';
+        fine.style.opacity = sc.fine ? out((lt - 0.4) / 0.4) * (1 - gone) : 0;
+      }
+
+      function placeTap(el, p, lt, at, dragTo, dragEnd) {
+        const size = 46 * L.s;
+        let x = p.x,
+          y = p.y,
+          alpha = 0,
+          ring = 0,
+          press = 1;
+        if (dragTo) {
+          const k = ease((lt - at) / (dragEnd - at));
+          x = lerp(p.x, dragTo.x, k);
+          y = lerp(p.y, dragTo.y, k);
+          alpha = clamp((lt - at + 0.25) / 0.2) * (1 - clamp((lt - dragEnd) / 0.25));
+          press = lt > at && lt < dragEnd ? 0.85 : 1;
+        } else {
+          const d = lt - at;
+          alpha = clamp((d + 0.35) / 0.2) * (1 - clamp((d - 0.15) / 0.3));
+          press = d > -0.05 && d < 0.15 ? 0.8 : 1;
+          ring = clamp(d / 0.45);
+        }
+        el.style.opacity = alpha;
+        el.style.width = el.style.height = size + 'px';
+        el.style.left = x * L.s - size / 2 + 'px';
+        el.style.top = y * L.s - size / 2 + 'px';
+        el.querySelector('.dot').style.transform = `scale(${press})`;
+        const r = el.querySelector('.ring');
+        r.style.transform = `scale(${1 + ring * 1.4})`;
+        r.style.opacity = ring > 0 && ring < 1 ? 1 - ring : 0;
+      }
+
+      window.render = function (t) {
+        t = clamp(t, 0, acc - 1e-6);
+        const sc = SCENES.find((s) => t >= s.start && t < s.start + s.dur) || SCENES[SCENES.length - 1];
+        const lt = t - sc.start;
+        // Background drift.
+        g1.style.left = W * (WIDE ? 0.55 : 0.2) + Math.sin(t * 0.35) * 80 - G * 0.45 + 'px';
+        g1.style.top = H * (WIDE ? 0.1 : 0.62) + Math.cos(t * 0.3) * 60 - G * 0.45 + 'px';
+        g2.style.left = W * (WIDE ? 0.05 : 0.9) + Math.cos(t * 0.25) * 70 - G * 0.4 + 'px';
+        g2.style.top = H * (WIDE ? 0.9 : 0.15) + Math.sin(t * 0.3) * 60 - G * 0.4 + 'px';
+
+        const first = SCENES[1],
+          last = SCENES[SCENES.length - 1];
+        // Hook and call to action.
+        const hook = $('#hook'),
+          cta = $('#cta');
+        const hookOut = ease((t - (first.start - 0.55)) / 0.4);
+        hook.style.opacity = 1 - hookOut;
+        const hi = hook.querySelector('.inner');
+        hi.children[0].style.transform = `scale(${0.6 + 0.4 * out(t / 0.6)})`;
+        hi.children[0].style.opacity = out(t / 0.4);
+        hi.children[1].style.opacity = out((t - 0.3) / 0.5);
+        hi.children[1].style.transform = `translateY(${(1 - out((t - 0.3) / 0.5)) * 60}px)`;
+        hi.children[2].style.opacity = out((t - 0.8) / 0.5);
+        hi.style.transform = `translateY(${-hookOut * 60}px)`;
+        const ctaIn = t - last.start;
+        cta.style.opacity = out(ctaIn / 0.5);
+        const ci = cta.querySelector('.inner');
+        [...ci.children].forEach((c, i) => {
+          const k = out((ctaIn - 0.1 - i * 0.12) / 0.5);
+          c.style.opacity = k;
+          c.style.transform =
+            `translateY(${(1 - k) * 50}px)` +
+            (c.classList.contains('btn') ? ` scale(${1 + 0.04 * Math.max(0, Math.sin((ctaIn - 1.2) * 4)) * clamp(ctaIn - 1.2)})` : '');
+        });
+
+        // Phone: rises in after the hook, drops away before the call to action.
+        const pin = out((t - (first.start - 0.1)) / 0.7);
+        const pout = ease((t - (last.start - 0.4)) / 0.5);
+        const pa = pin * (1 - pout);
+        phone.style.opacity = pa;
+        phone.style.left = L.phoneCx - phoneW / 2 + 'px';
+        phone.style.top = L.phoneTop + (1 - pin) * 300 + pout * 300 + 'px';
+        phone.style.transform = `scale(${0.94 + 0.06 * pin})`;
+        brand.style.opacity = pa;
+        cap.style.opacity = pa > 0 ? 1 : 0;
+        fine.style.visibility = pa > 0 ? 'visible' : 'hidden';
+
+        if (sc.screens) {
+          setCaption(sc, lt);
+          // Cross-fade screens; the first one of a scene also fades in from the previous scene's last screen.
+          const prev = SCENES[SCENES.indexOf(sc) - 1];
+          const prevLast = prev && prev.screens ? prev.screens[prev.screens.length - 1][0] : null;
+          for (const im of Object.values(imgs)) im.style.opacity = 0;
+          let cur = sc.screens[0][0],
+            from = prevLast,
+            fadeAt = 0;
+          for (const [name, at] of sc.screens)
+            if (lt >= at) {
+              if (name !== cur) {
+                from = cur;
+                cur = name;
+              }
+              fadeAt = at;
+            }
+          const k = ease((lt - fadeAt) / 0.28);
+          if (from && from !== cur && k < 1) imgs[from].style.opacity = 1;
+          imgs[cur].style.opacity = from && from !== cur ? k : 1;
+          imgs[cur].style.zIndex = 2;
+          if (from) imgs[from].style.zIndex = 1;
+          // Taps.
+          let n = 0;
+          tapEls.forEach((e) => (e.style.opacity = 0));
+          for (const [a, b, s0, s1] of sc.drags || []) if (TAPS[a] && TAPS[b] && n < tapEls.length) placeTap(tapEls[n++], TAPS[a], lt, s0, TAPS[b], s1);
+          for (const [name, at] of sc.taps || []) if (TAPS[name] && n < tapEls.length && Math.abs(lt - at) < 0.7) placeTap(tapEls[n++], TAPS[name], lt, at);
+        } else {
+          cap.style.opacity = 0;
+          fine.style.opacity = 0;
+          const lastPhone = SCENES.filter((s) => s.screens).find((s) => t < s.start) || [...SCENES].reverse().find((s) => s.screens && t >= s.start);
+          for (const im of Object.values(imgs)) im.style.opacity = 0;
+          if (lastPhone) imgs[(t < lastPhone.start ? lastPhone.screens[0] : lastPhone.screens[lastPhone.screens.length - 1])[0]].style.opacity = 1;
+          tapEls.forEach((e) => (e.style.opacity = 0));
+        }
+      };
+      render(0);
+    </script>
+  </body>
+</html>
