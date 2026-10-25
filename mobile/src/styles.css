@@ -96,8 +96,12 @@ button:disabled {
   margin: 1px 0 0;
   font-size: 12.5px;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .appbar-actions {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -117,6 +121,7 @@ button:disabled {
   background: #eef0f4;
 }
 .text-btn {
+  white-space: nowrap;
   min-height: 40px;
   margin-right: 6px;
   padding: 0 18px;
@@ -141,9 +146,11 @@ button:disabled {
   color: var(--muted);
   letter-spacing: 0.01em;
 }
+/* Four tools a row; fewer when large system text (columns are sized in em) or a narrow screen leaves no room. */
 .tool-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(max(5.2em, 22%), 1fr));
+  font-size: 12.5px;
   gap: 6px 4px;
   padding: 14px 6px;
   border-radius: var(--radius);
@@ -173,8 +180,11 @@ button:disabled {
   border-radius: 50%;
 }
 .tool-label {
+  max-width: 100%;
   font-size: 12.5px;
   line-height: 1.25;
+  overflow-wrap: break-word;
+  hyphens: auto;
   text-align: center;
   color: var(--text);
 }
@@ -332,6 +342,10 @@ button.ghost {
   font-weight: 500;
   pointer-events: none;
 }
+/* The editing hint takes the place of the page counter, which would otherwise cover it. */
+.hint-chip ~ .viewer .page-pill {
+  display: none;
+}
 .hint-chip {
   position: sticky;
   top: calc(env(safe-area-inset-top) + var(--bar-h));
@@ -370,9 +384,21 @@ button.ghost {
   background: transparent;
   color: var(--text);
 }
+/* Labels may take two lines ("Move earlier" with large system text) but never spill into the next button. */
 .bar-btn span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: 100%;
+  overflow: hidden;
   font-size: 12px;
-  white-space: nowrap;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.bar-btn svg {
+  flex: none;
 }
 .bar-btn:active {
   background: #f2f4f7;
