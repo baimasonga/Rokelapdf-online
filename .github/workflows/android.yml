@@ -64,6 +64,16 @@ jobs:
       # The Google Play release (docs/google-play.md): an Android App Bundle signed with the upload key. Built on every
       # run so a broken release build shows up in pull requests; signed and kept only when the upload key secrets are
       # set (they are not available to pull requests from forks).
+      # Google Play does not allow pointing people to a way of paying outside Google Play, so its build says a licence is
+      # needed but not how to buy one (VITE_DISTRIBUTION=play). The website APK above keeps the full wording.
+      - name: Build the web layer for Google Play
+        run: |
+          VITE_DISTRIBUTION=play npx vite build
+          if grep -rqE "Get a licence|quantixsl" dist; then
+            echo "::error::The Google Play build must not say how to buy a licence (docs/google-play.md)"
+            exit 1
+          fi
+          npx cap sync android
       - name: Build the Google Play bundle
         working-directory: mobile/android
         env:

@@ -393,7 +393,16 @@ async function main() {
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     const pro = page.getByRole('dialog', { name: 'Editing is a Pro tool' });
     await pro.waitFor();
-    check(await pro.getByRole('link', { name: 'Get a licence' }).isVisible(), 'after the free month, Edit asks for a licence');
+    if (process.env.VITE_DISTRIBUTION === 'play') {
+      // The Google Play build (docs/google-play.md) says a licence is needed, never how to buy one.
+      check(
+        (await pro.getByText('need a Pro licence').isVisible()) && (await pro.getByRole('link').count()) === 0,
+        'after the free month, Edit says a licence is needed, with no way to buy',
+      );
+      check(!(await pro.textContent()).includes('@'), 'and gives no email address');
+    } else {
+      check(await pro.getByRole('link', { name: 'Get a licence' }).isVisible(), 'after the free month, Edit asks for a licence');
+    }
     await pro.getByRole('button', { name: 'Not now' }).click();
     check((await page.locator('.edit-layer').count()) === 0, 'and does not open');
     await more('Compress');

@@ -68,9 +68,10 @@ Artifacts**. Unzip it to get `app-release.aab`. To make one on demand: **Actions
 ### Paid tools on Google Play
 
 Google Play requires purchases that unlock features in an app to use Google Play Billing, and does not allow linking or
-pointing people to another way to pay. Before the first Play release, the Play build must not show the "Email
-contact@quantixsl.com" licence instructions or prices; it can say that the tool needs a Pro licence and let people
-sign in with a licence they already have.
+pointing people to another way to pay. The Google Play build is therefore made with `VITE_DISTRIBUTION=play`: when a
+Pro tool is locked it says a Pro licence is needed on the account, without the email address, prices or a "Get a
+licence" button. People who have a licence sign in and use it. The website APK keeps the full wording. The Android
+workflow fails if the Google Play web layer mentions how to buy a licence.
 
 ## Store listing text
 
