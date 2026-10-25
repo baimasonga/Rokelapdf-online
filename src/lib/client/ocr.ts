@@ -23,7 +23,12 @@ export interface OcrResult {
   words: number;
 }
 
-export async function ocrPdf(bytes: Uint8Array, onProgress?: (p: OcrProgress) => void, language = 'eng'): Promise<OcrResult> {
+/** Where the language model is served; the Android app ships it uncompressed (Android unpacks .gz assets). */
+export interface OcrModel {
+  gzip: boolean;
+}
+
+export async function ocrPdf(bytes: Uint8Array, onProgress?: (p: OcrProgress) => void, language = 'eng', model: OcrModel = { gzip: true }): Promise<OcrResult> {
   if (!['eng', 'fra', 'spa', 'deu', 'por'].includes(language)) throw new Error('Choose a supported OCR language.');
   const doc = await openPdf(bytes);
   onProgress?.({ page: 0, pages: doc.numPages, stage: 'loading' });
@@ -32,7 +37,7 @@ export async function ocrPdf(bytes: Uint8Array, onProgress?: (p: OcrProgress) =>
     workerPath: '/ocr/worker.min.js',
     corePath: '/ocr/core',
     langPath: '/ocr/lang',
-    gzip: true,
+    gzip: model.gzip,
     workerBlobURL: false,
   });
   const pages: Array<{ index: number; words: OcrWord[] }> = [];
