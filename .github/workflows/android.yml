@@ -45,7 +45,7 @@ jobs:
       - name: Copy the web layer and plugins into the Android project
         run: npx cap sync android
       # Test builds are debug-signed. Reusing one debug key lets a newer test build install over an older one; the
-      # key only marks test builds (Play Store releases will use a separate release key kept out of the repository).
+      # key only marks test builds (Google Play releases use the upload key, kept in repository secrets).
       - name: Reuse the test-build signing key
         uses: actions/cache@v4
         with:
@@ -60,6 +60,31 @@ jobs:
         with:
           name: rokela-pdf-debug-apk
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+      # The Google Play release (docs/google-play.md): an Android App Bundle signed with the upload key. Built on every
+      # run so a broken release build shows up in pull requests; signed and kept only when the upload key secrets are
+      # set (they are not available to pull requests from forks).
+      - name: Build the Google Play bundle
+        working-directory: mobile/android
+        env:
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          if [ -n "$UPLOAD_KEYSTORE_BASE64" ]; then
+            echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export ANDROID_UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks"
+            echo "SIGNED_BUNDLE=true" >> "$GITHUB_ENV"
+          fi
+          ./gradlew --no-daemon bundleRelease
+          rm -f "$RUNNER_TEMP/upload.jks"
+      - if: env.SIGNED_BUNDLE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rokela-pdf-google-play-aab
+          path: mobile/android/app/build/outputs/bundle/release/app-release.aab
           retention-days: 30
 
   # Every change on the default branch replaces the APK on the fixed "android" release, so the download link

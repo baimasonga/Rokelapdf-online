@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rokela PDF store image</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+        color: #fff;
+        background:
+          radial-gradient(circle at 90% 100%, rgba(226, 72, 61, 0.5), transparent 55%),
+          radial-gradient(circle at 0% 0%, rgba(47, 111, 219, 0.45), transparent 55%), #0f1f3d;
+        position: relative;
+      }
+      h1 {
+        font-family: 'Inter Display', 'Inter', sans-serif;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+        line-height: 1.05;
+        white-space: pre-line;
+      }
+      .phone {
+        position: absolute;
+        border-radius: 64px;
+        background: #05080f;
+        padding: 18px;
+        box-shadow:
+          0 50px 100px rgba(0, 0, 0, 0.55),
+          0 0 0 3px #2a3550 inset;
+      }
+      .phone img {
+        display: block;
+        width: 100%;
+        border-radius: 48px;
+      }
+      /* Phone screenshots, 1080 × 1920: a caption on top, the app below running off the bottom edge. */
+      .shot h1 {
+        position: absolute;
+        left: 80px;
+        right: 80px;
+        top: 120px;
+        font-size: 84px;
+        text-align: center;
+      }
+      .shot p {
+        position: absolute;
+        left: 90px;
+        right: 90px;
+        top: 330px;
+        font-size: 38px;
+        line-height: 1.3;
+        text-align: center;
+        color: #dbe3f1;
+      }
+      .shot .phone {
+        left: 160px;
+        top: 520px;
+        width: 760px;
+      }
+      /* Feature graphic, 1024 × 500. */
+      .feature .brand {
+        position: absolute;
+        left: 64px;
+        top: 112px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        font-size: 44px;
+        font-weight: 800;
+      }
+      .feature .brand img {
+        width: 84px;
+        height: 84px;
+      }
+      .feature h1 {
+        position: absolute;
+        left: 64px;
+        top: 236px;
+        width: 520px;
+        font-size: 50px;
+      }
+      .feature .phone {
+        padding: 9px;
+        border-radius: 34px;
+      }
+      .feature .phone img {
+        border-radius: 26px;
+      }
+      /* App icon, 512 × 512: full-bleed; Google Play rounds the corners itself. The logo's navy square is faded at
+         its edges into a matching navy, so its rim does not show as a frame inside Google's mask. */
+      .icon {
+        background: linear-gradient(#012a70, #01225d 60%, #011e55);
+      }
+      .icon img {
+        position: absolute;
+        width: 560px;
+        height: 560px;
+        left: -24px;
+        top: -32px;
+        -webkit-mask-image:
+          linear-gradient(to right, transparent 9%, #000 16%, #000 84%, transparent 91%), linear-gradient(transparent 10%, #000 17%, #000 83%, transparent 90%);
+        -webkit-mask-composite: source-in;
+        mask-composite: intersect;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="card"></div>
+    <script>
+      // One store image per ?card=; the screens come from the advert capture (tools/ads/capture.mjs). Every caption
+      // matches what the app does.
+      const SCREEN = (s) => `../../ads-out/screens/${s}.png`;
+      const LOGO = '../../../public/brand/rokela-icon.png';
+      const SHOTS = {
+        home: ['Every PDF tool\nin your pocket', 'Scan, edit, sign, split, compress and convert. Works offline.', '01-home'],
+        scan: ['Scan paper\nto PDF', 'Edges are found and the page is cleaned up for you.', 'h-scanned'],
+        sign: ['Sign with\nyour finger', 'Your signature stays on your phone.', '08-signed'],
+        edit: ['Add text and\nhighlights', 'Write on any PDF, highlight, draw and cover up.', '05-edit-done'],
+        split: ['Split and\nmerge PDFs', 'One file per page or page ranges. Share every part at once.', 'h-parts'],
+        convert: ['PDF to Word,\nExcel, PowerPoint', 'And Office files back to PDF. Needs internet and a free account.', '12-export'],
+        protect: ['Lock with\na password', 'Choose whether people may print, copy or change it.', '14-protect'],
+        compress: ['Make files\nsmaller to send', 'Pick the quality you need. Text stays sharp.', '13-compress'],
+      };
+      const card = new URLSearchParams(location.search).get('card');
+      const el = document.getElementById('card');
+      if (card === 'icon') {
+        document.body.className = 'icon';
+        el.innerHTML = `<img src="${LOGO}" alt="">`;
+      } else if (card === 'feature') {
+        document.body.className = 'feature';
+        el.innerHTML =
+          `<div class="brand"><img src="${LOGO}" alt=""><span>Rokela PDF</span></div>` +
+          `<h1>Scan, edit, sign and\nshare PDFs on your phone</h1>` +
+          `<div class="phone" style="left:640px;top:60px;width:190px;transform:rotate(-6deg)"><img src="${SCREEN('01-home')}"></div>` +
+          `<div class="phone" style="left:800px;top:120px;width:190px;transform:rotate(5deg)"><img src="${SCREEN('08-signed')}"></div>`;
+      } else {
+        const [title, text, screen] = SHOTS[card];
+        document.body.className = 'shot';
+        el.innerHTML = `<h1>${title}</h1><p>${text}</p><div class="phone"><img src="${SCREEN(screen)}"></div>`;
+      }
+      window.ready = Promise.all([...document.images].map((i) => i.decode().catch(() => {}))).then(() => document.fonts.ready);
+    </script>
+  </body>
+</html>

@@ -17,10 +17,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // The Google Play upload key (docs/google-play.md). CI writes the keystore from a repository secret and passes its
+    // path and passwords here; without them the release bundle is built unsigned, which Play Console refuses.
+    def uploadKeystore = System.getenv("ANDROID_UPLOAD_KEYSTORE")
+    signingConfigs {
+        if (uploadKeystore) {
+            upload {
+                storeFile file(uploadKeystore)
+                storePassword System.getenv("ANDROID_UPLOAD_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_UPLOAD_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (uploadKeystore) {
+                signingConfig signingConfigs.upload
+            }
         }
     }
 }
