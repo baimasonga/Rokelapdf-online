@@ -133,6 +133,8 @@ export function App() {
   const [version, setVersion] = useState<string>();
   const [recent, setRecent] = useState<Recent[]>(() => recentFiles());
   const [pending, setPending] = useState<FileTool>();
+  /** The tool a home-screen tile asked for; it belongs to the next file picked, and only to that. */
+  const pickingFor = useRef<FileTool>(undefined);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const picker = useRef<HTMLInputElement>(null);
   const many = useRef<HTMLInputElement>(null);
@@ -254,13 +256,22 @@ export function App() {
     e.target.value = '';
     return Promise.all(files.map(async (f) => ({ name: f.name, file: f, bytes: new Uint8Array(await f.arrayBuffer()) })));
   };
-  const pick = (e: ChangeEvent<HTMLInputElement>) =>
+  const pick = (e: ChangeEvent<HTMLInputElement>) => {
+    const tool = pickingFor.current;
+    pickingFor.current = undefined;
     void run('Opening…', async () => {
       const [f] = await readFiles(e);
       if (!f) return;
       if (!isPdf(f.bytes)) throw new Error('That file is not a PDF.');
       await show({ name: f.name, bytes: f.bytes });
+      if (tool) setPending(tool);
     });
+  };
+  /** Opens the file picker for a plain "Open"; a tool picked earlier and then cancelled no longer applies. */
+  const openPicker = () => {
+    pickingFor.current = undefined;
+    picker.current?.click();
+  };
   const combine = (e: ChangeEvent<HTMLInputElement>) =>
     void run('Combining…', async () => {
       const files = await readFiles(e);
@@ -419,7 +430,7 @@ export function App() {
     else setPanel({ k: 'export' });
   };
   const withFile = (tool: FileTool) => {
-    setPending(tool);
+    pickingFor.current = tool;
     picker.current?.click();
   };
   // A tool chosen on the home screen starts as soon as its PDF is open.
@@ -480,8 +491,11 @@ export function App() {
       <button
         onClick={() =>
           void run('Saving…', async () => {
-            if (await saveFile(ready.name, ready.bytes, ready.mime)) setNotice(`Saved ${ready.name}.`);
-            setReady(undefined);
+            // Keep the file when the Save-to dialog is cancelled: this bar may be the only way to get it.
+            if (await saveFile(ready.name, ready.bytes, ready.mime)) {
+              setNotice(`Saved ${ready.name}.`);
+              setReady(undefined);
+            }
           })
         }
       >
@@ -514,7 +528,7 @@ export function App() {
           <AppBar
             left={<img className="appbar-logo" src={logo} alt="" />}
             title="Rokela PDF"
-            right={<IconButton icon={FolderOpen} label="Open a PDF" onClick={() => picker.current?.click()} disabled={busyOr} />}
+            right={<IconButton icon={FolderOpen} label="Open a PDF" onClick={openPicker} disabled={busyOr} />}
           />
           <main className="home">
             <section aria-labelledby="tools-h">
@@ -553,7 +567,7 @@ export function App() {
                 <div className="empty">
                   <Clock size={32} aria-hidden="true" />
                   <p>Files you open, scan or create appear here.</p>
-                  <button className="primary pill" onClick={() => picker.current?.click()}>
+                  <button className="primary pill" onClick={openPicker}>
                     Open a PDF
                   </button>
                 </div>

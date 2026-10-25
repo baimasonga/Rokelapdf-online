@@ -171,11 +171,17 @@ async function main() {
     ok('Edit PDF from home opens the chosen file in Edit');
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'Back' }).click();
+    // A tool whose file picker is abandoned must not start on the next file opened some other way.
+    const abandoned = page.waitForEvent('filechooser');
+    await page.locator('.tool-grid').getByRole('button', { name: 'Organize pages', exact: true }).click();
+    await abandoned;
     await page
       .locator('.list')
       .getByRole('button', { name: /^agreement\.pdf/ })
       .click();
     await page.getByRole('heading', { name: 'agreement.pdf' }).waitFor();
+    await page.waitForTimeout(1500);
+    check((await page.getByRole('heading', { name: 'Organize pages' }).count()) === 0, 'an abandoned tool does not start on a file opened from Recent');
     ok('the file is in Recent and opens again from there');
 
     step('Combine PDFs');
