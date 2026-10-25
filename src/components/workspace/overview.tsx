@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import type { CSSProperties } from 'react';
 import { ChevronRight, FileInput, FilePen, Link2, Send } from 'lucide-react';
 import { Badge, Muted } from '@/components/ui';
 import { api } from '@/lib/client/api';
@@ -35,19 +36,19 @@ export function Overview() {
           {actions.map(({ icon: Icon, color, title, text, onClick, href }) => {
             const inner = (
               <>
-                <span className="tile-icon" style={{ background: color }}>
-                  <Icon size={24} aria-hidden="true" />
+                <span className="tile-icon">
+                  <Icon size={22} aria-hidden="true" />
                 </span>
                 <span className="tile-title">{title}</span>
                 <span className="tile-text">{text}</span>
               </>
             );
             return href ? (
-              <Link key={title} href={href} className="tile">
+              <Link key={title} href={href} className="tile tool-tile" style={{ '--tool': color } as CSSProperties}>
                 {inner}
               </Link>
             ) : (
-              <button key={title} type="button" className="tile" onClick={onClick}>
+              <button key={title} type="button" className="tile tool-tile" style={{ '--tool': color } as CSSProperties} onClick={onClick}>
                 {inner}
               </button>
             );
