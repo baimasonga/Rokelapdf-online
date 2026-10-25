@@ -12,7 +12,9 @@ export default function Home() {
       <main className="home">
         <section className="home-hero">
           <h1>Every PDF tool you need, in one place</h1>
-          <p className="home-lead">Merge, split, edit, sign and convert PDFs for free — right in your browser. No sign-up, no watermarks.</p>
+          <p className="home-lead">
+            Edit, sign, merge, split and convert PDFs right in your browser. No watermarks. Free tools need no account; Pro tools are free for your first month.
+          </p>
           <HeroDrop />
           <p className="home-app">
             <Link href="/android">
@@ -78,8 +80,11 @@ export default function Home() {
           </div>
           <div>
             <BadgeCheck size={26} aria-hidden="true" />
-            <h3>Free, no watermarks</h3>
-            <p>Use every tool without an account. Your documents come out exactly as you made them.</p>
+            <h3>Free tools, no watermarks</h3>
+            <p>
+              Most tools need no account. Pro tools (editing, signing, OCR, password protection, splitting and merging) are free for your first month, then a
+              yearly licence. Your documents come out exactly as you made them.
+            </p>
           </div>
           <div>
             <Globe2 size={26} aria-hidden="true" />

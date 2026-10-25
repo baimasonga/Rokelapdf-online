@@ -16,8 +16,8 @@ export default function ToolsPage() {
         <section className="tool-hero">
           <h1>All PDF tools</h1>
           <p>
-            Every tool is free. PDF tools run in your browser, so those files are never uploaded; Word, Excel and PowerPoint conversions use our server with a
-            free account and delete the file straight after.
+            Most tools are free and need no account. Tools marked Pro are free for your first month, then need a yearly licence. PDF tools run in your browser,
+            so those files are never uploaded; Word, Excel and PowerPoint conversions use our server with a free account and delete the file straight after.
           </p>
         </section>
         <div className="tools-all">
