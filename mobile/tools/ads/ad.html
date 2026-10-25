@@ -310,7 +310,8 @@
 
       // Scenes: screens shown [image, from], taps [target, at] or drags [from, to, start, end], all in scene-local seconds.
       // vo is the voiceover line; render.mjs lengthens a scene when its spoken line needs longer (setDurations).
-      // It is spelt for the voice, not the eye: "Rokella P D F" so it says ro-KEL-a P-D-F, not one long word.
+      // It is written for the voice, not the eye: [[ ]] holds exact phonemes, so Rokela is said ROH-keh-la, and
+      // "P D F" is spelt out (written "rokelapdf", the voice reads one long word).
       const FULL = [
         { id: 'hook', dur: 2.6, vo: 'Your documents, sorted on your phone.' },
         {
@@ -401,7 +402,7 @@
             ['14-protect', 1.3],
           ],
         },
-        { id: 'cta', dur: 3.4, vo: 'Download it free at Rokella P D F dot com slash android.' },
+        { id: 'cta', dur: 3.4, vo: 'Download it free at [[ ɹˈəʊkɛlə ]] P D F dot com slash android.' },
       ];
       const SHORT = [
         { id: 'hook', dur: 1.9 },
@@ -446,7 +447,7 @@
           ],
           taps: [['all_export', 0.85]],
         },
-        { id: 'cta', dur: 3.4, vo: 'Download it free at Rokella P D F dot com slash android.' },
+        { id: 'cta', dur: 3.4, vo: 'Download it free at [[ ɹˈəʊkɛlə ]] P D F dot com slash android.' },
       ];
       const SCENES = CUT === 'short' ? SHORT : FULL;
       let acc = 0;
