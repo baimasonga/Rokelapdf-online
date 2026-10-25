@@ -1,47 +1,35 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import { Gauge, Feather, Zap } from 'lucide-react';
+import { Row, Sheet, ToolTile, type ToolDef } from './ui';
 import type { FormFieldInfo, CompressLevel } from '@/lib/tools/ops';
 
-// Bottom sheets for the PDF tools: the "More" menu, compress, password, unlock and form filling.
+// Bottom sheets for the PDF tools: all tools, compress, password, unlock and form filling.
 
-export function Sheet({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+/** "All tools" for the open PDF: a grid of tools, then quick actions (save, share). */
+export function ToolsSheet({
+  tools,
+  actions,
+  onClose,
+}: {
+  tools: ToolDef[];
+  actions: Array<{ label: string; icon: LucideIcon; run: () => void }>;
+  onClose: () => void;
+}) {
+  const close = (fn: () => void) => () => {
+    onClose();
+    fn();
+  };
   return (
-    <>
-      <div className="scrim" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
-        <h2 className="sheet-title">{title}</h2>
-        {children}
+    <Sheet title="All tools" onClose={onClose}>
+      <div className="tool-grid">
+        {tools.map((t) => (
+          <ToolTile key={t.id} tool={{ ...t, run: close(t.run) }} />
+        ))}
       </div>
-    </>
-  );
-}
-
-export interface MoreAction {
-  label: string;
-  hint?: string;
-  run: () => void;
-}
-
-export function MoreSheet({ groups, onClose }: { groups: Array<[string, MoreAction[]]>; onClose: () => void }) {
-  return (
-    <Sheet title="More tools" onClose={onClose}>
-      <div className="menu">
-        {groups.map(([group, actions]) => (
-          <section key={group}>
-            <h3>{group}</h3>
-            {actions.map((a) => (
-              <button
-                key={a.label}
-                className="menu-item"
-                onClick={() => {
-                  onClose();
-                  a.run();
-                }}
-              >
-                <strong>{a.label}</strong>
-                {a.hint ? <span>{a.hint}</span> : null}
-              </button>
-            ))}
-          </section>
+      <div className="sheet-rows">
+        {actions.map((a) => (
+          <Row key={a.label} icon={a.icon} title={a.label} onClick={close(a.run)} />
         ))}
       </div>
     </Sheet>
@@ -58,12 +46,11 @@ export function CompressSheet({ onClose, onPick }: { onClose: () => void; onPick
   return (
     <Sheet title="Compress PDF" onClose={onClose}>
       <p className="muted">Pictures and scans are made smaller. Text stays sharp.</p>
-      {LEVELS.map(([level, label, hint]) => (
-        <button key={level} className="menu-item" onClick={() => onPick(level)}>
-          <strong>{label}</strong>
-          <span>{hint}</span>
-        </button>
-      ))}
+      <div className="sheet-rows">
+        {LEVELS.map(([level, label, hint], i) => (
+          <Row key={level} icon={[Feather, Gauge, Zap][i]!} iconColor="#e8890c" title={label} detail={hint} onClick={() => onPick(level)} />
+        ))}
+      </div>
     </Sheet>
   );
 }

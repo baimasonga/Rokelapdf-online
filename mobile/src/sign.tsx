@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { buildPdf } from '@/lib/editor/export';
 import { norm } from '@/lib/editor/model';
 import { signatureEdits, trimSignature, typedSignature, type Placement, type SignatureImage } from '@/lib/editor/signature';
+import { Sheet } from './ui';
 
 // Signing on the phone: the signature is drawn or typed here, placed on pages by touch, and drawn into the PDF on the
 // device with the web editor's export. Nothing is uploaded.
@@ -65,7 +66,7 @@ export function SignaturePad({ onCancel, onDone }: { onCancel: () => void; onDon
   };
 
   return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-label="Create your signature">
+    <Sheet title="Create your signature" onClose={onCancel}>
       <div className="seg" role="tablist">
         {(['draw', 'type'] as const).map((m) => (
           <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>
@@ -140,7 +141,7 @@ export function SignaturePad({ onCancel, onDone }: { onCancel: () => void; onDon
           {error}
         </p>
       ) : null}
-    </div>
+    </Sheet>
   );
 }
 

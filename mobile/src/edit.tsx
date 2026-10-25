@@ -3,6 +3,8 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { buildEditedPdf } from '@/lib/client/editor-export';
 import { norm } from '@/lib/editor/model';
 import { overlayEdits, type OverlayItem, type ShownPage } from '@/lib/editor/overlay';
+import { Eraser, Highlighter, ImagePlus, PenTool, Type, type LucideIcon } from 'lucide-react';
+import { Sheet } from './ui';
 
 // Editing on the phone: text, highlights, drawing, white-out ("cover") and pictures are placed on pages as shown,
 // then drawn into the PDF on the device with the web editor's export. Nothing is uploaded.
@@ -10,12 +12,12 @@ import { overlayEdits, type OverlayItem, type ShownPage } from '@/lib/editor/ove
 export type Tool = 'text' | 'highlight' | 'draw' | 'cover' | 'image';
 export type Item = OverlayItem & { id: number; aspect?: number };
 
-export const TOOLS: Array<[Tool, string]> = [
-  ['text', 'Text'],
-  ['highlight', 'Highlight'],
-  ['draw', 'Draw'],
-  ['cover', 'Cover'],
-  ['image', 'Image'],
+export const TOOLS: Array<[Tool, string, LucideIcon]> = [
+  ['text', 'Text', Type],
+  ['highlight', 'Highlight', Highlighter],
+  ['draw', 'Draw', PenTool],
+  ['cover', 'Cover', Eraser],
+  ['image', 'Image', ImagePlus],
 ];
 export const HINTS: Record<Tool, string> = {
   text: 'Tap where the text goes. Tap text again to change it; drag to move.',
@@ -284,7 +286,7 @@ export function TextSheet({
   const [c, setC] = useState(color);
   const [s, setS] = useState(size);
   return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-label="Add text">
+    <Sheet title="Add text" onClose={onCancel}>
       <textarea autoFocus rows={3} value={text} maxLength={500} placeholder="Type here" aria-label="Text" onChange={(e) => setText(e.target.value)} />
       <label className="row">
         <span className="muted">Size</span>
@@ -318,6 +320,6 @@ export function TextSheet({
           </button>
         </span>
       </div>
-    </div>
+    </Sheet>
   );
 }

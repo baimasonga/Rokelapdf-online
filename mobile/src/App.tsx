@@ -7,13 +7,50 @@ import { compressPdf, fillForm, imagesToPdf, listFormFields, mergePdfs, type Com
 import { protectPdf, unlockPdf } from '@/lib/tools/security';
 import { browserRecoder, imageForPdf } from '@/lib/client/raster';
 import { ocrPdf } from '@/lib/client/ocr';
+import {
+  ArrowLeft,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Clock,
+  Combine,
+  Download,
+  EllipsisVertical,
+  FileInput,
+  FileOutput,
+  FilePenLine,
+  FileSpreadsheet,
+  FileText,
+  FolderOpen,
+  Grid2x2,
+  Images,
+  LayoutGrid,
+  Lock,
+  LogOut,
+  PenTool,
+  Plus,
+  Presentation,
+  RotateCw,
+  ScanText,
+  Share2,
+  Shrink,
+  Signature,
+  Trash2,
+  Undo2,
+  X,
+} from 'lucide-react';
+import { norm } from '@/lib/editor/model';
 import { MIME, PDF_MIME, isPdf, native, onIncoming, saveFile, scanDocument, shareFile, takeIncoming, type PdfFile } from './native';
 import { PasswordRequired, openPdf, renderPage, type OpenPdf } from './pdf';
 import { OFFICE_EXTENSIONS, SITE, convert, currentSession, renamed, signIn, signOut, type Target } from './account';
 import { SignLayer, SignaturePad, signPdf, type Placed } from './sign';
 import { COLORS, EditLayer, HINTS, TOOLS, TextSheet, editPdf, newItemId, type EditState, type Item, type Tool } from './edit';
-import { Pages, organize, sheetsOf, type Sheet as PageSheet } from './pages';
-import { CompressSheet, FormSheet, MoreSheet, ProtectSheet, UnlockSheet } from './tools';
+import { Pages, moveSelected, organize, sheetsOf, type Sheet as PageSheet } from './pages';
+import { CompressSheet, FormSheet, ProtectSheet, ToolsSheet, UnlockSheet } from './tools';
+import { AppBar, BarButton, IconButton, Progress, Row, Sheet, ToolTile, type ToolDef } from './ui';
+import { forget, openRecent, recentFiles, remember, type Recent } from './recent';
+import logo from '@/../public/brand/rokela-icon.png';
 
 type View = { k: 'view'; file: PdfFile; pdf: OpenPdf; id: number };
 type Screen =
@@ -27,8 +64,11 @@ interface Ready {
   bytes: Uint8Array;
   mime: string;
 }
+/** Tools that work on an open PDF; from the home screen they first ask for the file. */
+type FileTool = 'edit' | 'sign' | 'organize' | 'compress' | 'protect' | 'ocr' | 'form' | 'export';
 type Panel =
-  | { k: 'more' }
+  | { k: 'tools' }
+  | { k: 'export' }
   | { k: 'compress' }
   | { k: 'protect' }
   | { k: 'unlock'; file: PdfFile }
@@ -40,6 +80,27 @@ const base = (name: string) => name.replace(/\.pdf$/i, '');
 const suffixed = (name: string, suffix: string) => `${base(name)}-${suffix}.pdf`;
 const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const TARGET_LABEL: Record<Target, string> = { pdf: 'PDF', docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint' };
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+function when(at: number) {
+  const d = new Date(at);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === new Date().toDateString()) return `Today ${time}`;
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+/** Colours of the round tool icons: one hue per kind of task, so tools are easy to find again. */
+const C = {
+  scan: '#e2483d',
+  edit: '#2f6fdb',
+  sign: '#c2185b',
+  organize: '#1e8a5a',
+  combine: '#0e9aa7',
+  compress: '#e8890c',
+  protect: '#0f1f3d',
+  ocr: '#7a4fd8',
+  create: '#d9468f',
+  export: '#6b4fd8',
+  form: '#3a7d44',
+};
 
 /** A picture for the Image tool: scaled to a sensible size and kept as PNG or JPEG for embedding. */
 async function pictureFrom(file: File): Promise<{ src: string; aspect: number }> {
@@ -70,6 +131,9 @@ export function App() {
   const [edit, setEdit] = useState<EditState>();
   const [panel, setPanel] = useState<Panel>();
   const [version, setVersion] = useState<string>();
+  const [recent, setRecent] = useState<Recent[]>(() => recentFiles());
+  const [pending, setPending] = useState<FileTool>();
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const picker = useRef<HTMLInputElement>(null);
   const many = useRef<HTMLInputElement>(null);
   const photos = useRef<HTMLInputElement>(null);
@@ -103,6 +167,7 @@ export function App() {
         }
         return { k: 'view', file, pdf, id: ++opened };
       });
+      void remember(file, pdf.doc.numPages).then(setRecent);
     },
     [clearMessages],
   );
@@ -147,6 +212,7 @@ export function App() {
     if (screen.k === 'convert' && screen.from) return setScreen(screen.from);
     if (screen.k === 'pages') {
       screen.extra.forEach((d) => void d.close());
+      setSelected(new Set());
       return setScreen(screen.from);
     }
     if (screen.k === 'view') void screen.pdf.close();
@@ -161,6 +227,7 @@ export function App() {
     if (panel) return (setPanel(undefined), true);
     if (placed) return (setPlaced(undefined), true);
     if (edit) return (setEdit(undefined), true);
+    if (screen.k === 'pages' && selected.size) return (setSelected(new Set()), true);
     if (screen.k !== 'home') return (back(), true);
     return false;
   };
@@ -256,6 +323,7 @@ export function App() {
 
   const openPages = (v: View) => {
     clearMessages();
+    setSelected(new Set());
     setScreen({ k: 'pages', from: v, sources: [v.file.bytes], docs: [v.pdf.doc], extra: [], sheets: sheetsOf(0, v.pdf.doc.numPages) });
   };
   const addPages = (e: ChangeEvent<HTMLInputElement>) =>
@@ -273,9 +341,19 @@ export function App() {
         sheets: [...screen.sheets, ...sheetsOf(src, d.doc.numPages)],
       });
     });
+  const editSheets = (fn: (sheets: PageSheet[]) => PageSheet[]) => {
+    if (screen.k === 'pages') setScreen({ ...screen, sheets: fn(screen.sheets) });
+  };
+  const deleteSelected = () => {
+    if (screen.k !== 'pages') return;
+    if (selected.size >= screen.sheets.length) return setError('A PDF needs at least one page. Keep one page or go back.');
+    editSheets((all) => all.filter((x) => !selected.has(x.key)));
+    setSelected(new Set());
+  };
   const applyPages = () =>
     run('Saving pages…', async () => {
       if (screen.k !== 'pages') return;
+      setSelected(new Set());
       const bytes = await organize(screen.sources, screen.sheets);
       await show({ name: suffixed(screen.from.file.name, 'pages'), bytes });
       setNotice(`Saved ${screen.sheets.length} page${screen.sheets.length === 1 ? '' : 's'}. Save or share the new PDF.`);
@@ -328,51 +406,103 @@ export function App() {
       setNotice('Form filled in. Save or share it.');
     });
 
+  const startTool = (v: View, tool: FileTool) => {
+    if (tool === 'edit') setEdit({ tool: 'text', color: COLORS[0]!, size: 0.03, items: [] });
+    else if (tool === 'sign') {
+      if (signature) startSigning(signature);
+      else setPad(true);
+    } else if (tool === 'organize') openPages(v);
+    else if (tool === 'compress') setPanel({ k: 'compress' });
+    else if (tool === 'protect') setPanel({ k: 'protect' });
+    else if (tool === 'ocr') void ocr(v);
+    else if (tool === 'form') void form(v);
+    else setPanel({ k: 'export' });
+  };
+  const withFile = (tool: FileTool) => {
+    setPending(tool);
+    picker.current?.click();
+  };
+  // A tool chosen on the home screen starts as soon as its PDF is open.
+  useEffect(() => {
+    if (pending && screen.k === 'view') {
+      setPending(undefined);
+      startTool(screen, pending);
+    }
+  }, [pending, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scan = () =>
+    void run('Opening the scanner…', async () => {
+      const f = await scanDocument();
+      if (f) await show(f);
+    });
+
   const view = screen.k === 'view' ? screen : undefined;
-  const title = view ? view.file.name : screen.k === 'convert' ? 'Convert' : screen.k === 'pages' ? 'Pages' : 'Rokela PDF';
   const busyOr = !!busy;
+  const keep = view
+    ? [
+        {
+          label: 'Save to phone',
+          icon: Download,
+          run: () =>
+            void run('Saving…', async () => {
+              if (await saveFile(view.file.name, view.file.bytes, PDF_MIME)) setNotice(`Saved ${view.file.name}.`);
+            }),
+        },
+        { label: 'Share', icon: Share2, run: () => void run('Preparing…', () => shareFile(view.file.name, view.file.bytes, PDF_MIME)) },
+      ]
+    : [];
+  const fileTools = (go: (t: FileTool) => void): ToolDef[] => [
+    { id: 'edit', label: 'Edit PDF', icon: FilePenLine, color: C.edit, run: () => go('edit') },
+    { id: 'sign', label: 'Fill & Sign', icon: Signature, color: C.sign, run: () => go('sign') },
+    { id: 'organize', label: 'Organize pages', icon: LayoutGrid, color: C.organize, run: () => go('organize') },
+    { id: 'compress', label: 'Compress', icon: Shrink, color: C.compress, run: () => go('compress') },
+    { id: 'protect', label: 'Protect', icon: Lock, color: C.protect, run: () => go('protect') },
+    { id: 'ocr', label: 'Make text searchable', icon: ScanText, color: C.ocr, run: () => go('ocr') },
+    { id: 'form', label: 'Fill in a form', icon: ClipboardList, color: C.form, run: () => go('form') },
+    { id: 'export', label: 'Export PDF', icon: FileOutput, color: C.export, run: () => go('export') },
+  ];
+  const homeTools: ToolDef[] = [
+    { id: 'scan', label: 'Scan', icon: Camera, color: C.scan, run: scan },
+    ...fileTools(withFile),
+    { id: 'combine', label: 'Combine files', icon: Combine, color: C.combine, run: () => many.current?.click() },
+    { id: 'photos', label: 'Photos to PDF', icon: Images, color: C.create, run: () => photos.current?.click() },
+    { id: 'office', label: 'Office to PDF', icon: FileInput, color: C.edit, run: () => openAccount() },
+  ];
+  const snack = error ? (
+    <div className="snackbar error" role="alert">
+      <span>{error}</span>
+      <button className="snack-close" aria-label="Dismiss" onClick={() => setError(undefined)}>
+        <X size={18} aria-hidden="true" />
+      </button>
+    </div>
+  ) : ready ? (
+    <div className="snackbar ready" role="status">
+      <span>{ready.name} is ready.</span>
+      <button
+        onClick={() =>
+          void run('Saving…', async () => {
+            if (await saveFile(ready.name, ready.bytes, ready.mime)) setNotice(`Saved ${ready.name}.`);
+            setReady(undefined);
+          })
+        }
+      >
+        Save
+      </button>
+      <button onClick={() => void run('Preparing…', () => shareFile(ready.name, ready.bytes, ready.mime))}>Share</button>
+      <button className="snack-close" aria-label="Dismiss" onClick={() => setReady(undefined)}>
+        <X size={18} aria-hidden="true" />
+      </button>
+    </div>
+  ) : notice ? (
+    <div className="snackbar notice" role="status">
+      <span>{notice}</span>
+      <button className="snack-close" aria-label="Dismiss" onClick={() => setNotice(undefined)}>
+        <X size={18} aria-hidden="true" />
+      </button>
+    </div>
+  ) : null;
 
   return (
-    <div className="app">
-      <header className="bar">
-        {screen.k !== 'home' ? (
-          <button className="back" onClick={back} aria-label="Back">
-            ‹
-          </button>
-        ) : null}
-        <h1>{title}</h1>
-      </header>
-      <div className="messages">
-        {error ? (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {notice ? <p className="notice">{notice}</p> : null}
-        {busy ? (
-          <p className="busy" role="status">
-            {busy}
-          </p>
-        ) : null}
-        {ready ? (
-          <div className="ready" role="status">
-            <span>{ready.name} is ready.</span>
-            <button
-              onClick={() =>
-                void run('Saving…', async () => {
-                  if (await saveFile(ready.name, ready.bytes, ready.mime)) setNotice(`Saved ${ready.name}.`);
-                })
-              }
-            >
-              Save
-            </button>
-            <button onClick={() => void run('Preparing…', () => shareFile(ready.name, ready.bytes, ready.mime))}>Share</button>
-            <button className="close" aria-label="Dismiss" onClick={() => setReady(undefined)}>
-              ×
-            </button>
-          </div>
-        ) : null}
-      </div>
+    <div className={`app screen-${screen.k}${panel || pad ? ' has-sheet' : ''}`}>
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={pick} />
       <input ref={many} type="file" accept="application/pdf,.pdf" multiple hidden onChange={combine} />
       <input ref={photos} type="file" accept="image/*" multiple hidden onChange={fromPhotos} />
@@ -380,70 +510,115 @@ export function App() {
       <input ref={picture} type="file" accept="image/*" hidden onChange={onPicture} />
 
       {screen.k === 'home' ? (
-        <main className="home">
-          <button
-            className="tile primary"
-            disabled={busyOr}
-            onClick={() =>
-              void run('Opening the scanner…', async () => {
-                const f = await scanDocument();
-                if (f) await show(f);
-              })
-            }
-          >
-            <strong>Scan a document</strong>
-            <span>Camera with edge detection and clean-up. Saves as PDF.</span>
+        <>
+          <AppBar
+            left={<img className="appbar-logo" src={logo} alt="" />}
+            title="Rokela PDF"
+            right={<IconButton icon={FolderOpen} label="Open a PDF" onClick={() => picker.current?.click()} disabled={busyOr} />}
+          />
+          <main className="home">
+            <section aria-labelledby="tools-h">
+              <h2 id="tools-h" className="section-title">
+                Tools
+              </h2>
+              <div className="tool-grid">
+                {homeTools.map((t) => (
+                  <ToolTile key={t.id} tool={t} disabled={busyOr} />
+                ))}
+              </div>
+            </section>
+            <section aria-labelledby="recent-h">
+              <h2 id="recent-h" className="section-title">
+                Recent
+              </h2>
+              {recent.length ? (
+                <div className="list">
+                  {recent.map((f) => (
+                    <Row
+                      key={f.id}
+                      icon={FileText}
+                      iconColor={C.scan}
+                      title={f.name}
+                      detail={`${plural(f.pages, 'page')} · ${size(f.size)} · ${when(f.at)}`}
+                      onClick={() =>
+                        void run('Opening…', async () => {
+                          await show(await openRecent(f.id));
+                        })
+                      }
+                      trailing={<IconButton icon={X} label={`Remove ${f.name} from Recent`} onClick={() => void forget(f.id).then(setRecent)} />}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="empty">
+                  <Clock size={32} aria-hidden="true" />
+                  <p>Files you open, scan or create appear here.</p>
+                  <button className="primary pill" onClick={() => picker.current?.click()}>
+                    Open a PDF
+                  </button>
+                </div>
+              )}
+            </section>
+            {!native ? <p className="note">Preview in a browser: scanning and “Open with” need the Android app.</p> : null}
+            {version ? <p className="version">Version {version}</p> : null}
+          </main>
+          <button className="fab" aria-label="Scan a document" disabled={busyOr} onClick={scan}>
+            <Camera size={26} aria-hidden="true" />
           </button>
-          <button className="tile" disabled={busyOr} onClick={() => picker.current?.click()}>
-            <strong>Open a PDF</strong>
-            <span>Then sign, edit, organize pages, compress, protect and more.</span>
-          </button>
-          <div className="grid2">
-            <Tile label="Combine PDFs" hint="Join several PDFs into one" disabled={busyOr} onClick={() => many.current?.click()} />
-            <Tile label="Photos → PDF" hint="Turn pictures into a PDF" disabled={busyOr} onClick={() => photos.current?.click()} />
-            <Tile label="Office → PDF" hint="Word, Excel or PowerPoint" disabled={busyOr} onClick={() => openAccount()} />
-            <Tile label="PDF → Office" hint="Word, Excel or PowerPoint" disabled={busyOr} onClick={() => openAccount()} />
-          </div>
-          {!native ? <p className="note">Preview in a browser: scanning and “Open with” need the Android app.</p> : null}
-          {version ? <p className="version">Version {version}</p> : null}
-        </main>
+        </>
       ) : null}
 
       {view ? (
         <>
-          {placed ? <p className="hint">Tap the page where you want to sign. Drag to move; drag the corner to resize.</p> : null}
-          {edit ? (
-            <div className="edit-tools">
-              <div className="tool-row" role="radiogroup" aria-label="Edit tool">
-                {TOOLS.map(([t, label]) => (
-                  <button key={t} role="radio" aria-checked={edit.tool === t} className={edit.tool === t ? 'on' : ''} onClick={() => chooseTool(t)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="tool-row small">
-                {edit.tool === 'draw' ? (
-                  <span className="swatches" role="radiogroup" aria-label="Ink colour">
-                    {COLORS.map((c) => (
-                      <button
-                        key={c}
-                        role="radio"
-                        aria-checked={edit.color === c}
-                        aria-label={`Colour ${c}`}
-                        className={`swatch${edit.color === c ? ' on' : ''}`}
-                        style={{ background: c }}
-                        onClick={() => setEdit({ ...edit, color: c })}
-                      />
-                    ))}
-                  </span>
-                ) : (
-                  <span className="muted">{edit.tool === 'image' && !edit.picture ? 'Choose a picture first.' : HINTS[edit.tool]}</span>
-                )}
-                <button className="link" disabled={!edit.items.length} onClick={() => setEdit({ ...edit, items: edit.items.slice(0, -1) })}>
-                  Undo
+          {placed ? (
+            <AppBar
+              left={<IconButton icon={X} label="Cancel" onClick={() => setPlaced(undefined)} />}
+              title="Fill & Sign"
+              right={
+                <button className="text-btn" disabled={busyOr} onClick={() => void applySignatures(view)}>
+                  Done
                 </button>
-              </div>
-            </div>
+              }
+            />
+          ) : edit ? (
+            <AppBar
+              left={<IconButton icon={X} label="Cancel" onClick={() => setEdit(undefined)} />}
+              title="Edit PDF"
+              right={
+                <>
+                  <IconButton icon={Undo2} label="Undo" disabled={!edit.items.length} onClick={() => setEdit({ ...edit, items: edit.items.slice(0, -1) })} />
+                  <button className="text-btn" disabled={busyOr} onClick={() => void applyEdits(view)}>
+                    Done
+                  </button>
+                </>
+              }
+            />
+          ) : (
+            <AppBar
+              left={<IconButton icon={ArrowLeft} label="Back" onClick={back} />}
+              title={view.file.name}
+              subtitle={`${plural(view.pdf.doc.numPages, 'page')} · ${size(view.file.bytes.length)}`}
+              right={
+                <>
+                  <IconButton
+                    icon={Share2}
+                    label="Share"
+                    disabled={busyOr}
+                    onClick={() => void run('Preparing…', () => shareFile(view.file.name, view.file.bytes, PDF_MIME))}
+                  />
+                  <IconButton icon={EllipsisVertical} label="More" disabled={busyOr} onClick={() => setPanel({ k: 'tools' })} />
+                </>
+              }
+            />
+          )}
+          {placed || edit ? (
+            <p className="hint-chip">
+              {placed
+                ? 'Tap where you want to sign. Drag to move; drag the corner to resize.'
+                : edit!.tool === 'image' && !edit!.picture
+                  ? 'Choose a picture first.'
+                  : HINTS[edit!.tool]}
+            </p>
           ) : null}
           <Viewer
             key={view.id}
@@ -466,36 +641,39 @@ export function App() {
               ) : null
             }
           />
-          <nav className="actions-bar">
+          {snack}
+          <nav className="bottombar">
             {placed ? (
-              <>
-                <button onClick={() => setPlaced(undefined)}>Cancel</button>
-                <button onClick={() => setPad(true)}>New signature</button>
-                <button className="primary" disabled={busyOr} onClick={() => void applySignatures(view)}>
-                  Apply
-                </button>
-              </>
+              <BarButton icon={PenTool} label="New signature" onClick={() => setPad(true)} />
             ) : edit ? (
-              <>
-                <button onClick={() => setEdit(undefined)}>Cancel</button>
-                <button className="primary" disabled={busyOr} onClick={() => void applyEdits(view)}>
-                  Save changes
-                </button>
-              </>
+              <div className="palette">
+                {edit.tool === 'draw' || edit.tool === 'text' ? (
+                  <div className="swatches" role="radiogroup" aria-label="Colour">
+                    {COLORS.map((c) => (
+                      <button
+                        key={c}
+                        role="radio"
+                        aria-checked={edit.color === c}
+                        aria-label={`Colour ${c}`}
+                        className={`swatch${edit.color === c ? ' on' : ''}`}
+                        style={{ background: c }}
+                        onClick={() => setEdit({ ...edit, color: c })}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                <div className="palette-tools" role="radiogroup" aria-label="Edit tool">
+                  {TOOLS.map(([t, label, icon]) => (
+                    <BarButton key={t} role="radio" icon={icon} label={label} active={edit.tool === t} onClick={() => chooseTool(t)} />
+                  ))}
+                </div>
+              </div>
             ) : (
               <>
-                <button disabled={busyOr} onClick={() => (signature ? startSigning(signature) : setPad(true))}>
-                  Sign
-                </button>
-                <button disabled={busyOr} onClick={() => setEdit({ tool: 'text', color: COLORS[0]!, size: 0.03, items: [] })}>
-                  Edit
-                </button>
-                <button disabled={busyOr} onClick={() => openPages(view)}>
-                  Pages
-                </button>
-                <button disabled={busyOr} onClick={() => setPanel({ k: 'more' })}>
-                  More
-                </button>
+                <BarButton icon={FilePenLine} label="Edit" disabled={busyOr} onClick={() => startTool(view, 'edit')} />
+                <BarButton icon={Signature} label="Fill & Sign" disabled={busyOr} onClick={() => startTool(view, 'sign')} />
+                <BarButton icon={LayoutGrid} label="Organize" disabled={busyOr} onClick={() => startTool(view, 'organize')} />
+                <BarButton icon={Grid2x2} label="All tools" disabled={busyOr} onClick={() => setPanel({ k: 'tools' })} />
               </>
             )}
           </nav>
@@ -504,83 +682,100 @@ export function App() {
 
       {screen.k === 'pages' ? (
         <>
-          <p className="hint">Use ‹ › to move pages, ↻ to rotate and ✕ to delete.</p>
-          <Pages docs={screen.docs} sheets={screen.sheets} onChange={(sheets) => setScreen({ ...screen, sheets })} />
-          <nav className="actions-bar">
-            <button disabled={busyOr} onClick={() => extraPdf.current?.click()}>
-              Add a PDF
-            </button>
-            <button className="primary" disabled={busyOr} onClick={() => void applyPages()}>
-              Save pages
-            </button>
+          <AppBar
+            left={<IconButton icon={X} label="Cancel" onClick={back} />}
+            title="Organize pages"
+            subtitle={selected.size ? `${selected.size} selected` : 'Tap pages to select them'}
+            right={
+              <button className="text-btn" disabled={busyOr} onClick={() => void applyPages()}>
+                Done
+              </button>
+            }
+          />
+          <Pages
+            docs={screen.docs}
+            sheets={screen.sheets}
+            selected={selected}
+            onToggle={(key) =>
+              setSelected((old) => {
+                const next = new Set(old);
+                if (!next.delete(key)) next.add(key);
+                return next;
+              })
+            }
+          />
+          {snack}
+          <nav className="bottombar">
+            <BarButton icon={Plus} label="Add a PDF" disabled={busyOr} onClick={() => extraPdf.current?.click()} />
+            <BarButton
+              icon={RotateCw}
+              label="Rotate"
+              disabled={!selected.size}
+              onClick={() => editSheets((all) => all.map((x) => (selected.has(x.key) ? { ...x, rotation: norm(x.rotation + 90) } : x)))}
+            />
+            <BarButton icon={ChevronLeft} label="Move earlier" disabled={!selected.size} onClick={() => editSheets((all) => moveSelected(all, selected, -1))} />
+            <BarButton icon={ChevronRight} label="Move later" disabled={!selected.size} onClick={() => editSheets((all) => moveSelected(all, selected, 1))} />
+            <BarButton icon={Trash2} label="Delete" disabled={!selected.size} onClick={deleteSelected} />
           </nav>
         </>
       ) : null}
 
       {screen.k === 'convert' ? (
-        <Convert
-          session={session}
-          busy={busyOr}
-          onSignedIn={(s) => {
-            setSession(s);
-            if (screen.from) {
-              setScreen(screen.from);
-              if (screen.then && screen.then !== 'pdf') void exportTo(screen.from, screen.then);
+        <>
+          <AppBar left={<IconButton icon={ArrowLeft} label="Back" onClick={back} />} title="Convert" subtitle="Word, Excel and PowerPoint" />
+          <Convert
+            session={session}
+            busy={busyOr}
+            onSignedIn={(s) => {
+              setSession(s);
+              if (screen.from) {
+                setScreen(screen.from);
+                if (screen.then && screen.then !== 'pdf') void exportTo(screen.from, screen.then);
+              }
+            }}
+            onSignOut={() =>
+              void run('Signing out…', async () => {
+                await signOut();
+                setSession(null);
+              })
             }
-          }}
-          onSignOut={() =>
-            void run('Signing out…', async () => {
-              await signOut();
-              setSession(null);
-            })
-          }
-          run={run}
-          onPdf={(f) => show(f)}
-          onOffice={(r) => setReady(r)}
-        />
+            run={run}
+            onPdf={(f) => show(f)}
+            onOffice={(r) => setReady(r)}
+          />
+          {snack}
+        </>
       ) : null}
 
+      {screen.k === 'home' ? snack : null}
+      {busy ? <Progress label={busy} /> : null}
+
       {pad ? <SignaturePad onCancel={() => setPad(false)} onDone={startSigning} /> : null}
-      {panel?.k === 'more' && view ? (
-        <MoreSheet
-          onClose={() => setPanel(undefined)}
-          groups={[
-            [
-              'Keep',
+      {panel?.k === 'tools' && view ? <ToolsSheet onClose={() => setPanel(undefined)} tools={fileTools((t) => startTool(view, t))} actions={keep} /> : null}
+      {panel?.k === 'export' && view ? (
+        <Sheet title="Export PDF" onClose={() => setPanel(undefined)}>
+          <p className="muted">Converted on rokelapdf.com: needs internet and a free account.</p>
+          <div className="sheet-rows">
+            {(
               [
-                {
-                  label: 'Save to phone',
-                  run: () =>
-                    void run('Saving…', async () => {
-                      if (await saveFile(view.file.name, view.file.bytes, PDF_MIME)) setNotice(`Saved ${view.file.name}.`);
-                    }),
-                },
-                {
-                  label: 'Share',
-                  hint: 'WhatsApp, email, Drive…',
-                  run: () => void run('Preparing…', () => shareFile(view.file.name, view.file.bytes, PDF_MIME)),
-                },
-              ],
-            ],
-            [
-              'Convert (needs internet and a free account)',
-              [
-                { label: 'To Word', run: () => void exportTo(view, 'docx') },
-                { label: 'To Excel', run: () => void exportTo(view, 'xlsx') },
-                { label: 'To PowerPoint', run: () => void exportTo(view, 'pptx') },
-              ],
-            ],
-            [
-              'Tools (on this phone)',
-              [
-                { label: 'Compress', hint: 'Make the file smaller to send', run: () => setPanel({ k: 'compress' }) },
-                { label: 'Protect with a password', run: () => setPanel({ k: 'protect' }) },
-                { label: 'Make text searchable', hint: 'Read the text in scans (OCR)', run: () => void ocr(view) },
-                { label: 'Fill in a form', run: () => void form(view) },
-              ],
-            ],
-          ]}
-        />
+                ['docx', 'To Word', FileText, '#2f6fdb'],
+                ['xlsx', 'To Excel', FileSpreadsheet, '#1e8a5a'],
+                ['pptx', 'To PowerPoint', Presentation, '#d9541e'],
+              ] as const
+            ).map(([t, label, icon, color]) => (
+              <Row
+                key={t}
+                icon={icon}
+                iconColor={color}
+                title={label}
+                onClick={() => {
+                  setPanel(undefined);
+                  void exportTo(view, t);
+                }}
+              />
+            ))}
+          </div>
+        </Sheet>
       ) : null}
       {panel?.k === 'compress' && view ? <CompressSheet onClose={() => setPanel(undefined)} onPick={(level) => void compress(view, level)} /> : null}
       {panel?.k === 'protect' && view ? <ProtectSheet onClose={() => setPanel(undefined)} onDone={(o) => void protect(view, o)} /> : null}
@@ -609,15 +804,6 @@ export function App() {
   );
 }
 
-function Tile({ label, hint, disabled, onClick }: { label: string; hint: string; disabled: boolean; onClick: () => void }) {
-  return (
-    <button className="tile" disabled={disabled} onClick={onClick}>
-      <strong>{label}</strong>
-      <span>{hint}</span>
-    </button>
-  );
-}
-
 function Convert(p: {
   session: Session | null | undefined;
   busy: boolean;
@@ -633,7 +819,7 @@ function Convert(p: {
   const office = useRef<HTMLInputElement>(null);
   const pdf = useRef<HTMLInputElement>(null);
 
-  if (p.session === undefined) return <p className="busy">Checking your account…</p>;
+  if (p.session === undefined) return <p className="muted center">Checking your account…</p>;
   if (!p.session) {
     const submit = (e: FormEvent) => {
       e.preventDefault();
@@ -680,19 +866,20 @@ function Convert(p: {
   };
   return (
     <main className="home">
-      <p className="muted">Signed in as {p.session.user.email}.</p>
-      <button className="tile primary" disabled={p.busy} onClick={() => office.current?.click()}>
-        <strong>Word, Excel or PowerPoint → PDF</strong>
-        <span>Choose a .docx, .xlsx, .pptx (or .doc, .xls, .ppt, .odt, .rtf…) file.</span>
-      </button>
-      <div className="grid3">
-        <Tile label="PDF → Word" hint=".docx" disabled={p.busy} onClick={() => fromPdf('docx')} />
-        <Tile label="PDF → Excel" hint=".xlsx" disabled={p.busy} onClick={() => fromPdf('xlsx')} />
-        <Tile label="PDF → PowerPoint" hint=".pptx" disabled={p.busy} onClick={() => fromPdf('pptx')} />
+      <p className="muted signed-in">Signed in as {p.session.user.email}</p>
+      <div className="list">
+        <Row
+          icon={FileInput}
+          iconColor="#2f6fdb"
+          title="Word, Excel or PowerPoint → PDF"
+          detail=".docx, .xlsx, .pptx, .doc, .xls, .ppt, .odt, .rtf…"
+          onClick={() => office.current?.click()}
+        />
+        <Row icon={FileText} iconColor="#2f6fdb" title="PDF → Word" detail="An editable .docx" onClick={() => fromPdf('docx')} />
+        <Row icon={FileSpreadsheet} iconColor="#1e8a5a" title="PDF → Excel" detail="Tables as a .xlsx workbook" onClick={() => fromPdf('xlsx')} />
+        <Row icon={Presentation} iconColor="#d9541e" title="PDF → PowerPoint" detail="Pages as .pptx slides" onClick={() => fromPdf('pptx')} />
+        <Row icon={LogOut} title="Sign out" onClick={p.onSignOut} />
       </div>
-      <button className="link" onClick={p.onSignOut}>
-        Sign out
-      </button>
       <input
         ref={office}
         type="file"
@@ -726,21 +913,32 @@ function Convert(p: {
 /** Renders pages as they scroll into view, so long PDFs stay light on memory. */
 function Viewer({ doc, layer }: { doc: PDFDocumentProxy; layer: (page: number) => ReactNode }) {
   const pages = Array.from({ length: doc.numPages }, (_, i) => i + 1);
+  const [current, setCurrent] = useState(1);
   return (
     <main className="viewer">
-      <p className="meta">
-        {doc.numPages} page{doc.numPages === 1 ? '' : 's'}
-      </p>
+      {doc.numPages > 1 ? (
+        <p className="page-pill" aria-live="polite">
+          {current} / {doc.numPages}
+        </p>
+      ) : null}
       {pages.map((n) => (
-        <Page key={n} doc={doc} n={n} layer={layer} />
+        <Page key={n} doc={doc} n={n} layer={layer} onVisible={setCurrent} />
       ))}
     </main>
   );
 }
 
-function Page({ doc, n, layer }: { doc: PDFDocumentProxy; n: number; layer: (page: number) => ReactNode }) {
+function Page({ doc, n, layer, onVisible }: { doc: PDFDocumentProxy; n: number; layer: (page: number) => ReactNode; onVisible: (n: number) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [done, setDone] = useState(false);
+  // The page counter follows whichever page fills most of the screen.
+  useEffect(() => {
+    const el = canvas.current?.parentElement;
+    if (!el) return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && onVisible(n), { threshold: 0.5 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [n, onVisible]);
   useEffect(() => {
     const el = canvas.current;
     if (!el) return;

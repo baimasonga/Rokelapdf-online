@@ -129,9 +129,9 @@ async function main() {
     };
     const more = (label) =>
       page
-        .getByRole('button', { name: 'More', exact: true })
+        .getByRole('button', { name: 'All tools', exact: true })
         .click()
-        .then(() => page.getByRole('button', { name: label }).click());
+        .then(() => page.getByRole('dialog', { name: 'All tools' }).getByRole('button', { name: label, exact: true }).click());
     const saved = async () => {
       const dl = page.waitForEvent('download');
       await more('Save to phone');
@@ -144,9 +144,39 @@ async function main() {
     };
 
     step('Home');
-    for (const t of ['Scan a document', 'Open a PDF', 'Combine PDFs', 'Photos → PDF', 'Office → PDF', 'PDF → Office'])
-      await page.getByRole('button', { name: new RegExp(t) }).waitFor();
-    ok('every home tool is offered');
+    for (const t of [
+      'Scan',
+      'Edit PDF',
+      'Fill & Sign',
+      'Organize pages',
+      'Compress',
+      'Protect',
+      'Make text searchable',
+      'Fill in a form',
+      'Export PDF',
+      'Combine files',
+      'Photos to PDF',
+      'Office to PDF',
+    ])
+      await page.locator('.tool-grid').getByRole('button', { name: t, exact: true }).waitFor();
+    await page.getByText('Files you open, scan or create appear here.').waitFor();
+    ok('every tool is on the home screen, and Recent starts empty');
+
+    step('A tool started from home asks for a PDF, then opens in that tool');
+    const pickFirst = page.waitForEvent('filechooser');
+    await page.locator('.tool-grid').getByRole('button', { name: 'Edit PDF', exact: true }).click();
+    await (await pickFirst).setFiles(file('agreement.pdf'));
+    await page.getByRole('heading', { name: 'Edit PDF' }).waitFor();
+    await page.locator('.edit-layer').first().waitFor();
+    ok('Edit PDF from home opens the chosen file in Edit');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: 'Back' }).click();
+    await page
+      .locator('.list')
+      .getByRole('button', { name: /^agreement\.pdf/ })
+      .click();
+    await page.getByRole('heading', { name: 'agreement.pdf' }).waitFor();
+    ok('the file is in Recent and opens again from there');
 
     step('Combine PDFs');
     await input('application/pdf,.pdf', true).setInputFiles([file('agreement.pdf'), file('annex.pdf')]);
@@ -168,7 +198,7 @@ async function main() {
     const box = await layer.boundingBox();
     await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.3);
     await page.getByLabel('Text', { exact: true }).fill('Paid in full · Привет');
-    await page.getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('dialog', { name: 'Add text' }).getByRole('button', { name: 'Done' }).click();
     const drag = async (tool, x1, y1, x2, y2) => {
       await page.getByRole('radio', { name: tool }).click();
       const box = await layer.boundingBox();
@@ -199,7 +229,7 @@ async function main() {
     check(stacked, 'the preview stacks edits in the order they were made (a stroke drawn after a cover shows on top)');
     await page.getByRole('button', { name: 'Undo' }).click();
     check((await page.locator('.edit-layer .placed').count()) === 0, 'Undo removes the last change');
-    await page.getByRole('button', { name: 'Save changes' }).click();
+    await page.getByRole('button', { name: 'Done' }).click();
     await notice(/Changes saved/);
     const edited = await saved();
     r = await textOf(edited);
@@ -207,15 +237,23 @@ async function main() {
     check(/Привет/.test(r.text), 'text beyond Latin letters is kept (embedded Unicode font)');
 
     step('Pages: rotate, add a PDF, move, delete');
-    await page.getByRole('button', { name: 'Pages', exact: true }).click();
-    await page.getByRole('button', { name: 'Rotate page 1' }).click();
+    await page.getByRole('button', { name: 'Organize', exact: true }).click();
+    const thumb = (n) => page.getByRole('button', { name: `Page ${n}`, exact: true });
+    const act = (name) => page.locator('.bottombar').getByRole('button', { name, exact: true }).click();
+    await thumb(1).click();
+    await act('Rotate');
+    await thumb(1).click(); // deselect
     const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('button', { name: 'Add a PDF' }).click();
+    await act('Add a PDF');
     await (await chooser).setFiles(file('annex.pdf'));
-    await page.getByRole('button', { name: 'Delete page 3' }).waitFor();
-    await page.getByRole('button', { name: 'Move page 3 earlier' }).click();
-    await page.getByRole('button', { name: 'Delete page 3' }).click();
-    await page.getByRole('button', { name: 'Save pages' }).click();
+    await thumb(3).waitFor();
+    await thumb(3).click();
+    await act('Move earlier');
+    await thumb(2).click(); // the moved page, now second: deselect it
+    await thumb(3).click();
+    await act('Delete');
+    check((await page.locator('.thumb').count()) === 2, 'selected page deleted from the grid');
+    await page.getByRole('button', { name: 'Done' }).click();
     await notice(/Saved 2 pages/);
     const organized = await saved();
     const od = await PDFDocument.load(organized);
@@ -250,7 +288,7 @@ async function main() {
 
     step('Protect with a password, then open it again');
     await openPdf('agreement.pdf');
-    await more('Protect with a password');
+    await more('Protect');
     await page.getByLabel('Password (at least 6 characters)').fill('secret123');
     await page.getByLabel('Type it again').fill('secret123');
     await page.getByRole('button', { name: 'Protect', exact: true }).click();
@@ -274,9 +312,11 @@ async function main() {
     check(/TENANCY/.test(r.text), 'unlocked copy opens and keeps its text');
 
     step('Convert (stubbed rokelapdf.com)');
-    await more('To Excel');
+    await more('Export PDF');
+    await page.getByRole('button', { name: 'To Excel' }).click();
     await page.locator('.ready', { hasText: '.xlsx is ready' }).waitFor();
-    await more('To PowerPoint');
+    await more('Export PDF');
+    await page.getByRole('button', { name: 'To PowerPoint' }).click();
     await page.locator('.ready', { hasText: '.pptx is ready' }).waitFor();
     check(converted.includes('/api/v1/convert/xlsx') && converted.includes('/api/v1/convert/pptx'), 'PDF → Excel and PowerPoint go through the converter');
 
