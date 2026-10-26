@@ -4,7 +4,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { amountInWords, DEFAULT_BUSINESS, DEFAULT_FOOTERS, docNumber, lineAmount, numberWords, totals, type BizDoc } from '@/lib/receipts/model';
-import { buildBizDoc } from '@/lib/receipts/pdf';
+import { BLANK_BOOK_MAX, buildBizDoc, buildBlankBook, type BlankBook } from '@/lib/receipts/pdf';
 import { loadPrefs } from '@/lib/receipts/store';
 
 describe('amount in words', () => {
@@ -234,5 +234,55 @@ describe('line amounts', () => {
     ];
     expect(lineAmount(lines[0]!)).toBe(0.13);
     expect(totals({ kind: 'receipt', lines, discount: 0, delivery: 0, gst: false, paid: 0 }).subtotal).toBe(0.26);
+  });
+});
+
+describe('blank receipt books', () => {
+  const book = (over: Partial<BlankBook> = {}): BlankBook => ({
+    kind: 'receipt',
+    size: 'A5',
+    currency: 'NLe',
+    start: 101,
+    count: 3,
+    counterfoil: true,
+    officeCopy: false,
+    twoUp: false,
+    footer: 'Thank you',
+    notes: '',
+    ...over,
+  });
+
+  it('numbers each page in order, with the letterhead and nothing filled in', async () => {
+    const pages = await textOf(await buildBlankBook(biz, book()));
+    expect(pages).toHaveLength(3);
+    pages.forEach((p, i) => {
+      expect(p).toContain(`010${i + 1}`);
+      expect(p).toMatch(/KAMARA & SONS HARDWARE/);
+      expect(p).toContain('Received from');
+      expect(p).not.toMatch(/0\.00|Zero|Only/);
+    });
+  });
+
+  it('prints office copies after each number, two A5 pages per landscape A4 sheet, and invoice numbering', async () => {
+    const bytes = await buildBlankBook(biz, book({ kind: 'invoice', officeCopy: true, twoUp: true, notes: 'Pay to Rokel Commercial Bank' }));
+    const d = await PDFDocument.load(bytes);
+    expect(d.getPageCount()).toBe(3); // 3 numbers × 2 copies, two per sheet
+    expect([Math.round(d.getPage(0).getWidth()), Math.round(d.getPage(0).getHeight())]).toEqual([842, 595]);
+    const [first] = await textOf(bytes);
+    expect(first).toContain('INV-0101');
+    expect(first!.replace(/\s/g, '')).toContain('CUSTOMERCOPY');
+    expect(first!.replace(/\s/g, '')).toContain('OFFICECOPY');
+    expect(first).toContain('Pay to Rokel Commercial Bank');
+  });
+
+  it('prints an A4 book one page per A4 sheet even if two-to-a-sheet was ticked for A5', async () => {
+    const d = await PDFDocument.load(await buildBlankBook(biz, book({ size: 'A4', twoUp: true })));
+    expect(d.getPageCount()).toBe(3);
+    expect([Math.round(d.getPage(0).getWidth()), Math.round(d.getPage(0).getHeight())]).toEqual([595, 842]);
+  });
+
+  it(`stops at ${BLANK_BOOK_MAX} numbers`, async () => {
+    const d = await PDFDocument.load(await buildBlankBook(biz, book({ size: 'A4', count: 10_000, start: 1 })));
+    expect(d.getPageCount()).toBe(BLANK_BOOK_MAX);
   });
 });

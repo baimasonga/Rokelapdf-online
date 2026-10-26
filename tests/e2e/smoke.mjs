@@ -497,6 +497,42 @@ async function main() {
       'and an 80 mm till slip downloads at the width of the roll',
     );
     await shot(v, 'receipt-slip');
+    await v.getByRole('radio', { name: 'Print a blank book' }).click();
+    await v.getByLabel('First number').fill('5001');
+    await v.getByLabel('How many').fill('4');
+    const book = await fetchDownload(v.getByRole('button', { name: /Download book \(2 sheets\)/ }));
+    const bookDoc = await getDocument({ data: new Uint8Array(book.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const sheet = (await (await bookDoc.getPage(2)).getTextContent()).items.map((x) => x.str).join(' ');
+    check(bookDoc.numPages === 2 && sheet.includes('5003') && sheet.includes('5004'), 'a blank receipt book of 4 numbers prints two to an A4 sheet');
+    await shot(v, 'receipt-book');
+
+    // Sales ledger: an invoice, a part payment recorded from the ledger, and the customer's statement.
+    await v.getByRole('radio', { name: 'Fill in a document' }).click();
+    await v.getByRole('radio', { name: 'Invoice', exact: true }).click();
+    await v.getByRole('radio', { name: 'A4', exact: true }).click();
+    await v.getByLabel('Customer name').fill('Sunrise Construction Ltd');
+    await v.getByLabel('Item 1', { exact: true }).fill('Roofing sheets');
+    await v.getByLabel('Rate 1').fill('1000');
+    await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    await v.getByRole('radio', { name: 'Sales ledger' }).click();
+    await v.getByText('Owed to you').waitFor();
+    check((await v.locator('.rk-tile', { hasText: 'Owed to you' }).innerText()).includes('1,000.00'), 'ledger: the invoice is owed');
+    await v.getByRole('button', { name: 'Record payment' }).click();
+    check((await v.getByLabel('Payment for invoice').inputValue()) === 'INV-0001', 'and Record payment opens a receipt for that invoice');
+    await v.getByLabel('Rate 1').fill('400');
+    await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    await v.getByRole('radio', { name: 'Sales ledger' }).click();
+    await v.getByText('Part paid').waitFor();
+    const stmt = await fetchDownload(v.getByRole('button', { name: 'Statement' }));
+    const stDoc = await getDocument({ data: new Uint8Array(stmt.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const stText = (await (await stDoc.getPage(1)).getTextContent()).items.map((x) => x.str).join(' ');
+    check(
+      stText.includes('Sunrise Construction Ltd') && stText.includes('Payment for INV-0001') && stText.includes('NLe 600.00'),
+      'and the statement shows the payment and 600.00 due',
+    );
+    await shot(v, 'receipt-ledger');
 
     await v.goto(`${ORIGIN}/tools/create-fillable-pdf`);
     await v.getByTestId('tool-input').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: pdf });
