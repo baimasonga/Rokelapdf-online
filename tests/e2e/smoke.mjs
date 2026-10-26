@@ -167,13 +167,14 @@ async function main() {
       'strict nonce-based CSP without unsafe-eval',
     );
     check(res.headers()['x-frame-options'] === 'DENY', 'framing denied');
-    await p.getByRole('heading', { name: /Every PDF tool you need/ }).waitFor();
-    check((await p.locator('.tiles a.tile[href^="/tools/"]').count()) >= 20, 'home page lists every tool');
+    await p.getByRole('heading', { name: /Every PDF task/ }).waitFor();
+    check((await p.locator('.tiles a.tile[href^="/tools/"]').count()) === 8, 'home page leads with eight tools');
+    check((await p.getByRole('link', { name: /^All \d+ tools/ }).getAttribute('href')) === '/tools', 'and links to all of them');
     ok('landing page renders');
     await shot(p, 'home');
 
     step('Android app download page');
-    await p.getByRole('link', { name: /Get the Android app/ }).click();
+    await p.getByRole('link', { name: 'Android app', exact: true }).click();
     await p.getByRole('heading', { name: 'Rokela PDF for Android' }).waitFor();
     check(
       (await p.getByRole('link', { name: 'Download for Android' }).getAttribute('href')) === '/android/rokela-pdf.apk',

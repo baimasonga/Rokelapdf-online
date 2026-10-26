@@ -41,7 +41,8 @@ function ToolsMenu({ onPick }: { onPick: () => void }) {
   );
 }
 
-export function Header({ minimal = false }: { minimal?: boolean }) {
+/** `tone="dark"` sits on the home page's navy hero. */
+export function Header({ minimal = false, tone }: { minimal?: boolean; tone?: 'dark' }) {
   const { session, ready, signOut } = useAuth();
   const router = useRouter();
   const path = usePathname();
@@ -103,7 +104,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     ));
 
   return (
-    <header className="site-header">
+    <header className={tone === 'dark' ? 'site-header on-dark' : 'site-header'}>
       <Brand />
       {!minimal && (
         <>

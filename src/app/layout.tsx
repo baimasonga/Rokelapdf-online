@@ -2,6 +2,9 @@ import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import { Providers } from '@/components/providers';
 import '@fontsource-variable/inter';
+// The display serif for headings (weight and optical size axes), self-hosted like Inter.
+import '@fontsource-variable/fraunces/opsz.css';
+import '@fontsource-variable/fraunces/opsz-italic.css';
 import './globals.css';
 
 export const metadata: Metadata = {
