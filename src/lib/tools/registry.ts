@@ -20,6 +20,7 @@ export type ToolSlug =
   | 'page-numbers'
   | 'flatten-pdf'
   | 'sign-pdf'
+  | 'stamp-pdf'
   | 'fill-pdf-form'
   | 'create-fillable-pdf'
   | 'protect-pdf'
@@ -57,7 +58,7 @@ export interface ToolDef {
   accept: ToolInput;
   multiple: boolean;
   /** Tools that work interactively open the editor with this tool selected. */
-  editorTool?: 'redact' | 'select' | 'text' | 'highlight' | 'rect' | 'ink' | 'signature' | 'field';
+  editorTool?: 'redact' | 'select' | 'text' | 'highlight' | 'rect' | 'ink' | 'signature' | 'stamp' | 'field';
   /** Can run on many PDFs at once (same settings for each, results as a ZIP). */
   batch?: boolean;
   popular?: boolean;
@@ -236,10 +237,10 @@ export const TOOLS: ToolDef[] = [
     batch: true,
     color: '#0891b2',
     title: 'Add watermark',
-    short: 'Stamp text like “CONFIDENTIAL” on every page.',
+    short: 'Print text like “CONFIDENTIAL” across every page.',
     description: 'Add a text watermark to a PDF — diagonal, centred or tiled, with your colour and transparency.',
     group: 'edit',
-    icon: 'Stamp',
+    icon: 'Droplets',
     accept: 'pdf',
     multiple: false,
   },
@@ -279,6 +280,19 @@ export const TOOLS: ToolDef[] = [
     multiple: false,
     editorTool: 'signature',
     popular: true,
+  },
+  {
+    slug: 'stamp-pdf',
+    color: '#c42a2a',
+    title: 'Stamp PDF',
+    short: 'Design a stamp and stamp it like real ink.',
+    description:
+      'Create a company seal or a “RECEIVED”, “PAID” or “APPROVED” stamp with today’s date and numbering, then stamp any PDF with a realistic hand-stamped ink look.',
+    group: 'sign',
+    icon: 'Stamp',
+    accept: 'pdf',
+    multiple: false,
+    editorTool: 'stamp',
   },
   {
     slug: 'fill-pdf-form',

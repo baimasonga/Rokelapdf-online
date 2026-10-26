@@ -287,7 +287,19 @@ export function Progress({ p, label }: { p: UploadProgress | undefined; label?: 
 export const confirmAction = (msg: string) => window.confirm(msg);
 export const ask = (msg: string) => window.prompt(msg) ?? undefined;
 
-export function Modal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  className,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  className?: string;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current;
@@ -296,7 +308,7 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} onClose={onClose} className="modal" aria-label={title}>
+    <dialog ref={ref} onClose={onClose} className={className ? `modal ${className}` : 'modal'} aria-label={title}>
       <div className="panel-head">
         <h2>{title}</h2>
         <button type="button" className="ghost" onClick={onClose} aria-label="Close">

@@ -45,7 +45,10 @@ export interface InkAnnot extends Base {
   /** Stroke width in PDF points. */
   width: number;
 }
-/** A picture placed on the page (a signature). The box is in page space; the picture is upright in the view it was placed in. */
+/**
+ * A picture placed on the page (a signature or a stamp). The box is in page space; the picture is upright in the view
+ * it was placed in. Stamps blend with the page (`multiply`), so printed text shows through the ink as it does on paper.
+ */
 export interface ImageAnnot extends Base {
   kind: 'image';
   x: number;
@@ -55,6 +58,7 @@ export interface ImageAnnot extends Base {
   /** PNG data URL, created on this device. */
   src: string;
   rot: Rotation;
+  blend?: 'multiply';
 }
 /** A fillable form field (AcroForm widget) added to the page. */
 export interface FieldAnnot extends Base {

@@ -30,6 +30,7 @@ export const PAID_TOOLS: Readonly<Record<string, PaidFeature>> = {
   'watermark-pdf': 'edit',
   'page-numbers': 'edit',
   'sign-pdf': 'sign',
+  'stamp-pdf': 'sign',
   'ocr-pdf': 'ocr',
   'protect-pdf': 'protect',
   'split-pdf': 'split',

@@ -16,6 +16,7 @@ import {
   Save,
   Signature as SignatureIcon,
   Square,
+  Stamp,
   Type,
   Undo2,
   Upload,
@@ -58,6 +59,10 @@ import {
 import { closePdf, openPdf } from './pdfjs';
 import { PageView, Thumb, type PageInfo, type Signature, type Tool } from './page-view';
 import { SignaturePad } from './signature-pad';
+import { StampStudio } from './stamp-studio';
+import { renderStamp } from '@/lib/stamp/render';
+import { upsertStamp } from '@/lib/stamp/store';
+import type { StampDesign } from '@/lib/stamp/design';
 
 // The browser PDF editor. Files are opened and edited on this device; nothing is uploaded unless the user saves to
 // a workspace, which stores the result as a private draft of a document (never visible through links until it is
@@ -73,6 +78,7 @@ const TOOLS: Array<[Tool, string, string]> = [
   ['redact', 'Redact', 'Permanently removes covered content on export. All pages become images; searchable text and form fields are removed.'],
   ['whiteout', 'Whiteout', 'Covers content visually. The covered text is still in the file — this is not redaction.'],
   ['signature', 'Sign', 'Click on the page to place your signature'],
+  ['stamp', 'Stamp', 'Click on the page to stamp; every click is a fresh impression, like a real rubber stamp'],
   ['field', 'Form field', 'Drag to add a fillable text field, or click to place a checkbox'],
 ];
 /** Editor tools that are paid (src/lib/licensing.ts). Selecting and form fields stay free. */
@@ -84,6 +90,7 @@ const PAID_EDITOR_TOOLS: Partial<Record<Tool, PaidFeature>> = {
   redact: 'edit',
   whiteout: 'edit',
   signature: 'sign',
+  stamp: 'sign',
 };
 const TOOL_ICONS: Record<Tool, LucideIcon> = {
   select: MousePointer2,
@@ -94,6 +101,7 @@ const TOOL_ICONS: Record<Tool, LucideIcon> = {
   whiteout: Eraser,
   redact: Eraser,
   signature: SignatureIcon,
+  stamp: Stamp,
   field: FormInput,
 };
 const isTool = (t: string | undefined): t is Tool => !!t && TOOLS.some(([x]) => x === t);
@@ -150,6 +158,22 @@ export function Editor({
   const [colors, setColors] = useState<Record<string, string>>({ text: '#111827', highlight: '#ffeb3b', rect: '#d32f2f', ink: '#1565c0', field: '#1565c0' });
   const [signature, setSignature] = useState<Signature>();
   const [sigOpen, setSigOpen] = useState(false);
+  const [stampDesign, setStampDesign] = useState<StampDesign>();
+  const [studioOpen, setStudioOpen] = useState(false);
+  const stampSeed = useRef(0);
+  /** A fresh impression of the chosen stamp for each click; a numbered stamp counts up (and remembers it). */
+  const makeStamp = useCallback(() => {
+    if (!stampDesign) return undefined;
+    // A random starting point per session, then a new seed for every impression.
+    stampSeed.current = ((stampSeed.current || Math.floor(Math.random() * 1e9)) * 1103515245 + 12345) >>> 0;
+    const imp = renderStamp(stampDesign, { seed: stampSeed.current, number: stampDesign.next });
+    if (stampDesign.numbered) {
+      const next = { ...stampDesign, next: stampDesign.next + 1 };
+      setStampDesign(next);
+      upsertStamp(next);
+    }
+    return imp;
+  }, [stampDesign]);
   const paid = usePaid();
   /** Picks a tool, after the access check for a paid one. Resolves false when the person may not use it. */
   const choose = async (t: Tool) => {
@@ -277,7 +301,10 @@ export function Editor({
         const f = await takeHandoff();
         if (!f) return;
         await openBytes(f.bytes, baseName(f.name));
-        if (isTool(initialTool) && (await choose(initialTool)) && initialTool === 'signature') setSigOpen(true);
+        if (isTool(initialTool) && (await choose(initialTool))) {
+          if (initialTool === 'signature') setSigOpen(true);
+          if (initialTool === 'stamp') setStudioOpen(true);
+        }
       } catch (e) {
         notice((e as Error).message, true);
       } finally {
@@ -421,6 +448,7 @@ export function Editor({
                 onClick={() =>
                   void choose(t).then((ok) => {
                     if (ok && t === 'signature' && !signature) setSigOpen(true);
+                    if (ok && t === 'stamp' && !stampDesign) setStudioOpen(true);
                   })
                 }
               >
@@ -547,6 +575,17 @@ export function Editor({
                   </>
                 ) : (
                   'Create signature'
+                )}
+              </Button>
+            )}
+            {tool === 'stamp' && (
+              <Button kind="ghost" onClick={() => setStudioOpen(true)}>
+                {stampDesign ? (
+                  <>
+                    <span className="studio-dot" style={{ background: stampDesign.ink }} /> {stampDesign.name} · Change
+                  </>
+                ) : (
+                  'Choose a stamp'
                 )}
               </Button>
             )}
@@ -707,7 +746,7 @@ export function Editor({
           {!s.pages.length && !busy && (
             <div className="ed-empty">
               <h1>{doc ? doc.title : 'Edit a PDF'}</h1>
-              <p>Add text, highlights, signatures and form fields, then download. Your file stays on this device{doc ? '' : ' unless you save it'}.</p>
+              <p>Add text, highlights, signatures, stamps and form fields, then download. Your file stays on this device{doc ? '' : ' unless you save it'}.</p>
               <div className="bigdrop">
                 <button type="button" className="button primary xl" onClick={() => openRef.current?.click()}>
                   <Upload size={22} aria-hidden="true" /> Choose PDF
@@ -740,6 +779,8 @@ export function Editor({
                   signature={signature}
                   fieldType={fieldType}
                   onNeedSignature={() => setSigOpen(true)}
+                  stamp={stampDesign ? makeStamp : undefined}
+                  onNeedStamp={() => setStudioOpen(true)}
                   onCreate={(a) => {
                     commit((c) => upsertAnnot(c, pg.id, a.kind === 'field' ? { ...a, name: uniqueFieldName(c, a.name) } : a));
                     if (a.kind !== 'text') setSelected({ page: pg.id, id: a.id });
@@ -785,6 +826,18 @@ export function Editor({
           setSigOpen(false);
           setTool('signature');
           notice('Click on the page where you want to sign.');
+        }}
+      />
+
+      <StampStudio
+        open={studioOpen}
+        current={stampDesign}
+        onClose={() => setStudioOpen(false)}
+        onUse={(d) => {
+          setStampDesign(d);
+          setStudioOpen(false);
+          setTool('stamp');
+          notice('Click on the page to stamp. Every click is a fresh impression.');
         }}
       />
 
