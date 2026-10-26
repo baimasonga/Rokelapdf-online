@@ -441,7 +441,7 @@ export function SendPanel({ onSent }: { onSent: () => void }) {
           {error}
         </p>
       )}
-      <button type="button" className="button accent lg wide" onClick={() => void transfer()} disabled={!items.length}>
+      <button type="button" className="button primary lg wide" onClick={() => void transfer()} disabled={!items.length}>
         <Send size={17} aria-hidden="true" /> Transfer
       </button>
     </section>

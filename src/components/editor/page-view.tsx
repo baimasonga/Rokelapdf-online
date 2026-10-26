@@ -23,7 +23,13 @@ export interface PageInfo {
   /** /Rotate of the source page. */
   base: Rotation;
 }
-export type Tool = 'select' | 'text' | 'highlight' | 'rect' | 'whiteout' | 'redact' | 'ink' | 'signature' | 'field';
+export type Tool = 'select' | 'text' | 'highlight' | 'rect' | 'whiteout' | 'redact' | 'ink' | 'signature' | 'stamp' | 'field';
+/** One fresh impression of the chosen stamp (src/lib/stamp/render.ts), and its width on paper in points. */
+export interface StampImpression {
+  src: string;
+  aspect: number;
+  widthPt: number;
+}
 /** A signature ready to place: PNG data URL and its width / height. */
 export interface Signature {
   src: string;
@@ -157,6 +163,7 @@ export function AnnotLayer({
             height={h}
             preserveAspectRatio="none"
             transform={turn ? `rotate(${turn} ${cx} ${cy})` : undefined}
+            style={a.blend === 'multiply' ? { mixBlendMode: 'multiply' } : undefined}
           />
         </g>
       );
@@ -219,6 +226,10 @@ interface PageViewProps {
   /** The signature tool was used before a signature was created. */
   onNeedSignature(): void;
   signature: Signature | undefined;
+  /** Makes a new impression of the chosen stamp; undefined when no stamp is chosen yet. */
+  stamp: (() => StampImpression | undefined) | undefined;
+  /** The stamp tool was used before a stamp was chosen. */
+  onNeedStamp(): void;
   fieldType: FieldAnnot['field'];
   label: string;
 }
@@ -285,6 +296,15 @@ export function PageView(p: PageViewProps) {
       if (!p.signature) return p.onNeedSignature();
       const w = Math.min(180, d.w * 0.35);
       p.onCreate({ id: nid(), kind: 'image', ...boxAt(e, w, w / p.signature.aspect), src: p.signature.src, rot: total, color: '#000000' });
+      return;
+    }
+    if (p.tool === 'stamp') {
+      e.preventDefault();
+      const imp = p.stamp?.();
+      if (!imp) return p.onNeedStamp();
+      // The stamp's real size on paper, as long as the page is big enough for it.
+      const w = Math.min(imp.widthPt, d.w * 0.9, d.h * 0.9 * imp.aspect);
+      p.onCreate({ id: nid(), kind: 'image', ...boxAt(e, w, w / imp.aspect), src: imp.src, rot: total, color: '#000000', blend: 'multiply' });
       return;
     }
     if (p.tool === 'field' && p.fieldType === 'checkbox') {

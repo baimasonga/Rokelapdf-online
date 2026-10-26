@@ -1,30 +1,33 @@
 import Link from 'next/link';
-import { ArrowRight, BadgeCheck, Check, Globe2, Lock, Mail, Send, Smartphone } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Check, Globe2, Lock, Mail, Send } from 'lucide-react';
 import { Header } from '@/components/header';
+import { HomeHero } from '@/components/home-hero';
 import { SiteFooter } from '@/components/site-footer';
-import { HeroDrop } from '@/components/tools/hero-drop';
-import { ToolBrowser } from '@/components/tools/tool-browser';
+import { ToolTile } from '@/components/tools/tool-tile';
+import { TOOLS } from '@/lib/tools/registry';
+
+/** The tools the home page leads with; the rest are one click away on /tools. */
+const START = ['merge-pdf', 'split-pdf', 'compress-pdf', 'edit-pdf', 'sign-pdf', 'pdf-to-word', 'protect-pdf', 'jpg-to-pdf'];
 
 export default function Home() {
   return (
     <>
-      <Header />
+      <Header tone="dark" />
       <main className="home">
-        <section className="home-hero">
-          <h1>Every PDF tool you need, in one place</h1>
-          <p className="home-lead">
-            Edit, sign, merge, split and convert PDFs right in your browser. No watermarks. Free tools need no account; Pro tools are free for your first month.
-          </p>
-          <HeroDrop />
-          <p className="home-app">
-            <Link href="/android">
-              <Smartphone size={16} aria-hidden="true" /> Get the Android app: scan, sign and convert on your phone
-            </Link>
-          </p>
-        </section>
+        <HomeHero />
 
-        <section className="home-tools" id="tools" aria-label="PDF tools">
-          <ToolBrowser />
+        <section className="home-tools" id="tools" aria-labelledby="start-tools">
+          <div className="home-section-head">
+            <h2 id="start-tools">Start with a tool</h2>
+            <Link href="/tools" className="home-more">
+              All {TOOLS.length} tools <ArrowRight size={17} aria-hidden="true" />
+            </Link>
+          </div>
+          <div className="tiles tool-tiles">
+            {START.map((slug) => TOOLS.find((t) => t.slug === slug)!).map((t) => (
+              <ToolTile key={t.slug} t={t} />
+            ))}
+          </div>
         </section>
 
         <section className="home-send">

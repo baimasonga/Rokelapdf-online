@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { BlendMode, PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import { ASCENT, LINE_HEIGHT, displaySize, drawableText, norm, toDisplay, toPage, type Annot, type EditorState, type FieldAnnot, type Rotation } from './model';
 
 // Builds the edited PDF: copies pages from the sources in the edited order, applies rotation, and draws annotations
@@ -116,7 +116,7 @@ function drawAnnot(page: PDFPage, font: PDFFont, a: Annot, images: Map<string, P
   }
   if (a.kind === 'image') {
     const img = images.get(a.src);
-    if (img) page.drawImage(img, imagePlacement(userRect(page, a), a.rot));
+    if (img) page.drawImage(img, { ...imagePlacement(userRect(page, a), a.rot), ...(a.blend === 'multiply' ? { blendMode: BlendMode.Multiply } : {}) });
     return;
   }
   if (a.kind === 'field') return; // added as a form field after drawing

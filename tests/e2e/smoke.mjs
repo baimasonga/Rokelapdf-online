@@ -167,13 +167,14 @@ async function main() {
       'strict nonce-based CSP without unsafe-eval',
     );
     check(res.headers()['x-frame-options'] === 'DENY', 'framing denied');
-    await p.getByRole('heading', { name: /Every PDF tool you need/ }).waitFor();
-    check((await p.locator('.tiles a.tile[href^="/tools/"]').count()) >= 20, 'home page lists every tool');
+    await p.getByRole('heading', { name: /Every PDF task/ }).waitFor();
+    check((await p.locator('.tiles a.tile[href^="/tools/"]').count()) === 8, 'home page leads with eight tools');
+    check((await p.getByRole('link', { name: /^All \d+ tools/ }).getAttribute('href')) === '/tools', 'and links to all of them');
     ok('landing page renders');
     await shot(p, 'home');
 
     step('Android app download page');
-    await p.getByRole('link', { name: /Get the Android app/ }).click();
+    await p.locator('.hero-stats').getByRole('link', { name: 'Android app', exact: true }).click();
     await p.getByRole('heading', { name: 'Rokela PDF for Android' }).waitFor();
     check(
       (await p.getByRole('link', { name: 'Download for Android' }).getAttribute('href')) === '/android/rokela-pdf.apk',
@@ -436,6 +437,35 @@ async function main() {
     const sops = await (await sdoc.getPage(1)).getOperatorList();
     check(sops.fnArray.includes(OPS.paintImageXObject), 'sign: the handed-over PDF opened with the signature tool, and the signature is in the download');
 
+    await v.goto(`${ORIGIN}/tools/stamp-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.waitForURL(/\/edit\?handoff=1&tool=stamp/);
+    const studio = v.getByRole('dialog', { name: 'Stamp Studio' });
+    await studio.getByRole('button', { name: 'Received' }).click();
+    await studio.getByRole('button', { name: 'Use this stamp' }).click();
+    const stp = await v.locator('.page').first().boundingBox();
+    for (const x of [0.3, 0.7])
+      await v
+        .locator('.page')
+        .first()
+        .click({ position: { x: stp.width * x, y: stp.height * 0.3 } });
+    await v.locator('.page').first().locator('svg image').nth(1).waitFor();
+    const srcs = await v
+      .locator('.page')
+      .first()
+      .locator('svg image')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('href')));
+    check(srcs.length === 2 && srcs[0] !== srcs[1], 'stamp: the Stamp Studio opens, and each click is a different impression');
+    const stamped = await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    const stdoc = await getDocument({ data: new Uint8Array(stamped.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const stops = await (await stdoc.getPage(1)).getOperatorList();
+    check(stops.fnArray.filter((f) => f === OPS.paintImageXObject).length === 2, 'and both stamps are in the download');
+    check(
+      await v.evaluate(() => JSON.parse(localStorage.getItem('rokela.stamps.v1') ?? '[]').some((s) => s.name === 'Received')),
+      'and the stamp is kept on this device for next time',
+    );
+
     await v.goto(`${ORIGIN}/tools/create-fillable-pdf`);
     await v.getByTestId('tool-input').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: pdf });
     await v.waitForURL(/tool=field/);
@@ -475,7 +505,7 @@ async function main() {
     );
 
     await v.goto(ORIGIN);
-    await v.locator('.home-hero input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.locator('.hero-night input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
     await v.waitForURL(/\/edit\?handoff=1/);
     await v.locator('.thumb').nth(1).waitFor();
     ok('home page drop opens the PDF in the editor');

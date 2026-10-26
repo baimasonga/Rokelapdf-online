@@ -1,4 +1,5 @@
 import {
+  Droplets,
   ClipboardList,
   Combine,
   Crop,
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react';
 
 const ICONS: Record<string, LucideIcon> = {
+  Droplets,
   ClipboardList,
   Combine,
   Crop,

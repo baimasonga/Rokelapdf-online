@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@cantoo/pdf-lib": "2.11.1",
+    "@fontsource-variable/fraunces": "5.3.0",
     "@fontsource-variable/inter": "5.1.1",
     "@pdf-lib/fontkit": "1.1.1",
     "@supabase/supabase-js": "^2.118.0",
