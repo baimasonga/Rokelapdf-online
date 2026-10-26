@@ -176,9 +176,8 @@ async function main() {
     await p.getByRole('link', { name: /Get the Android app/ }).click();
     await p.getByRole('heading', { name: 'Rokela PDF for Android' }).waitFor();
     check(
-      (await p.getByRole('link', { name: 'Download for Android' }).getAttribute('href')) ===
-        'https://github.com/baimasonga/Rokelapdf-online/releases/download/android/rokela-pdf.apk',
-      'download button points at the fixed release asset',
+      (await p.getByRole('link', { name: 'Download for Android' }).getAttribute('href')) === '/android/rokela-pdf.apk',
+      'download button serves the APK from this site',
     );
     // The QR code must open this page on a phone: rasterize the SVG in the browser and decode it here.
     const qr = await p.locator('svg.android-qr').evaluate(async (svg) => {
