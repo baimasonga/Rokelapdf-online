@@ -14,7 +14,7 @@ import {
 import { dataUrlBytes } from '../editor/export';
 import { encodeQr } from '../qr';
 import { drawableText } from '../editor/model';
-import { amountInWords, isSlip, longDate, money, TITLES, totals, type BizDoc, type Business, type Totals } from './model';
+import { amountInWords, isSlip, lineAmount, longDate, money, TITLES, totals, type BizDoc, type Business, type Totals } from './model';
 
 // Lays out a business document (receipt, invoice, proforma) as a real PDF: selectable text, small files, A4 or A5,
 // in the "receipt book" style (a printed carbon book filled in in blue) or the "modern" style (clean page, the
@@ -50,11 +50,15 @@ interface Fonts {
   mono: PDFFont;
 }
 
-/** Drawing helper with a top-left origin, so layouts read top to bottom. */
+/**
+ * Drawing helper with a top-left origin, so layouts read top to bottom. A `dry` canvas draws nothing: layouts run on
+ * one to measure how tall a section will be before deciding where it goes.
+ */
 class Canvas {
   constructor(
     readonly page: PDFPage,
     readonly f: Fonts,
+    readonly dry = false,
   ) {}
   get W() {
     return this.page.getWidth();
@@ -69,6 +73,7 @@ class Canvas {
     const sp = o.spacing ?? 0;
     const w = font.widthOfTextAtSize(str, o.size) + sp * str.length;
     const dx = o.align === 'right' ? -w : o.align === 'center' ? -w / 2 : 0;
+    if (this.dry) return w;
     if (sp) this.page.pushOperators(pushGraphicsState(), setCharacterSpacing(sp));
     this.page.drawText(str, { x: x + dx, y: this.H - y - o.size * 0.8, size: o.size, font, color: o.color ?? TEXT });
     if (sp) this.page.pushOperators(popGraphicsState());
@@ -95,6 +100,7 @@ class Canvas {
     return out;
   }
   rect(x: number, y: number, w: number, h: number, o: { fill?: RGB; stroke?: RGB; width?: number; radius?: number; dash?: number[] }) {
+    if (this.dry) return;
     if (o.radius) {
       const r = Math.min(o.radius, w / 2, h / 2);
       const path = `M ${r} 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${r} Q 0 ${h} 0 ${h - r} V ${r} Q 0 0 ${r} 0 Z`;
@@ -113,6 +119,7 @@ class Canvas {
     });
   }
   line(x1: number, y1: number, x2: number, y2: number, o: { color?: RGB; width?: number; dash?: number[] } = {}) {
+    if (this.dry) return;
     this.page.drawLine({
       start: { x: x1, y: this.H - y1 },
       end: { x: x2, y: this.H - y2 },
@@ -127,6 +134,7 @@ class Canvas {
       w = (w * o.maxH) / h;
       h = o.maxH;
     }
+    if (this.dry) return { w, h };
     this.page.drawImage(img, { x, y: this.H - y - h, width: w, height: h, ...(o.multiply ? { blendMode: BlendMode.Multiply } : {}) });
     return { w, h };
   }
@@ -463,7 +471,7 @@ function bookRow(c: Ctx, cv: Canvas, x0: number, y: number, line: { qty: number;
     cv.text(String(line.qty), (col.x0 + col.q) / 2, y + 5 * k, { size: s, font: c.f.bold, color: INK, align: 'center' });
     lines.forEach((l, i) => cv.text(l, col.q + 6 * k, y + 5 * k + i * 11 * k, { size: s, font: c.f.bold, color: INK }));
     cv.text(money(line.rate), col.a - 6 * k, y + 5 * k, { size: s, font: c.f.bold, color: INK, align: 'right' });
-    cv.text(money(line.qty * line.rate), col.x1 - 6 * k, y + 5 * k, { size: s, font: c.f.bold, color: INK, align: 'right' });
+    cv.text(money(lineAmount(line)), col.x1 - 6 * k, y + 5 * k, { size: s, font: c.f.bold, color: INK, align: 'right' });
   }
   return y + h;
 }
@@ -534,13 +542,24 @@ function bookTail(c: Ctx, cv: Canvas, x0: number, y: number) {
 }
 
 // ============================================ shared footer =============================================
+const footerLines = (c: Ctx, cv: Canvas, x0: number, x1: number) =>
+  cv.wrap(c.doc.footer, x1 - x0, (8 * cv.W) / 595.28, c.doc.style === 'book' ? c.f.italic : c.f.regular).slice(0, 3);
+const SIGN_H = 96;
+
+/** Space the footer needs below the content: signature block, footer message and copy label. */
+function footerHeight(c: Ctx, cv: Canvas, x0: number) {
+  const k = cv.W / 595.28;
+  const x1 = cv.W - (c.doc.style === 'book' ? 28 : 34) * k;
+  return (24 + (c.copy ? 12 : 0) + SIGN_H + 18) * k + footerLines(c, cv, x0, x1).length * 11 * k;
+}
+
 /** Signature, stamps, the business's footer message and the copy label, at the bottom of the last page. */
 function footer(c: Ctx, cv: Canvas, x0: number, yContent: number) {
   const k = cv.W / 595.28;
   const x1 = cv.W - (c.doc.style === 'book' ? 28 : 34) * k;
-  const footLines = cv.wrap(c.doc.footer, x1 - x0, 8 * k, c.doc.style === 'book' ? c.f.italic : c.f.regular).slice(0, 3);
+  const footLines = footerLines(c, cv, x0, x1);
   const bottom = cv.H - 24 * k - (c.copy ? 12 * k : 0) - footLines.length * 11 * k;
-  const signH = 96 * k;
+  const signH = SIGN_H * k;
   const sy = Math.max(yContent + 10 * k, bottom - signH - 8 * k);
   // Signature over a line, with the label under it.
   const lw = 170 * k;
@@ -655,7 +674,7 @@ function drawSlip(c: Ctx) {
       y += base * 1.25;
     }
     cv.text(`${l.qty} x ${money(l.rate)}`, m + 6 * k, y, { size: base, color: BLACK });
-    cv.text(money(l.qty * l.rate), x1, y, { size: base, color: BLACK, align: 'right' });
+    cv.text(money(lineAmount(l)), x1, y, { size: base, color: BLACK, align: 'right' });
     y += base * 1.5;
   }
   rule();
@@ -711,16 +730,21 @@ async function drawCopy(c: Ctx) {
   const lines = c.doc.lines.filter((l) => l.item.trim() || l.qty || l.rate);
   let cv = new Canvas(c.pdf.addPage([W, H]), c.f);
   const k = W / 595.28;
-  const reserve = 190 * k; // totals, words, signature and footer on the last page
+  /** Height of the totals, words, notes and footer that must follow the last item on its page. */
+  const reserve = (x0: number) =>
+    (c.doc.style === 'modern' ? modernTail(c, new Canvas(cv.page, c.f, true), 0) : bookTail(c, new Canvas(cv.page, c.f, true), x0, 0)) +
+    footerHeight(c, cv, x0) +
+    6 * k;
   if (c.doc.style === 'modern') {
     const m = 34 * k;
+    const tail = reserve(m);
     let y = modernPage(c, cv, true);
     const cols = [m, W - m - 175 * k, W - m - 95 * k, W - m - 8 * k];
     y = modernTableHead(c, cv, y, cols);
     lines.forEach((l, i) => {
       const itemLines = cv.wrap(l.item, cols[1]! - m - 50 * k, 9 * k).slice(0, 3);
       const h = Math.max(20 * k, itemLines.length * 11 * k + 9 * k);
-      if (y + h > H - 40 * k || (i === lines.length - 1 && y + h > H - reserve)) {
+      if (y + h > H - 40 * k || (i === lines.length - 1 && y + h > H - tail)) {
         cv = new Canvas(c.pdf.addPage([W, H]), c.f);
         y = modernTableHead(c, cv, modernPage(c, cv, false), cols);
       }
@@ -728,25 +752,36 @@ async function drawCopy(c: Ctx) {
       itemLines.forEach((s, j) => cv.text(s, m + 8 * k, y + 6 * k + j * 11 * k, { size: 9 * k }));
       cv.text(String(l.qty), cols[1]!, y + 6 * k, { size: 9 * k, align: 'right' });
       cv.text(money(l.rate), cols[2]!, y + 6 * k, { size: 9 * k, align: 'right' });
-      cv.text(money(l.qty * l.rate), cols[3]!, y + 6 * k, { size: 9 * k, align: 'right' });
+      cv.text(money(lineAmount(l)), cols[3]!, y + 6 * k, { size: 9 * k, align: 'right' });
       y += h;
       cv.line(m, y, W - m, y, { color: LINE, width: 0.7 * k });
     });
+    // With no items, or a tail too tall for what is left of the page, the totals start a page of their own.
+    if (y + tail > H) {
+      cv = new Canvas(c.pdf.addPage([W, H]), c.f);
+      y = modernPage(c, cv, false);
+    }
     footer(c, cv, m, modernTail(c, cv, y));
     return;
   }
   let { x0, y } = bookPage(c, cv, true);
+  let tail = reserve(x0);
   y = bookTableHead(c, cv, x0, bookFields(c, cv, x0, y));
   const minRows = c.doc.size === 'A5' ? 6 : 12;
   for (let i = 0; i < Math.max(lines.length, minRows); i++) {
-    if (y + 26 * k > H - 40 * k || (i >= lines.length - 1 && i < lines.length && y + 26 * k > H - reserve - 60 * k)) {
+    if (y + 26 * k > H - 40 * k || (i === lines.length - 1 && y + 26 * k > H - tail)) {
       cv = new Canvas(c.pdf.addPage([W, H]), c.f);
       ({ x0, y } = bookPage(c, cv, false));
+      tail = reserve(x0);
       y = bookTableHead(c, cv, x0, y);
     }
     // Spare ruled lines only while they fit above the totals.
-    if (i >= lines.length && y + 19 * k > H - reserve - 70 * k) break;
+    if (i >= lines.length && y + 19 * k > H - tail) break;
     y = bookRow(c, cv, x0, y, lines[i]);
+  }
+  if (y + tail > H) {
+    cv = new Canvas(c.pdf.addPage([W, H]), c.f);
+    ({ x0, y } = bookPage(c, cv, false));
   }
   footer(c, cv, x0, bookTail(c, cv, x0, y));
 }

@@ -3,7 +3,7 @@ import jsQRModule from 'jsqr';
 import { createCanvas } from '@napi-rs/canvas';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { amountInWords, DEFAULT_BUSINESS, DEFAULT_FOOTERS, docNumber, numberWords, totals, type BizDoc } from '@/lib/receipts/model';
+import { amountInWords, DEFAULT_BUSINESS, DEFAULT_FOOTERS, docNumber, lineAmount, numberWords, totals, type BizDoc } from '@/lib/receipts/model';
 import { buildBizDoc } from '@/lib/receipts/pdf';
 import { loadPrefs } from '@/lib/receipts/store';
 
@@ -186,5 +186,53 @@ describe('the PDF', () => {
       expect(text).toContain('NLe 3,450.00');
       expect(text).toContain('ABCD EFGH JKMN PQRS');
     }
+  });
+
+  it('never draws past the bottom of a page, whatever the number of items, charges and notes', async () => {
+    const notes = 'Pay to Rokel Commercial Bank, account 0012345678, or Orange Money 076 123 456. Quote the invoice number.';
+    for (const style of ['book', 'modern'] as const)
+      for (const size of ['A4', 'A5'] as const)
+        for (const n of [1, 8, 14, 20, 26, 33]) {
+          const lines = Array.from({ length: n }, (_, i) => ({ qty: 1, item: `Item ${i + 1}`, rate: 10 }));
+          const bytes = await buildBizDoc(
+            biz,
+            doc({
+              kind: 'invoice',
+              style,
+              size,
+              lines,
+              discount: 5,
+              delivery: 20,
+              gst: true,
+              notes,
+              officeCopy: true,
+              signedBy: 'A. Kamara',
+              customer: 'Sunrise Ltd',
+            }),
+          );
+          const pdf = await getDocument({ data: bytes.slice(), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` }).promise;
+          const all: string[] = [];
+          for (let p = 1; p <= pdf.numPages; p++) {
+            const page = await pdf.getPage(p);
+            const items = (await page.getTextContent()).items as Array<{ str: string; transform: number[] }>;
+            for (const it of items) expect(it.transform[5], `${style} ${size} ${n} items, page ${p}: "${it.str}"`).toBeGreaterThan(0);
+            all.push(items.map((x) => x.str).join(' '));
+          }
+          const text = all.join(' ');
+          expect(text, `${style} ${size} ${n}`).toContain(`Item ${n}`);
+          expect(text).toContain('A. Kamara');
+          expect(text).toContain('Rokel Commercial Bank');
+        }
+  });
+});
+
+describe('line amounts', () => {
+  it('round each line to the cent, so the printed lines add up to the sub-total', () => {
+    const lines = [
+      { qty: 1.25, item: 'a', rate: 0.1 },
+      { qty: 1.25, item: 'b', rate: 0.1 },
+    ];
+    expect(lineAmount(lines[0]!)).toBe(0.13);
+    expect(totals({ kind: 'receipt', lines, discount: 0, delivery: 0, gst: false, paid: 0 }).subtotal).toBe(0.26);
   });
 });

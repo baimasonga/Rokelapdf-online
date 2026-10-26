@@ -105,6 +105,8 @@ export function docNumber(kind: DocKind, n: number): string {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+/** A line's amount, rounded to the cent as it is printed, so the printed lines always add up to the sub-total. */
+export const lineAmount = (l: Pick<Line, 'qty' | 'rate'>) => (Number.isFinite(l.qty * l.rate) ? round2(l.qty * l.rate) : 0);
 export interface Totals {
   subtotal: number;
   discount: number;
@@ -115,7 +117,7 @@ export interface Totals {
   balance: number;
 }
 export function totals(d: Pick<BizDoc, 'kind' | 'lines' | 'discount' | 'delivery' | 'gst' | 'paid'>): Totals {
-  const subtotal = round2(d.lines.reduce((s, l) => s + (Number.isFinite(l.qty * l.rate) ? l.qty * l.rate : 0), 0));
+  const subtotal = round2(d.lines.reduce((s, l) => s + lineAmount(l), 0));
   const discount = round2(Math.min(Math.max(0, d.discount || 0), subtotal));
   const delivery = round2(Math.max(0, d.delivery || 0));
   const taxable = subtotal - discount + delivery;

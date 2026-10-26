@@ -17,6 +17,7 @@ import {
   TITLES,
   docNumber,
   isSlip,
+  lineAmount,
   money,
   totals,
   type BizDoc,
@@ -569,7 +570,7 @@ export function ReceiptMaker() {
                   value={l.rate || ''}
                   onChange={(e) => setLine(i, { rate: Number(e.target.value) || 0 })}
                 />
-                <span className="rk-amount">{money(l.qty * l.rate)}</span>
+                <span className="rk-amount">{money(lineAmount(l))}</span>
                 <button
                   type="button"
                   className="ghost"
