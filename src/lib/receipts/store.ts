@@ -20,6 +20,8 @@ export interface ReceiptPrefs {
   stampId: string;
   /** Adds a PAID stamp to settled receipts and invoices. */
   paidStamp: boolean;
+  /** Prints a QR code anyone can scan to check the document (docs/receipt-checks.md); needs an account. */
+  check: boolean;
   /** The signature put on documents (PNG data URL), made on this device. */
   signature?: string;
 }
@@ -35,6 +37,7 @@ export const DEFAULT_PREFS: ReceiptPrefs = {
   signedBy: '',
   stampId: '',
   paidStamp: true,
+  check: false,
 };
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -80,6 +83,7 @@ export function loadPrefs(): ReceiptPrefs {
     signedBy: str(raw.signedBy, 60),
     stampId: str(raw.stampId, 40),
     paidStamp: raw.paidStamp !== false,
+    check: raw.check === true,
     signature:
       typeof raw.signature === 'string' && /^data:image\/png;base64,/.test(raw.signature) && raw.signature.length < 400_000 ? raw.signature : undefined,
   };

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import jsQRModule from 'jsqr';
+import { createCanvas } from '@napi-rs/canvas';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { amountInWords, DEFAULT_BUSINESS, DEFAULT_FOOTERS, docNumber, numberWords, totals, type BizDoc } from '@/lib/receipts/model';
@@ -140,5 +142,30 @@ describe('the PDF', () => {
   it('keeps characters the built-in font cannot draw from breaking the file', async () => {
     const bytes = await buildBizDoc({ ...biz, name: 'Ṣọ́pù 店 Shop' }, doc({ customer: 'Ama 🙂' }));
     expect((await textOf(bytes))[0]).toContain('Shop');
+  });
+
+  it('prints a scannable check QR code with its code, in either style and size, and is the same file every time', async () => {
+    const jsQR = ((jsQRModule as unknown as { default?: unknown }).default ?? jsQRModule) as unknown as (
+      d: Uint8ClampedArray,
+      w: number,
+      h: number,
+    ) => { data: string } | null;
+    const check = { url: 'https://rokelapdf.com/receipts/ABCDEFGHJKMNPQRS', code: 'ABCDEFGHJKMNPQRS' };
+    for (const style of ['book', 'modern'] as const)
+      for (const size of ['A4', 'A5'] as const) {
+        const bytes = await buildBizDoc(biz, doc({ style, size, check }));
+        expect(Buffer.from(await buildBizDoc(biz, doc({ style, size, check }))).equals(Buffer.from(bytes))).toBe(true);
+        const [text] = await textOf(bytes);
+        expect(text).toContain('Scan to check');
+        expect(text).toContain('ABCD EFGH JKMN PQRS');
+        const pdf = await getDocument({ data: bytes.slice(), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` }).promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport, canvas: canvas as unknown as HTMLCanvasElement }).promise;
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        expect(jsQR(new Uint8ClampedArray(img.data), img.width, img.height)?.data, `${style} ${size}`).toBe(check.url);
+      }
   });
 });

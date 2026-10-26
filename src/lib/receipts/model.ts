@@ -70,6 +70,8 @@ export interface BizDoc {
   /** Stamp picture (PNG data URL from the Stamp Studio), and a PAID stamp when paid in full. */
   stamp?: string;
   paidStamp?: string;
+  /** Receipt check (docs/receipt-checks.md): the public page the QR code on the document opens, and its code. */
+  check?: { url: string; code: string };
 }
 
 export const GST_RATE = 0.15;

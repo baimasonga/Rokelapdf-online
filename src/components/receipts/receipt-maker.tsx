@@ -1,7 +1,11 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FilePlus2, ImagePlus, Plus, Share2, Stamp as StampIcon, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { Download, FilePlus2, ImagePlus, Plus, QrCode, Share2, Stamp as StampIcon, Trash2 } from 'lucide-react';
 import { usePaid } from '@/components/paid';
+import { ApiError, api, enc } from '@/lib/client/api';
+import { sessionToken } from '@/lib/client/auth';
+import { sha256Hex } from '@/lib/client/sha256';
 import { Button } from '@/components/ui';
 import { SignaturePad } from '@/components/editor/signature-pad';
 import { StampStudio } from '@/components/editor/stamp-studio';
@@ -40,6 +44,17 @@ const inDays = (n: number) => iso(new Date(Date.now() + n * 86_400_000));
 const numberOf = (s: string) => Number(/(\d+)\D*$/.exec(s)?.[1] ?? 0);
 /** A stable number from text, so a document keeps the same stamp impression while it is edited. */
 const seedOf = (s: string) => [...s].reduce((h, ch) => (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0, 7);
+/** Shown in the preview until the document is registered: the real code is made when it is downloaded. */
+const PREVIEW_CODE = 'XXXXXXXXXXXXXXXX';
+const SIGN_IN = 'signin';
+
+/** A registered receipt check (docs/receipt-checks.md), as the API returns it. */
+interface Check {
+  id: string;
+  code: string;
+  url: string;
+  sha256: string | null;
+}
 
 function blankDoc(kind: DocKind, p: ReceiptPrefs): BizDoc {
   return {
@@ -99,6 +114,8 @@ export function ReceiptMaker() {
   const [pages, setPages] = useState(0);
   /** "Your business" starts open for a new business, then stays as the person leaves it. */
   const [bizOpen, setBizOpen] = useState(false);
+  /** The last receipt check registered, and the facts it vouches for, so downloading again reuses it. */
+  const issued = useRef<{ facts: string; doc: string; check: Check }>(undefined);
   const canvas = useRef<HTMLCanvasElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
 
@@ -133,7 +150,14 @@ export function ReceiptMaker() {
     return renderStamp(d, { seed: seedOf(doc.number), date: new Date(`${doc.date}T12:00:00`) }).src;
   }, [loaded, prefs.paidStamp, biz.name, doc.number, doc.date]);
 
-  const full: BizDoc = { ...doc, signature: prefs.signature, stamp: stampSrc, paidStamp: paidSrc };
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const full: BizDoc = {
+    ...doc,
+    signature: prefs.signature,
+    stamp: stampSrc,
+    paidStamp: paidSrc,
+    check: prefs.check ? { url: `${origin}/receipts/${PREVIEW_CODE}`, code: PREVIEW_CODE } : undefined,
+  };
 
   // Live preview of the first page, rebuilt shortly after each change.
   useEffect(() => {
@@ -170,7 +194,7 @@ export function ReceiptMaker() {
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `full` is rebuilt from these on every render
-  }, [loaded, biz, doc, prefs.signature, stampSrc, paidSrc]);
+  }, [loaded, biz, doc, prefs.signature, prefs.check, stampSrc, paidSrc]);
 
   const problems = (): string | undefined => {
     if (!biz.name.trim()) return 'Add your business name first (Your business).';
@@ -189,7 +213,8 @@ export function ReceiptMaker() {
     if (!(await paid.require('receipts'))) return undefined;
     setBusy(true);
     try {
-      const bytes = await buildBizDoc(biz, full);
+      const bytes = prefs.check ? await checkedPdf() : await buildBizDoc(biz, full);
+      if (!bytes) return undefined;
       setPrefs((p) => {
         const items = { ...p.items };
         for (const l of doc.lines) if (l.item.trim() && l.rate > 0) items[l.item.trim().slice(0, 120)] = l.rate;
@@ -207,6 +232,47 @@ export function ReceiptMaker() {
       return undefined;
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Registers the document's facts (once per set of facts), prints its QR code and records the file's fingerprint. A
+   * document whose facts or look changed after it was registered gets a new check, and the old one is cancelled as
+   * replaced, so only the latest file reads as valid.
+   */
+  async function checkedPdf(): Promise<Uint8Array | undefined> {
+    const token = await sessionToken();
+    if (!token) {
+      setError(SIGN_IN);
+      return undefined;
+    }
+    const call = <T,>(path: string, body?: unknown) => api<T>(path, { auth: false, headers: { authorization: `Bearer ${token}` }, body });
+    const facts = {
+      kind: doc.kind,
+      business_name: biz.name.trim(),
+      number: doc.number.trim(),
+      issued_on: doc.date,
+      currency: doc.currency,
+      total: sum.total,
+      ...(doc.customer.trim() ? { customer_name: doc.customer.trim() } : {}),
+    };
+    const key = JSON.stringify(facts);
+    try {
+      const prev = issued.current;
+      if (prev?.facts === key) {
+        const bytes = await buildBizDoc(biz, { ...full, check: prev.check });
+        if (prev.check.sha256 === (await sha256Hex(bytes))) return bytes;
+      }
+      const check = await call<Check>('/api/v1/me/receipt-checks', facts);
+      const bytes = await buildBizDoc(biz, { ...full, check });
+      check.sha256 = (await call<Check>(`/api/v1/me/receipt-checks/${enc(check.id)}/digest`, { sha256: await sha256Hex(bytes) })).sha256;
+      const docKey = `${facts.kind} ${facts.number}`;
+      issued.current = { facts: key, doc: docKey, check };
+      if (prev?.doc === docKey) await call(`/api/v1/me/receipt-checks/${enc(prev.check.id)}/cancel`, { reason: 'replaced' }).catch(() => undefined);
+      return bytes;
+    } catch (e) {
+      setError(e instanceof ApiError && e.status === 401 ? SIGN_IN : `Could not add the check QR code: ${(e as Error).message}`);
+      return undefined;
     }
   }
 
@@ -627,6 +693,24 @@ export function ReceiptMaker() {
               <input type="checkbox" checked={doc.officeCopy} onChange={(e) => set('officeCopy', e.target.checked)} /> Add an office copy
             </label>
           </div>
+          <div className="rk-check">
+            <input
+              id="rk-check"
+              type="checkbox"
+              aria-describedby="rk-check-why"
+              checked={prefs.check}
+              onChange={(e) => setPrefs((p) => ({ ...p, check: e.target.checked }))}
+            />
+            <div>
+              <label htmlFor="rk-check">
+                <QrCode size={15} aria-hidden="true" /> QR code to check it
+              </label>
+              <p id="rk-check-why" className="muted">
+                Anyone who scans it sees your business name, the number, date, total and customer name on rokelapdf.com, and whether you cancelled it. Needs a
+                free account; these details are sent when you download, the document itself is not.
+              </p>
+            </div>
+          </div>
         </section>
       </div>
 
@@ -635,10 +719,17 @@ export function ReceiptMaker() {
           <canvas ref={canvas} aria-label={`Preview of ${TITLES[doc.kind].modern.toLowerCase()} ${doc.number}`} />
         </div>
         {pages > 1 && <p className="muted rk-hint">{pages} pages · preview shows the first</p>}
-        {error && (
+        {error === SIGN_IN ? (
           <p className="tool-error" role="alert">
-            {error}
+            The check QR code needs a free Rokela PDF account. <Link href={`/signin?next=${encodeURIComponent('/receipts')}`}>Sign in or create one</Link>, or
+            untick “QR code to check it”.
           </p>
+        ) : (
+          error && (
+            <p className="tool-error" role="alert">
+              {error}
+            </p>
+          )
         )}
         <div className="rk-actions">
           <Button kind="primary" onClick={download} disabled={busy}>

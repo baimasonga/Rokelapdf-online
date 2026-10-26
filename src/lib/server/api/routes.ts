@@ -6,12 +6,25 @@ import { FILE_KINDS } from '../sharing';
 import { Router, created, json, parse, type Ctx } from './router';
 import { attachment, readBody } from '../convert';
 import { PAID_FEATURES, TRIAL_DAYS } from '../../licensing';
+import { RECEIPT_CANCEL_REASONS, RECEIPT_CURRENCIES, RECEIPT_KINDS } from '../receipt-checks';
 
 const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
 const dateOpt = (v: string | undefined) => (v === undefined ? undefined : new Date(v));
 const teamBody = z.object({ name: z.string().min(1).max(200) }).strict();
 const convertQuery = z.object({ name: z.string().min(1).max(255) }).strict();
 const memberBody = z.object({ email: z.string().min(3).max(254), role: z.enum(ROLES) }).strict();
+const receiptBody = z
+  .object({
+    kind: z.enum(RECEIPT_KINDS),
+    business_name: z.string().min(1).max(200),
+    number: z.string().min(1).max(60),
+    issued_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    currency: z.enum(RECEIPT_CURRENCIES),
+    total: z.number().nonnegative().finite(),
+    customer_name: z.string().max(200).optional(),
+  })
+  .strict();
+const receiptParams = z.object({ id: z.string().regex(/^rck_[0-9a-f]{24}$/) }).strict();
 
 /**
  * Every API route. Workspace routes are session-authenticated and the services authorize membership and role;
@@ -68,6 +81,29 @@ export function buildRouter(): Router {
   }));
   // Access to the paid tools (src/lib/licensing.ts) for the website and the Android app.
   r.add('GET', '/api/v1/me/access', 'user', async (x) => ({ ...(await x.c.licenses.access(me(x))), features: PAID_FEATURES, trialDays: TRIAL_DAYS }));
+  // Receipt checks (docs/receipt-checks.md): the facts behind the QR code on a Receipt Maker document.
+  const rc = (x: Ctx) => x.c.receiptChecks;
+  r.add('GET', '/api/v1/me/receipt-checks', 'user', async (x) => ({ items: await rc(x).list(me(x)) }));
+  r.add('POST', '/api/v1/me/receipt-checks', 'user', async (x) => {
+    const b = parse(receiptBody, await x.body());
+    return created(
+      await rc(x).register(me(x), {
+        kind: b.kind,
+        businessName: b.business_name,
+        number: b.number,
+        issuedOn: b.issued_on,
+        currency: b.currency,
+        total: b.total,
+        customerName: b.customer_name,
+      }),
+    );
+  });
+  r.add('POST', '/api/v1/me/receipt-checks/:id/digest', 'user', async (x) =>
+    rc(x).setDigest(me(x), parse(receiptParams, x.params).id, parse(s.verificationIssueBody, await x.body()).sha256),
+  );
+  r.add('POST', '/api/v1/me/receipt-checks/:id/cancel', 'user', async (x) =>
+    rc(x).cancel(me(x), parse(receiptParams, x.params).id, parse(z.object({ reason: z.enum(RECEIPT_CANCEL_REASONS) }).strict(), await x.body()).reason),
+  );
   r.add('GET', '/api/v1/workspaces/:orgId/subscription', 'user', async (x) => x.c.workspaces.subscription(me(x), org(x)));
   r.add('GET', '/api/v1/workspaces/:orgId/audit', 'user', async (x) => {
     const q = parse(
@@ -139,9 +175,11 @@ export function buildRouter(): Router {
     });
   });
 
-  // The Android app reads its configuration, checks access to the paid tools and converts Word ⇄ PDF; nothing else is
-  // reachable from it.
+  // The Android app reads its configuration, checks access to the paid tools, converts Word ⇄ PDF and registers receipt
+  // checks; nothing else is reachable from it.
   r.allowApp('GET', '/api/v1/config').allowApp('POST', '/api/v1/convert/:target').allowApp('GET', '/api/v1/me/access');
+  r.allowApp('GET', '/api/v1/me/receipt-checks').allowApp('POST', '/api/v1/me/receipt-checks');
+  r.allowApp('POST', '/api/v1/me/receipt-checks/:id/digest').allowApp('POST', '/api/v1/me/receipt-checks/:id/cancel');
 
   // ---- overview and documents ------------------------------------------------------------------------
   r.add('GET', `${P}/overview`, 'user', async (x) => sh(x).overview(me(x), org(x)));
@@ -408,6 +446,9 @@ export function buildRouter(): Router {
     return sh(x).decideReview(tok(x), { grant: b.grant, decision: b.decision, note: b.note }, await x.publicCtx());
   });
   // Anyone can check a verified document; rate-limited per IP like every public route.
+  r.add('GET', '/api/v1/public/receipt-checks/:code', 'public', async (x) =>
+    x.c.receiptChecks.publicView(parse(z.object({ code: z.string().min(16).max(40) }).strict(), x.params).code),
+  );
   r.add('GET', '/api/v1/public/verifications/:code', 'public', async (x) => sh(x).publicVerification(parse(s.verificationCodeParams, x.params).code));
   r.add('POST', '/api/v1/public/short-links/:code/unlock', 'public', async (x) => {
     const { code } = parse(s.shortCodeParams, x.params);

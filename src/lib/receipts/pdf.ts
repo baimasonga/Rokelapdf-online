@@ -12,6 +12,7 @@ import {
   type RGB,
 } from 'pdf-lib';
 import { dataUrlBytes } from '../editor/export';
+import { encodeQr } from '../qr';
 import { drawableText } from '../editor/model';
 import { amountInWords, longDate, money, TITLES, totals, type BizDoc, type Business, type Totals } from './model';
 
@@ -548,8 +549,10 @@ function footer(c: Ctx, cv: Canvas, x0: number, yContent: number) {
   // The business stamp beside the signature, and PAID when the receipt or invoice is settled.
   const stampW = 92 * k;
   if (c.stamp) cv.image(c.stamp, x0 + lw - 30 * k, sy, stampW, { multiply: true, maxH: signH - 4 * k });
+  // The receipt check QR code at the right, with the PAID stamp beside it.
+  const qrW = c.doc.check ? checkQr(c, cv, x1, sy) : 0;
   const settled = c.doc.kind !== 'proforma' && c.sum.balance <= 0 && c.sum.total > 0;
-  if (c.paidStamp && settled) cv.image(c.paidStamp, x1 - 112 * k, sy + 8 * k, 108 * k, { multiply: true, maxH: signH - 16 * k });
+  if (c.paidStamp && settled) cv.image(c.paidStamp, x1 - qrW - 112 * k, sy + 8 * k, 108 * k, { multiply: true, maxH: signH - 16 * k });
   // Footer message and the copy label.
   let fy = Math.max(lineY + 20 * k, bottom);
   if (c.doc.style === 'modern' && footLines.length) cv.line(x0, fy - 6 * k, x1, fy - 6 * k, { color: LINE, width: 0.8 * k });
@@ -563,6 +566,24 @@ function footer(c: Ctx, cv: Canvas, x0: number, yContent: number) {
     fy += 11 * k;
   });
   if (c.copy) cv.text(c.copy, (x0 + x1) / 2, fy + 2 * k, { size: 6.5 * k, font: c.f.bold, color: rgb(0.54, 0.5, 0.39), align: 'center', spacing: 2 * k });
+}
+
+/** Draws the receipt check QR code with its right edge at x1; returns the width it took, with a gap. */
+function checkQr(c: Ctx, cv: Canvas, x1: number, y: number): number {
+  const k = cv.W / 595.28;
+  const check = c.doc.check!;
+  const qr = encodeQr(check.url);
+  const size = 64 * k;
+  // A quiet zone of 2 modules is enough for phone scanners, and keeps the code large on an A5 page.
+  const cell = size / (qr.size + 4);
+  const x = x1 - size;
+  cv.rect(x, y, size, size, { fill: WHITE });
+  for (let r = 0; r < qr.size; r++)
+    for (let col = 0; col < qr.size; col++)
+      if (qr.modules[r]![col]) cv.rect(x + (col + 2) * cell, y + (r + 2) * cell, cell + 0.05, cell + 0.05, { fill: rgb(0, 0, 0) });
+  cv.text('Scan to check', x1 - size / 2, y + size + 2 * k, { size: 6.5 * k, font: c.f.bold, color: TEXT, align: 'center' });
+  cv.text(check.code.replace(/(.{4})(?=.)/g, '$1 '), x1 - size / 2, y + size + 10 * k, { size: 5.5 * k, font: c.f.regular, color: MUTED, align: 'center' });
+  return size + 8 * k;
 }
 
 // ============================================ document ==================================================
@@ -617,6 +638,11 @@ export async function buildBizDoc(biz: Business, doc: BizDoc): Promise<Uint8Arra
   pdf.setTitle(`${TITLES[doc.kind].modern} ${doc.number}`);
   pdf.setAuthor(t(biz.name) || 'Rokela PDF');
   pdf.setCreator('Rokela PDF receipts');
+  // Fixed dates make the file the same every time the same document is made, so its fingerprint (receipt checks)
+  // still matches when it is downloaded again.
+  const when = new Date(`${/^\d{4}-\d{2}-\d{2}$/.test(doc.date) ? doc.date : '2000-01-01'}T12:00:00Z`);
+  pdf.setCreationDate(when);
+  pdf.setModificationDate(when);
   const f: Fonts = {
     regular: await pdf.embedFont(StandardFonts.Helvetica),
     bold: await pdf.embedFont(StandardFonts.HelveticaBold),

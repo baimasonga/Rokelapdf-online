@@ -141,6 +141,25 @@ async function main() {
     await p.getByText('2 files are ready').waitFor();
     check((await p.getByRole('dialog').count()) === 0, 'with a licence, Split works');
 
+    step('Receipt check QR code');
+    await p.goto(`${ORIGIN}/receipts`);
+    await p.getByLabel('Item 1', { exact: true }).fill('Cement, 50 kg bag');
+    await p.getByLabel('Rate 1').fill('155');
+    await p.getByLabel('QR code to check it').check();
+    const [dl] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: 'Download PDF' }).click()]);
+    const file = await dl.path();
+    const rows = (await db.query('SELECT code, business_name, total, sha256 FROM rokela.receipt_checks')).rows;
+    check(
+      rows.length === 1 && rows[0].business_name === 'Kamara & Sons Hardware' && Number(rows[0].total) === 155 && !!rows[0].sha256,
+      'downloading registers the facts and the file fingerprint',
+    );
+    await p.goto(`${ORIGIN}/receipts/${rows[0].code}`);
+    await p.getByText('Cash receipt on record').waitFor();
+    check(await p.getByText('NLe 155.00').isVisible(), 'the check page shows the total');
+    await p.getByLabel('PDF to check').setInputFiles(file);
+    await p.getByText('Exact match').waitFor();
+    check(true, 'and confirms the downloaded PDF is the one that was made');
+
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
     console.log('\nPaid tools end-to-end test passed.');
   } finally {
