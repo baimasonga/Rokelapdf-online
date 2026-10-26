@@ -3,7 +3,27 @@ import { LegalFooter } from '@/components/legal-footer';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, Bell, FileInput, FilePen, FileText, House, Link2, LogOut, Menu, Plus, Send, Share2, Users, X, type LucideIcon } from 'lucide-react';
+import {
+  Activity,
+  BadgeCheck,
+  Bell,
+  FileInput,
+  FilePen,
+  FileText,
+  History,
+  House,
+  Link2,
+  LogOut,
+  Menu,
+  Plus,
+  Send,
+  Settings,
+  Share2,
+  ShieldAlert,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { Brand } from '@/components/header';
 import { Form, Modal, Panel } from '@/components/ui';
 import { api, sharingPath } from '@/lib/client/api';
@@ -36,10 +56,10 @@ const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['members', 'Members', Users, 'Who can work in this team workspace.'],
   ['signatures', 'Request signatures', FilePen, 'Send a fixed PDF for signing and collect the signed copy.'],
   ['verified', 'Verified documents', BadgeCheck, 'Issue PDFs with a QR code anyone can scan to confirm they are genuine.'],
-  ['settings', 'Settings', House, 'Branding, custom domains and workspace limits.'],
-  ['activity', 'Activity', FileText, 'Audit history and workspace data exports.'],
-  ['monitoring', 'Monitoring', House, 'Warrior delivery status and backlog.'],
-  ['abuse', 'Abuse review', Share2, 'Platform operator review of reported links.'],
+  ['settings', 'Settings', Settings, 'Branding, custom domains and workspace limits.'],
+  ['activity', 'Activity', History, 'Audit history and workspace data exports.'],
+  ['monitoring', 'Monitoring', Activity, 'Warrior delivery status and backlog.'],
+  ['abuse', 'Abuse review', ShieldAlert, 'Platform operator review of reported links.'],
 ];
 const isTab = (t: string | null): t is Tab => TABS.some(([k]) => k === t);
 const initial = (email: string) => email.slice(0, 1) || '?';

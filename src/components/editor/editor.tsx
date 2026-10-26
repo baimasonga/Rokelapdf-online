@@ -178,6 +178,7 @@ export function Editor({
   const mainRef = useRef<HTMLDivElement>(null);
   const openRef = useRef<HTMLInputElement>(null);
   const mergeRef = useRef<HTMLInputElement>(null);
+  const fontRef = useRef<HTMLInputElement>(null);
   const s = h.present;
   const scale = fit * zoom;
 
@@ -431,7 +432,10 @@ export function Editor({
         </div>
         <div className="ed-actions">
           <Button onClick={download} disabled={!s.pages.length}>
-            <Download size={16} aria-hidden="true" /> Download<span className="wide-only"> PDF</span>
+            <Download size={16} aria-hidden="true" />
+            <span>
+              Download<span className="wide-only"> PDF</span>
+            </span>
           </Button>
           {doc ? (
             <>
@@ -444,7 +448,10 @@ export function Editor({
             </>
           ) : (
             <Button kind="primary" disabled={!s.pages.length} onClick={openSaveDialog}>
-              <CloudUpload size={16} aria-hidden="true" /> Save<span className="wide-only"> to workspace</span>
+              <CloudUpload size={16} aria-hidden="true" />
+              <span>
+                Save<span className="wide-only"> to workspace</span>
+              </span>
             </Button>
           )}
         </div>
@@ -496,14 +503,20 @@ export function Editor({
               </label>
             )}
             {(tool === 'text' || selectedAnnot?.kind === 'text') && (
-              <label className="inline">
-                Font: {fontName}
+              <span className="inline font-pick">
+                <span className="muted">Font: {fontName}</span>
+                <button type="button" className="ghost" onClick={() => fontRef.current?.click()}>
+                  <Upload size={15} aria-hidden="true" /> Upload font
+                </button>
                 <input
+                  ref={fontRef}
                   aria-label="Upload text font"
                   type="file"
                   accept=".ttf,.otf"
+                  hidden
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
+                    e.target.value = '';
                     if (!file) return;
                     if (file.size > 10 * 1024 * 1024) {
                       notice('Choose a font smaller than 10 MB.', true);
@@ -513,7 +526,7 @@ export function Editor({
                     setFontName(file.name);
                   }}
                 />
-              </label>
+              </span>
             )}
             {tool === 'ink' && (
               <label className="inline">

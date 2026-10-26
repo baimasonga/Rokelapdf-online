@@ -174,7 +174,7 @@ async function main() {
     await shot(p, 'home');
 
     step('Android app download page');
-    await p.getByRole('link', { name: 'Android app', exact: true }).click();
+    await p.locator('.hero-stats').getByRole('link', { name: 'Android app', exact: true }).click();
     await p.getByRole('heading', { name: 'Rokela PDF for Android' }).waitFor();
     check(
       (await p.getByRole('link', { name: 'Download for Android' }).getAttribute('href')) === '/android/rokela-pdf.apk',
@@ -476,7 +476,7 @@ async function main() {
     );
 
     await v.goto(ORIGIN);
-    await v.locator('.home-hero input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.locator('.hero-night input[type=file]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
     await v.waitForURL(/\/edit\?handoff=1/);
     await v.locator('.thumb').nth(1).waitFor();
     ok('home page drop opens the PDF in the editor');
