@@ -14,13 +14,16 @@ import {
 import { dataUrlBytes } from '../editor/export';
 import { encodeQr } from '../qr';
 import { drawableText } from '../editor/model';
-import { amountInWords, longDate, money, TITLES, totals, type BizDoc, type Business, type Totals } from './model';
+import { amountInWords, isSlip, longDate, money, TITLES, totals, type BizDoc, type Business, type Totals } from './model';
 
 // Lays out a business document (receipt, invoice, proforma) as a real PDF: selectable text, small files, A4 or A5,
 // in the "receipt book" style (a printed carbon book filled in in blue) or the "modern" style (clean page, the
 // business's colours). Runs in the browser and in tests; nothing is uploaded.
 
 const SIZES = { A4: [595.28, 841.89], A5: [419.53, 595.28] } as const;
+const MM = 72 / 25.4;
+/** Paper width and the printable width of common thermal printers (72 mm on 80 mm rolls, 48 mm on 58 mm rolls). */
+const SLIPS = { '80mm': [80 * MM, 72 * MM], '58mm': [58 * MM, 48 * MM] } as const;
 const INK = rgb(0.133, 0.204, 0.541); // ballpoint blue, the "filled in" text of the receipt book
 const RED = rgb(0.776, 0.157, 0.157);
 const MUTED = rgb(0.38, 0.43, 0.52);
@@ -568,27 +571,143 @@ function footer(c: Ctx, cv: Canvas, x0: number, yContent: number) {
   if (c.copy) cv.text(c.copy, (x0 + x1) / 2, fy + 2 * k, { size: 6.5 * k, font: c.f.bold, color: rgb(0.54, 0.5, 0.39), align: 'center', spacing: 2 * k });
 }
 
-/** Draws the receipt check QR code with its right edge at x1; returns the width it took, with a gap. */
-function checkQr(c: Ctx, cv: Canvas, x1: number, y: number): number {
-  const k = cv.W / 595.28;
-  const check = c.doc.check!;
-  const qr = encodeQr(check.url);
-  const size = 64 * k;
-  // A quiet zone of 2 modules is enough for phone scanners, and keeps the code large on an A5 page.
+/** Draws a QR code for `url` as a size × size square with its top-left corner at (x, y). */
+function drawQr(cv: Canvas, url: string, x: number, y: number, size: number) {
+  const qr = encodeQr(url);
+  // A quiet zone of 2 modules is enough for phone scanners, and keeps the code large on small paper.
   const cell = size / (qr.size + 4);
-  const x = x1 - size;
   cv.rect(x, y, size, size, { fill: WHITE });
   for (let r = 0; r < qr.size; r++)
     for (let col = 0; col < qr.size; col++)
       if (qr.modules[r]![col]) cv.rect(x + (col + 2) * cell, y + (r + 2) * cell, cell + 0.05, cell + 0.05, { fill: rgb(0, 0, 0) });
+}
+const spacedCode = (code: string) => code.replace(/(.{4})(?=.)/g, '$1 ');
+
+/** Draws the receipt check QR code with its right edge at x1; returns the width it took, with a gap. */
+function checkQr(c: Ctx, cv: Canvas, x1: number, y: number): number {
+  const k = cv.W / 595.28;
+  const check = c.doc.check!;
+  const size = 64 * k;
+  drawQr(cv, check.url, x1 - size, y, size);
   cv.text('Scan to check', x1 - size / 2, y + size + 2 * k, { size: 6.5 * k, font: c.f.bold, color: TEXT, align: 'center' });
-  cv.text(check.code.replace(/(.{4})(?=.)/g, '$1 '), x1 - size / 2, y + size + 10 * k, { size: 5.5 * k, font: c.f.regular, color: MUTED, align: 'center' });
+  cv.text(spacedCode(check.code), x1 - size / 2, y + size + 10 * k, { size: 5.5 * k, font: c.f.regular, color: MUTED, align: 'center' });
   return size + 8 * k;
+}
+
+// ============================================ till slip =================================================
+/**
+ * A till slip for thermal printers: everything in one centred column, black only (thermal paper has no colour), on
+ * a page as long as the content. Signatures and stamps are left off; they do not print well on thermal paper.
+ */
+function drawSlip(c: Ctx) {
+  const BLACK = rgb(0, 0, 0);
+  const [W, printable] = SLIPS[c.doc.size as keyof typeof SLIPS];
+  const tall = 14_400; // the largest page PDF readers accept; trimmed to the content at the end
+  const cv = new Canvas(c.pdf.addPage([W, tall]), c.f);
+  const k = printable / (72 * MM);
+  const m = (W - printable) / 2;
+  const x1 = W - m;
+  const mid = W / 2;
+  const base = 8 * k;
+  let y = 12;
+  const centre = (s: string, size: number, font = c.f.regular, gap = 1.3) => {
+    for (const l of cv.wrap(s, printable, size, font)) {
+      cv.text(l, mid, y, { size, font, color: BLACK, align: 'center' });
+      y += size * gap;
+    }
+  };
+  const pair = (label: string, value: string, o: { size?: number; bold?: boolean } = {}) => {
+    const size = o.size ?? base;
+    const font = o.bold ? c.f.bold : c.f.regular;
+    const vw = Math.min(cv.width(value, size, font), printable * 0.62);
+    const lines = cv.wrap(value, Math.max(vw, printable * 0.3), size, font);
+    cv.text(label, m, y, { size, font, color: BLACK });
+    lines.forEach((l, i) => cv.text(l, x1, y + i * size * 1.3, { size, font, color: BLACK, align: 'right' }));
+    y += Math.max(1, lines.length) * size * 1.3 + 1;
+  };
+  const rule = () => {
+    y += 3;
+    cv.line(m, y, x1, y, { color: BLACK, width: 0.6, dash: [2, 2] });
+    y += 6;
+  };
+
+  if (c.logo) {
+    const h = Math.min(36 * k, (printable * 0.4 * c.logo.height) / c.logo.width);
+    const w = (h * c.logo.width) / c.logo.height;
+    cv.image(c.logo, mid - w / 2, y, w);
+    y += h + 5;
+  }
+  centre(c.biz.name.toUpperCase(), 11 * k, c.f.bold, 1.2);
+  if (c.biz.tagline.trim()) centre(c.biz.tagline, base * 0.9, c.f.italic);
+  for (const s of [c.biz.address, c.biz.phones, c.biz.email, c.biz.tin.trim() ? `TIN ${c.biz.tin}` : '']) if (s.trim()) centre(s, base * 0.9);
+  rule();
+  centre(TITLES[c.doc.kind].book, 10 * k, c.f.bold);
+  y += 2;
+  pair('No.', c.doc.number, { bold: true });
+  pair('Date', longDate(c.doc.date));
+  if (c.doc.until && c.doc.kind !== 'receipt') pair(c.doc.kind === 'invoice' ? 'Due' : 'Valid until', longDate(c.doc.until));
+  if (c.doc.customer.trim()) pair(c.doc.kind === 'receipt' ? 'Received from' : c.doc.kind === 'invoice' ? 'Bill to' : 'For', c.doc.customer);
+  if (c.doc.reference.trim()) pair(c.doc.kind === 'invoice' ? 'Terms' : 'Ref.', c.doc.reference);
+  rule();
+  for (const l of c.doc.lines.filter((x) => x.item.trim() || x.qty || x.rate)) {
+    for (const s of cv.wrap(l.item || 'Item', printable, base, c.f.bold)) {
+      cv.text(s, m, y, { size: base, font: c.f.bold, color: BLACK });
+      y += base * 1.25;
+    }
+    cv.text(`${l.qty} x ${money(l.rate)}`, m + 6 * k, y, { size: base, color: BLACK });
+    cv.text(money(l.qty * l.rate), x1, y, { size: base, color: BLACK, align: 'right' });
+    y += base * 1.5;
+  }
+  rule();
+  const { rows, grand, after } = totalRows(c);
+  const amount = (n: number) => `${n < 0 ? '– ' : ''}${MONEY(c, Math.abs(n))}`;
+  rows.forEach(([l, n]) => pair(l, amount(n)));
+  y += 1;
+  pair(grand[0].toUpperCase(), MONEY(c, grand[1]), { size: 10.5 * k, bold: true });
+  after.forEach(([l, n]) => pair(l, amount(n)));
+  y += 2;
+  centre(amountInWords(c.doc.kind === 'invoice' ? c.sum.total : grand[1], c.doc.currency), base * 0.85, c.f.italic, 1.25);
+  if (c.doc.kind !== 'proforma' && c.sum.paid > 0) {
+    y += 2;
+    pair('Paid by', c.doc.method);
+    if (c.doc.payRef.trim()) pair('Ref.', c.doc.payRef);
+  }
+  if (c.doc.notes.trim() && c.doc.kind !== 'receipt') {
+    rule();
+    cv.text(c.doc.kind === 'invoice' ? 'HOW TO PAY' : 'TERMS', m, y, { size: base * 0.85, font: c.f.bold, color: BLACK });
+    y += base * 1.3;
+    for (const s of cv.wrap(c.doc.notes, printable, base * 0.9)) {
+      cv.text(s, m, y, { size: base * 0.9, color: BLACK });
+      y += base * 1.2;
+    }
+  }
+  if (c.doc.signedBy.trim()) {
+    y += 2;
+    pair(c.doc.kind === 'receipt' ? 'Served by' : 'Prepared by', c.doc.signedBy);
+  }
+  rule();
+  if (c.doc.check) {
+    const size = Math.min(printable * 0.5, 96);
+    drawQr(cv, c.doc.check.url, mid - size / 2, y, size);
+    y += size + 2;
+    centre(`Scan to check this ${c.doc.kind === 'receipt' ? 'receipt' : 'document'}`, base * 0.85, c.f.bold);
+    centre(spacedCode(c.doc.check.code), base * 0.8);
+    y += 3;
+  }
+  if (c.doc.footer.trim()) centre(c.doc.footer, base * 0.9);
+  if (c.copy) {
+    y += 2;
+    centre(c.copy, base * 0.8, c.f.bold);
+  }
+  // Trim the page to the content, with a little paper below it for the tear-off.
+  const used = Math.ceil(y + 18);
+  cv.page.setMediaBox(0, tall - used, W, used);
 }
 
 // ============================================ document ==================================================
 async function drawCopy(c: Ctx) {
-  const [W, H] = SIZES[c.doc.size];
+  if (isSlip(c.doc.size)) return drawSlip(c);
+  const [W, H] = SIZES[c.doc.size as keyof typeof SIZES];
   const lines = c.doc.lines.filter((l) => l.item.trim() || l.qty || l.rate);
   let cv = new Canvas(c.pdf.addPage([W, H]), c.f);
   const k = W / 595.28;

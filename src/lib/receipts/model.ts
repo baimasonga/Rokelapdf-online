@@ -6,7 +6,9 @@
 
 export type DocKind = 'receipt' | 'invoice' | 'proforma';
 export type DocStyle = 'book' | 'modern';
-export type PageSize = 'A4' | 'A5';
+export type PageSize = 'A4' | 'A5' | '80mm' | '58mm';
+/** Till slips for thermal receipt printers: one narrow page as long as the document, in black only. */
+export const isSlip = (s: PageSize) => s === '80mm' || s === '58mm';
 export type Currency = 'NLe' | 'USD';
 export type PayMethod = 'Cash' | 'Orange Money' | 'Afrimoney' | 'QMoney' | 'Bank transfer' | 'Cheque';
 export const PAY_METHODS: PayMethod[] = ['Cash', 'Orange Money', 'Afrimoney', 'QMoney', 'Bank transfer', 'Cheque'];

@@ -168,4 +168,23 @@ describe('the PDF', () => {
         expect(jsQR(new Uint8ClampedArray(img.data), img.width, img.height)?.data, `${style} ${size}`).toBe(check.url);
       }
   });
+
+  it('makes 80 mm and 58 mm till slips as long as their content, with the facts and the check code', async () => {
+    for (const [size, mm] of [
+      ['80mm', 80],
+      ['58mm', 58],
+    ] as const) {
+      const short = await buildBizDoc(biz, doc({ size, check: { url: 'https://rokelapdf.com/receipts/ABCDEFGHJKMNPQRS', code: 'ABCDEFGHJKMNPQRS' } }));
+      const page = (await PDFDocument.load(short)).getPage(0);
+      expect(page.getWidth()).toBeCloseTo((mm * 72) / 25.4, 1);
+      const lines = Array.from({ length: 30 }, (_, i) => ({ qty: 1, item: `Item ${i + 1}`, rate: 10 }));
+      const long = (await PDFDocument.load(await buildBizDoc(biz, doc({ size, lines })))).getPage(0);
+      expect(long.getHeight()).toBeGreaterThan(page.getHeight());
+      const [text] = await textOf(short);
+      expect(text).toContain('KAMARA & SONS HARDWARE');
+      expect(text).toContain('CASH SALES RECEIPT');
+      expect(text).toContain('NLe 3,450.00');
+      expect(text).toContain('ABCD EFGH JKMN PQRS');
+    }
+  });
 });

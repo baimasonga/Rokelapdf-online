@@ -16,6 +16,7 @@ import {
   PAY_METHODS,
   TITLES,
   docNumber,
+  isSlip,
   money,
   totals,
   type BizDoc,
@@ -173,7 +174,8 @@ export function ReceiptMaker() {
         const page = await pdfDoc.getPage(1);
         const c = canvas.current;
         if (!c || !live) return;
-        const width = Math.min(560, c.parentElement?.clientWidth ?? 560);
+        const max = isSlip(full.size) ? 320 : 560;
+        const width = Math.min(max, c.parentElement?.clientWidth ?? max);
         const vp1 = page.getViewport({ scale: 1 });
         const dpr = window.devicePixelRatio || 1;
         const vp = page.getViewport({ scale: (width / vp1.width) * dpr });
@@ -331,30 +333,39 @@ export function ReceiptMaker() {
             ))}
           </span>
           <div className="rk-row">
-            <span className="seg" role="radiogroup" aria-label="Style">
+            {!isSlip(doc.size) && (
+              <span className="seg" role="radiogroup" aria-label="Style">
+                {(
+                  [
+                    ['book', 'Receipt book'],
+                    ['modern', 'Modern'],
+                  ] as const
+                ).map(([v, label]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={doc.style === v}
+                    className={doc.style === v ? 'on' : ''}
+                    onClick={() => {
+                      set('style', v);
+                      setPrefs((p) => ({ ...p, style: v }));
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            )}
+            <span className="seg" role="radiogroup" aria-label="Paper size">
               {(
                 [
-                  ['book', 'Receipt book'],
-                  ['modern', 'Modern'],
+                  ['A4', 'A4'],
+                  ['A5', 'A5'],
+                  ['80mm', '80 mm slip'],
+                  ['58mm', '58 mm slip'],
                 ] as const
               ).map(([v, label]) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="radio"
-                  aria-checked={doc.style === v}
-                  className={doc.style === v ? 'on' : ''}
-                  onClick={() => {
-                    set('style', v);
-                    setPrefs((p) => ({ ...p, style: v }));
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </span>
-            <span className="seg" role="radiogroup" aria-label="Paper size">
-              {(['A4', 'A5'] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -366,11 +377,16 @@ export function ReceiptMaker() {
                     setPrefs((p) => ({ ...p, size: v }));
                   }}
                 >
-                  {v}
+                  {label}
                 </button>
               ))}
             </span>
           </div>
+          {isSlip(doc.size) && (
+            <p className="muted rk-hint">
+              For thermal receipt printers: one long slip in black. Signatures and stamps are left off; they print poorly on thermal paper.
+            </p>
+          )}
           <div className="rk-grid">
             <label>
               Number
@@ -684,7 +700,7 @@ export function ReceiptMaker() {
               Footer message
               <textarea rows={2} maxLength={200} value={doc.footer} onChange={(e) => set('footer', e.target.value)} />
             </label>
-            {doc.style === 'book' && doc.kind === 'receipt' && (
+            {doc.style === 'book' && doc.kind === 'receipt' && !isSlip(doc.size) && (
               <label className="check">
                 <input type="checkbox" checked={doc.counterfoil} onChange={(e) => set('counterfoil', e.target.checked)} /> Counterfoil strip
               </label>

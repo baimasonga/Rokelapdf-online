@@ -73,7 +73,7 @@ export function loadPrefs(): ReceiptPrefs {
     counters: { receipt: count('receipt'), invoice: count('invoice'), proforma: count('proforma') },
     items,
     style: raw.style === 'book' ? 'book' : 'modern',
-    size: raw.size === 'A5' ? 'A5' : 'A4',
+    size: raw.size === 'A5' || raw.size === '80mm' || raw.size === '58mm' ? raw.size : 'A4',
     currency: raw.currency === 'USD' ? 'USD' : 'NLe',
     footers: {
       receipt: typeof footers.receipt === 'string' ? footers.receipt.slice(0, 200) : DEFAULT_FOOTERS.receipt,
