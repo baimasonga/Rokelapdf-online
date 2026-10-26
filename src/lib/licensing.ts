@@ -5,7 +5,7 @@
 // account also gets a free month of the paid tools from its first sign-in. Before the launch date
 // (PAID_FEATURES_FROM) the paid tools are free for everyone, signed in or not.
 
-export const PAID_FEATURES = ['edit', 'sign', 'ocr', 'protect', 'split', 'merge'] as const;
+export const PAID_FEATURES = ['edit', 'sign', 'ocr', 'protect', 'split', 'merge', 'receipts'] as const;
 export type PaidFeature = (typeof PAID_FEATURES)[number];
 
 /** How each paid feature is named to people ("Editing is part of Rokela PDF Pro"). */
@@ -16,6 +16,7 @@ export const FEATURE_NAMES: Record<PaidFeature, string> = {
   protect: 'Password protection',
   split: 'Splitting',
   merge: 'Merging',
+  receipts: 'Receipt Maker',
 };
 
 export const TRIAL_DAYS = 30;

@@ -140,6 +140,9 @@ export function Header({ minimal = false, tone }: { minimal?: boolean; tone?: 'd
             <Link href="/tools/sign-pdf" className="nav-link">
               Sign
             </Link>
+            <Link href="/receipts" className="nav-link">
+              Receipts
+            </Link>
             <Link href="/shorten" className="nav-link">
               Shorten links
             </Link>
@@ -161,6 +164,7 @@ export function Header({ minimal = false, tone }: { minimal?: boolean; tone?: 'd
             <div className="mobile-menu">
               <div className="mobile-links">
                 <Link href="/edit">Edit a PDF</Link>
+                <Link href="/receipts">Receipts and invoices</Link>
                 <Link href="/send">Send files</Link>
                 <Link href="/shorten">Shorten links</Link>
                 <Link href="/tools">All tools</Link>

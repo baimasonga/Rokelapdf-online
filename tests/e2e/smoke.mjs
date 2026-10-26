@@ -466,6 +466,38 @@ async function main() {
       'and the stamp is kept on this device for next time',
     );
 
+    await v.goto(`${ORIGIN}/receipts`);
+    await v.getByLabel('Business name').fill('Kamara & Sons Hardware');
+    await v.getByLabel('Customer name').fill('Mr. Ibrahim Conteh');
+    await v.getByLabel('Quantity 1').fill('10');
+    await v.getByLabel('Item 1', { exact: true }).fill('Cement, 50 kg bag');
+    await v.getByLabel('Rate 1').fill('155');
+    await v.getByRole('radio', { name: 'Receipt book' }).click();
+    const receipt = await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    const rdoc = await getDocument({ data: new Uint8Array(receipt.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const rtext = (await (await rdoc.getPage(1)).getTextContent()).items.map((x) => x.str).join(' ');
+    check(
+      rtext.includes('KAMARA & SONS HARDWARE') && rtext.includes('1,550.00') && rtext.includes('One Thousand Five Hundred and Fifty New Leones Only'),
+      'receipts: a cash receipt downloads with the business, the total and the amount in words',
+    );
+    await v.getByRole('button', { name: 'Next receipt' }).click();
+    check((await v.getByLabel('Number', { exact: true }).inputValue()) === '0002', 'and the next receipt is numbered 0002');
+    await v.getByLabel('Item 1', { exact: true }).fill('Rice, 25 kg bag');
+    await v.getByLabel('Rate 1').fill('480');
+    await v.getByRole('radio', { name: '80 mm slip' }).click();
+    check((await v.getByRole('radio', { name: 'Receipt book' }).count()) === 0, 'a till slip has no style to choose');
+    const slip = await fetchDownload(v.getByRole('button', { name: 'Download PDF' }));
+    const slipDoc = await getDocument({ data: new Uint8Array(slip.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const spage = await slipDoc.getPage(1);
+    const [, , sw] = spage.view;
+    check(
+      Math.round((sw * 25.4) / 72) === 80 && (await spage.getTextContent()).items.some((x) => x.str.includes('480.00')),
+      'and an 80 mm till slip downloads at the width of the roll',
+    );
+    await shot(v, 'receipt-slip');
+
     await v.goto(`${ORIGIN}/tools/create-fillable-pdf`);
     await v.getByTestId('tool-input').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: pdf });
     await v.waitForURL(/tool=field/);

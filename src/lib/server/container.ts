@@ -18,6 +18,7 @@ import { ClamdScanner } from './storage/clamd';
 import { CloudflareMailer, ResendMailer, type Mailer } from './mail';
 import { ConversionService, HttpConverter, type ConversionLimits, type Converter } from './convert';
 import { LicenseService } from './licenses';
+import { ReceiptCheckService } from './receipt-checks';
 import { BasicContentScanner, ChainedScanner, DEFAULT_SHARING_CONFIG, SharingKeys, SharingService, type FileScanner, type ObjectStore } from './sharing';
 
 export interface Container {
@@ -30,6 +31,7 @@ export interface Container {
   rateLimiter: RateLimiter;
   conversions: ConversionService;
   licenses: LicenseService;
+  receiptChecks: ReceiptCheckService;
   warrior: WarriorMonitor | undefined;
   warriorReadiness: (() => Promise<void>) | undefined;
   localStore: LocalObjectStore | undefined;
@@ -66,6 +68,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
   const verifier = o.verifier ?? new SupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl, publishableKey: config.supabasePublishableKey });
   const workspaces = new WorkspaceService(pool, clock, config.trialMode);
   const licenses = new LicenseService(pool, clock, config.paidFeaturesFrom);
+  const receiptChecks = new ReceiptCheckService(pool, clock, licenses, config.publicOrigin);
   let localStore: LocalObjectStore | undefined;
   let objects = o.objects;
   if (!objects) {
@@ -191,6 +194,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     rateLimiter,
     conversions,
     licenses,
+    receiptChecks,
     warrior,
     warriorReadiness: warrior ? () => checkWarriorReadiness(config, warrior) : undefined,
     localStore,
