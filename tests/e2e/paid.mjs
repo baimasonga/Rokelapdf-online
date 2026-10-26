@@ -122,6 +122,14 @@ async function main() {
     await p.locator('input[type=file][multiple]').setInputFiles([await pdf('g')]);
     await prompt('Merging').waitFor();
     check((await p.locator('.thumb-page').count()) === pagesBefore, "and so is the editor's Add PDF (merging)");
+    await p.goto(`${ORIGIN}/receipts`);
+    await p.getByLabel('Business name').fill('Kamara & Sons Hardware');
+    await p.getByLabel('Item 1', { exact: true }).fill('Cement, 50 kg bag');
+    await p.getByLabel('Rate 1').fill('155');
+    await p.getByRole('button', { name: 'Download PDF' }).click();
+    await prompt('Receipt Maker').waitFor();
+    check(!!(await prompt('Receipt Maker').getByRole('link', { name: 'Get a licence' }).count()), 'the Receipt Maker asks for a licence after the free month');
+    await prompt('Receipt Maker').getByRole('button', { name: 'Close' }).click();
 
     step('Licence granted by an operator');
     admin('operator', '--email', 'buyer@example.test', '--reason', 'e2e operator');

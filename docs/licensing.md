@@ -1,7 +1,7 @@
 # Paid tools and licences
 
 Some tools are paid, on the website and in the Android app alike: **editing, signing, text recognition (OCR),
-password protection, splitting and merging**. Every other tool stays free and needs no account. The list, and which
+password protection, splitting, merging and the Receipt Maker** (receipts, invoices and quotations). Every other tool stays free and needs no account. The list, and which
 website tools and app tools belong to each, is in [`src/lib/licensing.ts`](../src/lib/licensing.ts).
 
 - **Licence**: one per person, tied to their email address, for one year. Operators grant it after payment.

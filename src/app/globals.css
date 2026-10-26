@@ -4926,3 +4926,221 @@ button.studio-pick.on:hover:not(:disabled) {
     grid-column: 1 / -1;
   }
 }
+
+/* ==== Receipt Maker (src/components/receipts/receipt-maker.tsx) ======================================== */
+.rk-page {
+  background: var(--bg);
+}
+.rk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 600px);
+  gap: 1.5rem;
+  align-items: start;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 clamp(1rem, 3vw, 2rem) 4rem;
+}
+.rk-form {
+  display: grid;
+  gap: 1rem;
+}
+.rk-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.1rem 1.2rem;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.rk-card h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+details.rk-card summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+details.rk-card summary::-webkit-details-marker {
+  display: none;
+}
+details.rk-card summary::after {
+  content: 'Edit';
+  margin-left: auto;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--brand-2);
+}
+details.rk-card[open] summary::after {
+  content: 'Done';
+}
+details.rk-card summary .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+.rk-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.rk-row.wrap {
+  flex-wrap: wrap;
+}
+.rk-row .seg {
+  flex: 1;
+}
+.rk-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem 0.9rem;
+}
+.rk-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+}
+.rk-grid label,
+.rk-card > label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.rk-grid label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.rk-grid .span2 {
+  grid-column: 1 / -1;
+}
+.rk-colors {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+}
+.rk-colors input[type='color'] {
+  width: 56px;
+  height: 36px;
+  padding: 2px;
+}
+.rk-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.rk-logo img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.rk-lines {
+  display: grid;
+  gap: 0.4rem;
+}
+.rk-line {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 100px 100px 34px;
+  gap: 0.4rem;
+  align-items: center;
+}
+.rk-line input {
+  min-width: 0;
+}
+.rk-line-head span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rk-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.rk-line button {
+  min-height: 34px;
+  padding: 0;
+}
+.rk-total {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-2);
+}
+.rk-total b {
+  font-size: 1.15rem;
+  color: var(--text);
+}
+.rk-hint {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.rk-preview {
+  position: sticky;
+  top: 80px;
+  display: grid;
+  gap: 0.75rem;
+}
+.rk-paper {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  border-radius: 16px;
+  background: #e3e7ee;
+  min-height: 300px;
+}
+.rk-paper canvas {
+  display: block;
+  max-width: 100%;
+  background: #fff;
+  box-shadow: 0 10px 30px rgb(15 23 42 / 18%);
+}
+.rk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+@media (max-width: 1000px) {
+  .rk {
+    grid-template-columns: 1fr;
+  }
+  .rk-preview {
+    position: static;
+    order: -1;
+  }
+}
+@media (max-width: 560px) {
+  .rk-grid,
+  .rk-grid.three {
+    grid-template-columns: 1fr;
+  }
+  .rk-line {
+    grid-template-columns: 62px minmax(0, 1fr) 84px 30px;
+    gap: 0.3rem;
+  }
+  .rk-line input {
+    padding-inline: 0.45rem;
+  }
+  .rk-line .rk-amount,
+  .rk-line-head span:nth-child(4) {
+    display: none;
+  }
+  .rk-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
