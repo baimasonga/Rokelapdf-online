@@ -13,6 +13,7 @@ import {
 } from 'pdf-lib';
 import { dataUrlBytes } from '../editor/export';
 import { encodeQr } from '../qr';
+import type { Statement } from './ledger';
 import { drawableText } from '../editor/model';
 import {
   amountInWords,
@@ -21,6 +22,7 @@ import {
   lineAmount,
   longDate,
   money,
+  shortDate,
   TITLES,
   totals,
   type BizDoc,
@@ -932,4 +934,128 @@ export async function buildBlankBook(biz: Business, o: BlankBook): Promise<Uint8
     page.drawLine({ start: { x: H / 2, y: 0 }, end: { x: H / 2, y: W }, thickness: 0.5, color: rgb(0.6, 0.6, 0.6), dashArray: [4, 4] });
   }
   return sheet.save({ useObjectStreams: true });
+}
+
+// ============================================ customer statement ========================================
+/**
+ * A statement of account for one customer (src/lib/receipts/ledger.ts): the business's letterhead, the period, the
+ * opening balance, each invoice and payment with a running balance, how long what is owed has been due, and the
+ * amount due. A4, modern style, paginated.
+ */
+export async function buildStatement(biz: Business, st: Statement, today: string): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(`Statement - ${st.customer} - ${st.to}`);
+  pdf.setAuthor(t(biz.name) || 'Rokela PDF');
+  pdf.setCreator('Rokela PDF receipts');
+  const fixed = new Date(`${/^\d{4}-\d{2}-\d{2}$/.test(today) ? today : '2000-01-01'}T12:00:00Z`);
+  pdf.setCreationDate(fixed);
+  pdf.setModificationDate(fixed);
+  const f: Fonts = {
+    regular: await pdf.embedFont(StandardFonts.Helvetica),
+    bold: await pdf.embedFont(StandardFonts.HelveticaBold),
+    italic: await pdf.embedFont(StandardFonts.HelveticaOblique),
+    mono: await pdf.embedFont(StandardFonts.CourierBold),
+  };
+  const main = hex(biz.color);
+  const accent = hex(biz.accent);
+  const logo = await embedImage(pdf, biz.logo);
+  const [W, H] = SIZES.A4;
+  const m = 40;
+  const amt = (n: number) => `${n < 0 ? '– ' : ''}${money(Math.abs(n))}`;
+  // Columns: date, document, details, charges, payments, balance (right edges for the numbers).
+  const cx = { date: m + 8, ref: m + 78, det: m + 158, chg: W - m - 168, pay: W - m - 88, bal: W - m - 8 };
+
+  const header = (cv: Canvas, first: boolean): number => {
+    cv.rect(0, 0, W, 6, { fill: main });
+    let y = 30;
+    const L = 40;
+    if (logo) cv.image(logo, m, y, L, { maxH: L });
+    else {
+      cv.rect(m, y, L, L, { fill: accent, radius: 8 });
+      cv.text(initials(biz.name), m + L / 2, y + 14, { size: 13, font: f.bold, color: WHITE, align: 'center' });
+    }
+    cv.text(biz.name || 'Your business name', m + L + 12, y + 2, { size: 15, font: f.bold, color: TEXT });
+    const contact = [biz.address, biz.phones, biz.email, biz.tin && `TIN ${biz.tin}`].filter(Boolean).join(' · ');
+    cv.wrap(contact, W - 2 * m - L - 12, 8.5)
+      .slice(0, 2)
+      .forEach((l, i) => cv.text(l, m + L + 12, y + 21 + i * 11, { size: 8.5, color: MUTED }));
+    y += L + 22;
+    cv.text(first ? 'Statement of account' : 'Statement of account (continued)', m, y, { size: first ? 22 : 14, font: f.bold, color: main });
+    y += first ? 34 : 24;
+    if (first) {
+      cv.rect(m, y, W - 2 * m, 46, { fill: tint(main, 0.06), radius: 8 });
+      const cell = (label: string, value: string, x: number) => {
+        cv.text(label.toUpperCase(), x, y + 9, { size: 7, color: MUTED, spacing: 0.6 });
+        cv.text(value, x, y + 22, { size: 10.5, font: f.bold, color: TEXT });
+      };
+      cell('Customer', st.customer, m + 14);
+      cell('Period', `${longDate(st.from)} – ${longDate(st.to)}`, m + 210);
+      cell('Currency', st.currency, W - m - 80);
+      y += 62;
+    }
+    cv.text('DATE', cx.date, y, { size: 7, font: f.bold, color: MUTED });
+    cv.text('DOCUMENT', cx.ref, y, { size: 7, font: f.bold, color: MUTED });
+    cv.text('DETAILS', cx.det, y, { size: 7, font: f.bold, color: MUTED });
+    cv.text('CHARGES', cx.chg, y, { size: 7, font: f.bold, color: MUTED, align: 'right' });
+    cv.text('PAYMENTS', cx.pay, y, { size: 7, font: f.bold, color: MUTED, align: 'right' });
+    cv.text('BALANCE', cx.bal, y, { size: 7, font: f.bold, color: MUTED, align: 'right' });
+    y += 13;
+    cv.line(m, y, W - m, y, { color: main, width: 1.2 });
+    return y;
+  };
+
+  let cv = new Canvas(pdf.addPage([W, H]), f);
+  let y = header(cv, true);
+  const row = (date: string, ref: string, details: string, charge: number, payment: number, balance: number, bold = false) => {
+    if (y + 30 > H - 60) {
+      cv = new Canvas(pdf.addPage([W, H]), f);
+      y = header(cv, false);
+    }
+    const font = bold ? f.bold : f.regular;
+    cv.text(date ? shortDate(date) : '', cx.date, y + 6, { size: 8.5, font });
+    cv.text(ref, cx.ref, y + 6, { size: 8.5, font });
+    const lines = cv.wrap(details, cx.chg - cx.det - 66, 8.5, font).slice(0, 2);
+    lines.forEach((l, i) => cv.text(l, cx.det, y + 6 + i * 10.5, { size: 8.5, font }));
+    if (charge) cv.text(amt(charge), cx.chg, y + 6, { size: 8.5, font, align: 'right' });
+    if (payment) cv.text(amt(payment), cx.pay, y + 6, { size: 8.5, font, align: 'right' });
+    cv.text(amt(balance), cx.bal, y + 6, { size: 8.5, font: f.bold, align: 'right' });
+    y += 20 + (Math.max(1, lines.length) - 1) * 10.5;
+    cv.line(m, y, W - m, y, { color: LINE, width: 0.7 });
+  };
+  row(st.from, '', 'Opening balance', 0, 0, st.opening, true);
+  for (const r of st.rows) row(r.date, r.ref, r.details, r.charge, r.payment, r.balance);
+  if (!st.rows.length) row('', '', 'No invoices or payments in this period', 0, 0, st.opening);
+
+  // Ageing and the amount due, kept together.
+  if (y + 150 > H - 50) {
+    cv = new Canvas(pdf.addPage([W, H]), f);
+    y = header(cv, false);
+  }
+  y += 18;
+  const labels = ['Current', '1–30 days', '31–60 days', '61–90 days', 'Over 90 days'];
+  const bw = (W - 2 * m) / 5;
+  labels.forEach((l, i) => {
+    const x = m + i * bw;
+    cv.rect(x + 2, y, bw - 4, 44, { stroke: i >= 3 && st.ageing[i]! > 0 ? accent : LINE, width: 1, radius: 6 });
+    cv.text(l.toUpperCase(), x + bw / 2, y + 9, { size: 6.5, color: MUTED, align: 'center', spacing: 0.4 });
+    cv.text(amt(st.ageing[i]!), x + bw / 2, y + 23, { size: 10, font: f.bold, color: i >= 3 && st.ageing[i]! > 0 ? accent : TEXT, align: 'center' });
+  });
+  y += 60;
+  const due = st.closing;
+  const bwDue = 230;
+  cv.rect(W - m - bwDue, y, bwDue, 34, { fill: due > 0 ? accent : main, radius: 8 });
+  cv.text(due > 0 ? 'Amount due' : due < 0 ? 'In credit' : 'Nothing due', W - m - bwDue + 12, y + 11, { size: 11, color: WHITE });
+  cv.text(`${st.currency} ${money(Math.abs(due))}`, W - m - 12, y + 10, { size: 13, font: f.bold, color: WHITE, align: 'right' });
+  if (due > 0) {
+    const words = cv.wrap(amountInWords(due, st.currency), W - 2 * m, 8.5, f.italic);
+    words.forEach((l, i) => cv.text(l, W - m, y + 44 + i * 11, { size: 8.5, font: f.italic, color: MUTED, align: 'right' }));
+  }
+  cv.text(`Prepared on ${longDate(today)}. Please tell us of any difference within 14 days.`, m, y + 12, { size: 8, color: MUTED });
+
+  pdf.getPages().forEach((p, i, all) => {
+    const c = new Canvas(p, f);
+    c.text(`Page ${i + 1} of ${all.length}`, W - m, H - 30, { size: 7.5, color: MUTED, align: 'right' });
+    c.text(`${t(biz.name)} · ${st.customer}`, m, H - 30, { size: 7.5, color: MUTED });
+  });
+  return pdf.save({ useObjectStreams: true });
 }

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BookOpen, Download, FilePlus2, ImagePlus, Plus, QrCode, Share2, Stamp as StampIcon, Trash2 } from 'lucide-react';
+import { BookOpen, ClipboardList, Download, FilePlus2, ImagePlus, Plus, QrCode, Share2, Stamp as StampIcon, Trash2 } from 'lucide-react';
 import { usePaid } from '@/components/paid';
 import { ApiError, api, enc } from '@/lib/client/api';
 import { sessionToken } from '@/lib/client/auth';
@@ -28,6 +28,8 @@ import {
 } from '@/lib/receipts/model';
 import { BLANK_BOOK_MAX, buildBizDoc, buildBlankBook, type BlankBook } from '@/lib/receipts/pdf';
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
+import { entryFromDoc, loadLedger, openInvoices, saveLedger, setVoid, upsert, type LedgerEntry } from '@/lib/receipts/ledger';
+import { LedgerView } from './ledger-view';
 import { TEMPLATES, newStamp } from '@/lib/stamp/design';
 import { renderStamp } from '@/lib/stamp/render';
 import { loadStamps } from '@/lib/stamp/store';
@@ -117,7 +119,9 @@ export function ReceiptMaker() {
   /** "Your business" starts open for a new business, then stays as the person leaves it. */
   const [bizOpen, setBizOpen] = useState(false);
   /** Fill in one document, or print a blank numbered receipt book to fill in by hand. */
-  const [mode, setMode] = useState<'doc' | 'book'>('doc');
+  const [mode, setMode] = useState<'doc' | 'book' | 'ledger'>('doc');
+  /** Every document downloaded or shared here (sales ledger), newest first. */
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [book, setBook] = useState<BlankBook>({
     kind: 'receipt',
     size: 'A5',
@@ -146,8 +150,12 @@ export function ReceiptMaker() {
     setStamps(loadStamps());
     setBizOpen(!p.business.name);
     setBook((b) => ({ ...b, currency: p.currency, footer: p.footers.receipt }));
+    setLedger(loadLedger());
     setLoaded(true);
   }, []);
+  useEffect(() => {
+    if (loaded) saveLedger(ledger);
+  }, [ledger, loaded]);
   useEffect(() => {
     if (loaded) savePrefs(prefs);
   }, [prefs, loaded]);
@@ -181,7 +189,7 @@ export function ReceiptMaker() {
 
   // Live preview of the first page, rebuilt shortly after each change.
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || mode === 'ledger') return;
     let live = true;
     let pdfDoc: PDFDocumentProxy | undefined;
     const timer = setTimeout(async () => {
@@ -238,6 +246,7 @@ export function ReceiptMaker() {
     try {
       const bytes = prefs.check ? await checkedPdf() : await buildBizDoc(biz, full);
       if (!bytes) return undefined;
+      setLedger((l) => upsert(l, entryFromDoc(doc)));
       setPrefs((p) => {
         const items = { ...p.items };
         for (const l of doc.lines) if (l.item.trim() && l.rate > 0) items[l.item.trim().slice(0, 120)] = l.rate;
@@ -358,6 +367,21 @@ export function ReceiptMaker() {
       currency: d.currency,
     }));
 
+  /** Opens a receipt for a payment on an invoice from the ledger. */
+  const recordPayment = (inv: LedgerEntry, balance: number) => {
+    setDoc({
+      ...blankDoc('receipt', prefs),
+      customer: inv.customer,
+      currency: inv.currency,
+      against: inv.number,
+      lines: [{ qty: 1, item: `Payment for invoice ${inv.number}`, rate: balance }],
+    });
+    setMode('doc');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const todayIso = iso(new Date());
+  const payable = doc.kind === 'receipt' ? openInvoices(ledger, todayIso, doc.customer.trim() ? doc.customer : undefined) : [];
+
   const labels = {
     customer: doc.kind === 'receipt' ? 'Received from' : doc.kind === 'invoice' ? 'Bill to' : 'Prepared for',
     reference: doc.kind === 'invoice' ? 'Payment terms' : 'Their reference (optional)',
@@ -366,7 +390,7 @@ export function ReceiptMaker() {
   };
 
   return (
-    <div className="rk">
+    <div className={mode === 'ledger' ? 'rk rk-wide' : 'rk'}>
       <div className="rk-form">
         <span className="seg rk-mode" role="radiogroup" aria-label="What to make">
           <button type="button" role="radio" aria-checked={mode === 'doc'} className={mode === 'doc' ? 'on' : ''} onClick={() => setMode('doc')}>
@@ -375,7 +399,20 @@ export function ReceiptMaker() {
           <button type="button" role="radio" aria-checked={mode === 'book'} className={mode === 'book' ? 'on' : ''} onClick={() => setMode('book')}>
             <BookOpen size={16} aria-hidden="true" /> Print a blank book
           </button>
+          <button type="button" role="radio" aria-checked={mode === 'ledger'} className={mode === 'ledger' ? 'on' : ''} onClick={() => setMode('ledger')}>
+            <ClipboardList size={16} aria-hidden="true" /> Sales ledger
+          </button>
         </span>
+
+        {mode === 'ledger' && (
+          <LedgerView
+            entries={ledger}
+            setVoid={(e, v) => setLedger((l) => setVoid(l, e, v))}
+            biz={biz}
+            onPay={recordPayment}
+            requirePaid={() => paid.require('receipts')}
+          />
+        )}
 
         {mode === 'book' && (
           <section className="rk-card">
@@ -543,6 +580,37 @@ export function ReceiptMaker() {
                 ))}
               </span>
             </div>
+            {doc.kind === 'receipt' && (payable.length > 0 || doc.against) && (
+              <label className="rk-against">
+                Payment for invoice
+                <select
+                  value={doc.against ?? ''}
+                  onChange={(e) => {
+                    const hit = payable.find((x) => x.inv.number === e.target.value);
+                    setDoc((d) => ({
+                      ...d,
+                      against: e.target.value || undefined,
+                      ...(hit
+                        ? {
+                            customer: d.customer.trim() ? d.customer : hit.inv.customer,
+                            lines: d.lines.some((l) => l.item.trim())
+                              ? d.lines
+                              : [{ qty: 1, item: `Payment for invoice ${hit.inv.number}`, rate: hit.balance }],
+                          }
+                        : {}),
+                    }));
+                  }}
+                >
+                  <option value="">No, a cash sale</option>
+                  {doc.against && !payable.some((x) => x.inv.number === doc.against) && <option value={doc.against}>{doc.against}</option>}
+                  {payable.map((x) => (
+                    <option key={x.inv.number} value={x.inv.number}>
+                      {x.inv.number} · {x.inv.customer} · {x.inv.currency} {money(x.balance)} owed
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {isSlip(doc.size) && (
               <p className="muted rk-hint">
                 For thermal receipt printers: one long slip in black. Signatures and stamps are left off; they print poorly on thermal paper.
@@ -581,90 +649,92 @@ export function ReceiptMaker() {
           </section>
         )}
 
-        <details className="rk-card" open={bizOpen} onToggle={(e) => setBizOpen(e.currentTarget.open)}>
-          <summary>
-            <h2>Your business</h2>
-            <span className="muted">{biz.name || 'Name, address, phones, logo and colours'}</span>
-          </summary>
-          <div className="rk-grid">
-            <label className="span2">
-              Business name
-              <input value={biz.name} maxLength={80} onChange={(e) => setBiz('name', e.target.value)} placeholder="Kamara & Sons Hardware" />
-            </label>
-            <label className="span2">
-              What you sell or do
-              <input
-                value={biz.tagline}
-                maxLength={120}
-                onChange={(e) => setBiz('tagline', e.target.value)}
-                placeholder="Building materials · Hardware · General merchandise"
-              />
-            </label>
-            <label className="span2">
-              Address
-              <input value={biz.address} maxLength={160} onChange={(e) => setBiz('address', e.target.value)} placeholder="14 Kissy Road, Freetown" />
-            </label>
-            <label>
-              Phone numbers
-              <input value={biz.phones} maxLength={80} onChange={(e) => setBiz('phones', e.target.value)} placeholder="+232 76 123 456" />
-            </label>
-            <label>
-              Email (optional)
-              <input value={biz.email} maxLength={80} onChange={(e) => setBiz('email', e.target.value)} />
-            </label>
-            <label>
-              NRA TIN (optional)
-              <input value={biz.tin} maxLength={30} onChange={(e) => setBiz('tin', e.target.value)} />
-            </label>
-            <div className="rk-colors">
-              <label>
-                Main colour
-                <input type="color" value={biz.color} onChange={(e) => setBiz('color', e.target.value)} />
+        {mode !== 'ledger' && (
+          <details className="rk-card" open={bizOpen} onToggle={(e) => setBizOpen(e.currentTarget.open)}>
+            <summary>
+              <h2>Your business</h2>
+              <span className="muted">{biz.name || 'Name, address, phones, logo and colours'}</span>
+            </summary>
+            <div className="rk-grid">
+              <label className="span2">
+                Business name
+                <input value={biz.name} maxLength={80} onChange={(e) => setBiz('name', e.target.value)} placeholder="Kamara & Sons Hardware" />
+              </label>
+              <label className="span2">
+                What you sell or do
+                <input
+                  value={biz.tagline}
+                  maxLength={120}
+                  onChange={(e) => setBiz('tagline', e.target.value)}
+                  placeholder="Building materials · Hardware · General merchandise"
+                />
+              </label>
+              <label className="span2">
+                Address
+                <input value={biz.address} maxLength={160} onChange={(e) => setBiz('address', e.target.value)} placeholder="14 Kissy Road, Freetown" />
               </label>
               <label>
-                Accent
-                <input type="color" value={biz.accent} onChange={(e) => setBiz('accent', e.target.value)} />
+                Phone numbers
+                <input value={biz.phones} maxLength={80} onChange={(e) => setBiz('phones', e.target.value)} placeholder="+232 76 123 456" />
               </label>
-              {(biz.color !== DEFAULT_BUSINESS.color || biz.accent !== DEFAULT_BUSINESS.accent) && (
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setPrefs((p) => ({ ...p, business: { ...p.business, color: DEFAULT_BUSINESS.color, accent: DEFAULT_BUSINESS.accent } }))}
-                >
-                  Navy and coral
-                </button>
-              )}
-            </div>
-            <div className="rk-logo span2">
-              {biz.logo ? (
-                // eslint-disable-next-line @next/next/no-img-element -- a local data: URL
-                <img src={biz.logo} alt="Your logo" />
-              ) : null}
-              <Button kind="ghost" onClick={() => logoInput.current?.click()}>
-                <ImagePlus size={16} aria-hidden="true" /> {biz.logo ? 'Change logo' : 'Add your logo'}
-              </Button>
-              {biz.logo && (
-                <Button kind="ghost" onClick={() => setBiz('logo', undefined)}>
-                  Remove
+              <label>
+                Email (optional)
+                <input value={biz.email} maxLength={80} onChange={(e) => setBiz('email', e.target.value)} />
+              </label>
+              <label>
+                NRA TIN (optional)
+                <input value={biz.tin} maxLength={30} onChange={(e) => setBiz('tin', e.target.value)} />
+              </label>
+              <div className="rk-colors">
+                <label>
+                  Main colour
+                  <input type="color" value={biz.color} onChange={(e) => setBiz('color', e.target.value)} />
+                </label>
+                <label>
+                  Accent
+                  <input type="color" value={biz.accent} onChange={(e) => setBiz('accent', e.target.value)} />
+                </label>
+                {(biz.color !== DEFAULT_BUSINESS.color || biz.accent !== DEFAULT_BUSINESS.accent) && (
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setPrefs((p) => ({ ...p, business: { ...p.business, color: DEFAULT_BUSINESS.color, accent: DEFAULT_BUSINESS.accent } }))}
+                  >
+                    Navy and coral
+                  </button>
+                )}
+              </div>
+              <div className="rk-logo span2">
+                {biz.logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- a local data: URL
+                  <img src={biz.logo} alt="Your logo" />
+                ) : null}
+                <Button kind="ghost" onClick={() => logoInput.current?.click()}>
+                  <ImagePlus size={16} aria-hidden="true" /> {biz.logo ? 'Change logo' : 'Add your logo'}
                 </Button>
-              )}
-              <input
-                ref={logoInput}
-                type="file"
-                accept="image/png,image/jpeg"
-                hidden
-                aria-label="Logo"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = '';
-                  if (!f) return;
-                  if (f.size > 5 * 1024 * 1024) return setError('Choose a logo smaller than 5 MB.');
-                  setBiz('logo', await logoDataUrl(f));
-                }}
-              />
+                {biz.logo && (
+                  <Button kind="ghost" onClick={() => setBiz('logo', undefined)}>
+                    Remove
+                  </Button>
+                )}
+                <input
+                  ref={logoInput}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  hidden
+                  aria-label="Logo"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!f) return;
+                    if (f.size > 5 * 1024 * 1024) return setError('Choose a logo smaller than 5 MB.');
+                    setBiz('logo', await logoDataUrl(f));
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        </details>
+          </details>
+        )}
 
         {mode === 'doc' && (
           <>
@@ -896,55 +966,57 @@ export function ReceiptMaker() {
         )}
       </div>
 
-      <aside className="rk-preview" aria-label="Preview">
-        <div className="rk-paper">
-          <canvas
-            ref={canvas}
-            aria-label={
-              mode === 'book'
-                ? `Preview of the first page of the ${TITLES[book.kind].modern.toLowerCase()} book`
-                : `Preview of ${TITLES[doc.kind].modern.toLowerCase()} ${doc.number}`
-            }
-          />
-        </div>
-        {mode === 'doc' && pages > 1 && <p className="muted rk-hint">{pages} pages · preview shows the first</p>}
-        {mode === 'book' && <p className="muted rk-hint">Preview shows the first sheet. Print at 100% (actual size).</p>}
-        {error === SIGN_IN ? (
-          <p className="tool-error" role="alert">
-            The check QR code needs a free Rokela PDF account. <Link href={`/signin?next=${encodeURIComponent('/receipts')}`}>Sign in or create one</Link>, or
-            untick “QR code to check it”.
-          </p>
-        ) : (
-          error && (
+      {mode !== 'ledger' && (
+        <aside className="rk-preview" aria-label="Preview">
+          <div className="rk-paper">
+            <canvas
+              ref={canvas}
+              aria-label={
+                mode === 'book'
+                  ? `Preview of the first page of the ${TITLES[book.kind].modern.toLowerCase()} book`
+                  : `Preview of ${TITLES[doc.kind].modern.toLowerCase()} ${doc.number}`
+              }
+            />
+          </div>
+          {mode === 'doc' && pages > 1 && <p className="muted rk-hint">{pages} pages · preview shows the first</p>}
+          {mode === 'book' && <p className="muted rk-hint">Preview shows the first sheet. Print at 100% (actual size).</p>}
+          {error === SIGN_IN ? (
             <p className="tool-error" role="alert">
-              {error}
+              The check QR code needs a free Rokela PDF account. <Link href={`/signin?next=${encodeURIComponent('/receipts')}`}>Sign in or create one</Link>, or
+              untick “QR code to check it”.
             </p>
-          )
-        )}
-        <div className="rk-actions">
-          <Button kind="primary" onClick={download} disabled={busy}>
-            <Download size={17} aria-hidden="true" /> {mode === 'book' ? `Download book (${bookSheets} sheet${bookSheets === 1 ? '' : 's'})` : 'Download PDF'}
-          </Button>
-          {canShare && (
-            <Button onClick={share} disabled={busy}>
-              <Share2 size={17} aria-hidden="true" /> Share
-            </Button>
+          ) : (
+            error && (
+              <p className="tool-error" role="alert">
+                {error}
+              </p>
+            )
           )}
-          {mode === 'doc' && (
-            <Button
-              kind="ghost"
-              onClick={() => {
-                const p = { ...prefs, counters: { ...prefs.counters, [doc.kind]: Math.max(prefs.counters[doc.kind], numberOf(doc.number)) } };
-                setPrefs(p);
-                setDoc({ ...blankDoc(doc.kind, p), style: doc.style, size: doc.size, currency: doc.currency });
-              }}
-            >
-              <FilePlus2 size={17} aria-hidden="true" /> Next {doc.kind === 'proforma' ? 'quotation' : doc.kind}
+          <div className="rk-actions">
+            <Button kind="primary" onClick={download} disabled={busy}>
+              <Download size={17} aria-hidden="true" /> {mode === 'book' ? `Download book (${bookSheets} sheet${bookSheets === 1 ? '' : 's'})` : 'Download PDF'}
             </Button>
-          )}
-        </div>
-        <p className="muted rk-hint">Made on this device: your business details, numbers and prices stay in this browser.</p>
-      </aside>
+            {canShare && (
+              <Button onClick={share} disabled={busy}>
+                <Share2 size={17} aria-hidden="true" /> Share
+              </Button>
+            )}
+            {mode === 'doc' && (
+              <Button
+                kind="ghost"
+                onClick={() => {
+                  const p = { ...prefs, counters: { ...prefs.counters, [doc.kind]: Math.max(prefs.counters[doc.kind], numberOf(doc.number)) } };
+                  setPrefs(p);
+                  setDoc({ ...blankDoc(doc.kind, p), style: doc.style, size: doc.size, currency: doc.currency });
+                }}
+              >
+                <FilePlus2 size={17} aria-hidden="true" /> Next {doc.kind === 'proforma' ? 'quotation' : doc.kind}
+              </Button>
+            )}
+          </div>
+          <p className="muted rk-hint">Made on this device: your business details, numbers and prices stay in this browser.</p>
+        </aside>
+      )}
 
       <SignaturePad
         open={sigOpen}

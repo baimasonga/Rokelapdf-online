@@ -72,6 +72,8 @@ export interface BizDoc {
   /** Stamp picture (PNG data URL from the Stamp Studio), and a PAID stamp when paid in full. */
   stamp?: string;
   paidStamp?: string;
+  /** Receipt: the invoice number this payment is for (sales ledger). */
+  against?: string;
   /** Receipt check (docs/receipt-checks.md): the public page the QR code on the document opens, and its code. */
   check?: { url: string; code: string };
 }
@@ -194,6 +196,13 @@ export function amountInWords(amount: number, currency: Currency = 'NLe'): strin
 }
 
 /** "26 October 2026" for a yyyy-mm-dd date (as written on documents); empty for an empty date. */
+/** "2026-09-04" → "4 Sep 2026" */
+export function shortDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return '';
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export function longDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!m) return '';
