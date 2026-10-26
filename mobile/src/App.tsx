@@ -56,7 +56,7 @@ import {
 import { norm } from '@/lib/editor/model';
 import { MIME, PDF_MIME, isPdf, native, onIncoming, saveFile, scanDocument, shareFile, shareFiles, takeIncoming, type PdfFile } from './native';
 import { PasswordRequired, openPdf, renderPage, type OpenPdf } from './pdf';
-import { OFFICE_EXTENSIONS, SITE, convert, currentSession, renamed, signIn, signOut, type Target } from './account';
+import { OFFICE_EXTENSIONS, PLAY_BUILD, SITE, convert, currentSession, renamed, signIn, signOut, type Target } from './account';
 import { SignLayer, SignaturePad, signPdf, type Placed } from './sign';
 import { COLORS, EditLayer, HINTS, TOOLS, TextSheet, editPdf, newItemId, type EditState, type Item, type Tool } from './edit';
 import { Pages, moveSelected, organize, sheetsOf, type Sheet as PageSheet } from './pages';
@@ -154,7 +154,7 @@ export function App() {
   const usage = useRef<ReturnType<typeof createUsageReporter> | undefined>(undefined);
   const [usageEnabled, setUsageEnabled] = useState(true);
   const trackUsage = (feature: Parameters<ReturnType<typeof createUsageReporter>['track']>[0]) => {
-    if (!native) return;
+    if (!native || PLAY_BUILD) return;
     const major = /Android (\d{1,2})(?:[.; ]|$)/.exec(navigator.userAgent)?.[1];
     usage.current?.track(
       feature,
@@ -164,7 +164,7 @@ export function App() {
     );
   };
   useEffect(() => {
-    if (!native) return;
+    if (!native || PLAY_BUILD) return;
     try {
       usage.current = createUsageReporter({ storage: localStorage });
     } catch {
@@ -703,7 +703,7 @@ export function App() {
             </section>
             {!native ? <p className="note">Preview in a browser: scanning and “Open with” need the Android app.</p> : null}
             {version ? <p className="version">Version {version}</p> : null}
-            {native ? (
+            {native && !PLAY_BUILD ? (
               <section aria-label="Usage privacy" className="note">
                 <label>
                   <input

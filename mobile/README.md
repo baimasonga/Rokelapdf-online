@@ -94,7 +94,7 @@ npm run apk   # typecheck, build, cap sync, then android/app/build/outputs/apk/d
 
 ## Basic usage reporting
 
-Native Android builds report app opens and home-screen tool selections to Warrior's
+Direct-download native Android builds report app opens and home-screen tool selections to Warrior's
 fixed `/v1/mobile/rokela-pdf/events` endpoint. **Usage privacy → Share basic app usage**
 on the home screen disables reporting and clears unsent events. Reports contain a
 random installation ID, app version, Android major version and phone/tablet class;
@@ -106,7 +106,7 @@ configured; otherwise it remains unknown. The client does not request location a
 The offline queue holds at most 100 events for seven days and sends at most 20 per
 batch, with stable IDs for retries. A five-second timeout and backoff keep failures
 independent of document tools. These are unverified usage assertions, not installation
-verification or completed-tool results. Browser preview builds do not send reports.
+verification or completed-tool results. Browser preview and Google Play builds do not send reports.
 
 Run `npm run test:analytics` in `mobile/` for queue, retry, privacy and acknowledgement
 checks. The Android release workflow runs these before building the APK. Existing
