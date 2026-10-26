@@ -386,6 +386,49 @@ async function main() {
     await page.locator('.ready', { hasText: '.pptx is ready' }).waitFor();
     check(converted.includes('/api/v1/convert/xlsx') && converted.includes('/api/v1/convert/pptx'), 'PDF → Excel and PowerPoint go through the converter');
 
+    step('Receipts and the sales ledger');
+    await page.goto(ORIGIN);
+    await page.locator('.tool-grid').getByRole('button', { name: 'Receipts & invoices', exact: true }).click();
+    const bizSheet = page.getByRole('dialog', { name: 'Your business' });
+    await bizSheet.getByLabel('Business name').fill('Kamara & Sons Hardware');
+    await bizSheet.getByLabel('Phone numbers').fill('+232 76 123 456');
+    await bizSheet.getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('radio', { name: 'Invoice', exact: true }).click();
+    await page.getByLabel('Bill to').fill('Sunrise Construction Ltd');
+    await page.getByLabel('Item 1', { exact: true }).fill('Cement, 50 kg bag');
+    await page.getByLabel('Quantity 1').fill('10');
+    await page.getByLabel('Price 1').fill('155');
+    let rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const invoice = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(
+      invoice.text.includes('Kamara & Sons Hardware') && invoice.text.includes('INV-0001') && invoice.text.includes('1,550.00'),
+      'an invoice is made on the phone in the website’s layout',
+    );
+    await page.getByRole('radio', { name: 'Sales ledger' }).click();
+    await page.getByRole('button', { name: 'Record payment' }).click();
+    check((await page.getByLabel('Payment for invoice').inputValue()) === 'INV-0001', 'Record payment opens a receipt for that invoice');
+    await page.getByLabel('Price 1').fill('550');
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const receipt = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(receipt.text.includes('Payment for invoice INV-0001') && receipt.text.includes('550.00'), 'the payment receipt is made');
+    await page.getByRole('radio', { name: 'Sales ledger' }).click();
+    await page.getByText('Owes 1,000.00').waitFor();
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Statement' }).click();
+    const st = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(st.text.includes('Statement of account') && st.text.includes('NLe 1,000.00'), 'the ledger shows 1,000.00 owed, and the statement says so');
+    await page.getByRole('radio', { name: 'New document' }).click();
+    await page.getByLabel('Paper').selectOption('58mm');
+    await page.getByLabel('Item 1', { exact: true }).fill('Rice, 25 kg');
+    await page.getByLabel('Price 1').fill('480');
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const slipBytes = new Uint8Array(readFileSync(await (await rdl).path()));
+    const slipWidth = (await PDFDocument.load(slipBytes)).getPage(0).getWidth();
+    check(Math.round((slipWidth * 25.4) / 72) === 58, 'a 58 mm till slip is made at the width of the roll');
+
     step('Pro tools (src/lib/licensing.ts)');
     site.launched = '2026-01-01T00:00:00.000Z';
     site.access = { access: 'none', until: null, reason: 'trial_ended' };
@@ -413,6 +456,14 @@ async function main() {
     await input('application/pdf,.pdf', true).setInputFiles([file('agreement.pdf'), file('annex.pdf')]);
     await page.getByRole('dialog', { name: 'Merging is a Pro tool' }).waitFor();
     ok('combining is merging, so it asks too');
+
+    await page.goto(ORIGIN);
+    await page.locator('.tool-grid').getByRole('button', { name: 'Receipts & invoices', exact: true }).click();
+    await page.getByLabel('Item 1', { exact: true }).fill('Nails, 1 kg');
+    await page.getByLabel('Price 1').fill('40');
+    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Receipt Maker is a Pro tool' }).waitFor();
+    ok('after the free month, making a receipt asks for a licence');
 
     const inMonth = new Date(Date.now() + 10 * 86400000).toISOString();
     site.access = { access: 'trial', until: inMonth };

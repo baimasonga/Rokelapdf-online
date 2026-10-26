@@ -1,4 +1,4 @@
-import { DEFAULT_BUSINESS, DEFAULT_FOOTERS, type Business, type Currency, type DocKind, type DocStyle, type PageSize } from './model';
+import { DEFAULT_BUSINESS, DEFAULT_FOOTERS, docNumber, type BizDoc, type Business, type Currency, type DocKind, type DocStyle, type PageSize } from './model';
 
 // The business's settings for the Receipt Maker, kept in this browser only: its profile, the last number of each
 // kind of document, its usual items and prices, and how it likes its documents. Nothing is uploaded.
@@ -94,5 +94,71 @@ export function savePrefs(p: ReceiptPrefs): void {
     localStorage.setItem(KEY, JSON.stringify(p));
   } catch {
     // Private windows and full storage: settings last until the page closes.
+  }
+}
+
+// ---- documents from the settings (shared by the website and the Android app) ------------------------------------
+/** A local date as yyyy-mm-dd. */
+export const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const inDays = (n: number) => isoDate(new Date(Date.now() + n * 86_400_000));
+/** The running number at the end of a document number ("INV-0213" → 213). */
+export const numberOf = (s: string) => Number(/(\d+)\D*$/.exec(s)?.[1] ?? 0);
+
+/** A new, empty document of this kind with the next number and the business's usual choices. */
+export function newDoc(kind: DocKind, p: ReceiptPrefs): BizDoc {
+  return {
+    kind,
+    style: p.style,
+    size: p.size,
+    currency: p.currency,
+    number: docNumber(kind, p.counters[kind] + 1),
+    date: isoDate(new Date()),
+    until: kind === 'invoice' ? inDays(30) : kind === 'proforma' ? inDays(14) : '',
+    customer: '',
+    customerDetails: '',
+    reference: kind === 'invoice' ? 'Credit, 30 days' : '',
+    lines: [{ qty: 1, item: '', rate: 0 }],
+    discount: 0,
+    delivery: 0,
+    gst: false,
+    paid: 0,
+    method: 'Cash',
+    payRef: '',
+    notes: '',
+    footer: p.footers[kind],
+    counterfoil: true,
+    officeCopy: false,
+    signedBy: p.signedBy,
+  };
+}
+
+/** The settings after a document is made: its number is used, its prices and footer remembered. */
+export function afterDoc(p: ReceiptPrefs, doc: BizDoc): ReceiptPrefs {
+  const items = { ...p.items };
+  for (const l of doc.lines) if (l.item.trim() && l.rate > 0) items[l.item.trim().slice(0, 120)] = l.rate;
+  return {
+    ...p,
+    counters: { ...p.counters, [doc.kind]: Math.max(p.counters[doc.kind], numberOf(doc.number)) },
+    items: Object.fromEntries(Object.entries(items).slice(-300)),
+    footers: { ...p.footers, [doc.kind]: doc.footer },
+    signedBy: doc.signedBy,
+  };
+}
+
+/** Shrinks a chosen logo so it stays small in saved settings and in every document (browser only). */
+export async function logoDataUrl(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const k = Math.min(1, 320 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width * k));
+    c.height = Math.max(1, Math.round(img.height * k));
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
