@@ -43,6 +43,7 @@ import {
   PenTool,
   Plus,
   Presentation,
+  ReceiptText,
   RotateCw,
   ScanText,
   Scissors,
@@ -66,10 +67,12 @@ import type { PaidFeature } from '@/lib/licensing';
 import { AppBar, BarButton, IconButton, Progress, Row, Sheet, ToolTile, type ToolDef } from './ui';
 import { RECENT_MAX, forget, openRecent, recentFiles, remember, type Recent } from './recent';
 import logo from '@/../public/brand/rokela-icon.png';
+import { Receipts } from './receipts';
 
 type View = { k: 'view'; file: PdfFile; pdf: OpenPdf; id: number };
 type Screen =
   | { k: 'home' }
+  | { k: 'receipts' }
   | View
   | { k: 'convert'; from?: View; then?: Target }
   | { k: 'pages'; from: View; sources: Uint8Array[]; docs: PDFDocumentProxy[]; extra: OpenPdf[]; sheets: PageSheet[] };
@@ -120,6 +123,7 @@ const C = {
   create: '#d9468f',
   export: '#6b4fd8',
   form: '#3a7d44',
+  receipts: '#c2410c',
 };
 
 /** A picture for the Image tool: scaled to a sensible size and kept as PNG or JPEG for embedding. */
@@ -300,6 +304,8 @@ export function App() {
 
   // Android's Back button: close what is open (sheet, signing, editing), then go back a screen; exit only from home.
   const onBack = useRef<() => boolean>(() => false);
+  /** The Receipts screen's own sheets (signature, business), closed by Back before the screen itself. */
+  const receiptsBack = useRef<(() => boolean) | undefined>(undefined);
   onBack.current = () => {
     if (busy) return true;
     if (pad) return (setPad(false), true);
@@ -307,6 +313,7 @@ export function App() {
     if (placed) return (setPlaced(undefined), true);
     if (edit) return (setEdit(undefined), true);
     if (screen.k === 'pages' && selected.size) return (setSelected(new Set()), true);
+    if (screen.k === 'receipts' && receiptsBack.current?.()) return true;
     if (screen.k !== 'home') return (back(), true);
     return false;
   };
@@ -580,6 +587,7 @@ export function App() {
     { id: 'combine', label: 'Combine files', icon: Combine, color: C.combine, run: () => many.current?.click() },
     { id: 'photos', label: 'Photos to PDF', icon: Images, color: C.create, run: () => photos.current?.click() },
     { id: 'office', label: 'Office to PDF', icon: FileInput, color: C.edit, run: () => openAccount() },
+    { id: 'receipts', label: 'Receipts & invoices', icon: ReceiptText, color: C.receipts, run: () => (clearMessages(), setScreen({ k: 'receipts' })) },
   ];
   const snack = error ? (
     <div className="snackbar error" role="alert">
@@ -879,6 +887,20 @@ export function App() {
             <BarButton icon={ChevronRight} label="Move later" disabled={!selected.size} onClick={() => editSheets((all) => moveSelected(all, selected, 1))} />
             <BarButton icon={Trash2} label="Delete" disabled={!selected.size} onClick={deleteSelected} />
           </nav>
+        </>
+      ) : null}
+
+      {screen.k === 'receipts' ? (
+        <>
+          <Receipts
+            onBack={back}
+            run={run}
+            paid={(go) => void paid('receipts', go)}
+            setError={(m) => setError(m)}
+            setNotice={(m) => setNotice(m)}
+            backRef={receiptsBack}
+          />
+          {snack}
         </>
       ) : null}
 

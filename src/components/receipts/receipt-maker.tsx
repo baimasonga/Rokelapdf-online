@@ -27,7 +27,7 @@ import {
   type PayMethod,
 } from '@/lib/receipts/model';
 import { BLANK_BOOK_MAX, buildBizDoc, buildBlankBook, type BlankBook } from '@/lib/receipts/pdf';
-import { DEFAULT_PREFS, loadPrefs, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
+import { DEFAULT_PREFS, afterDoc, isoDate, loadPrefs, logoDataUrl, newDoc, numberOf, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
 import { entryFromDoc, loadLedger, openInvoices, saveLedger, setVoid, upsert, type LedgerEntry } from '@/lib/receipts/ledger';
 import { LedgerView } from './ledger-view';
 import { TEMPLATES, newStamp } from '@/lib/stamp/design';
@@ -43,9 +43,7 @@ const KINDS: Array<[DocKind, string]> = [
   ['invoice', 'Invoice'],
   ['proforma', 'Proforma'],
 ];
-const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const inDays = (n: number) => iso(new Date(Date.now() + n * 86_400_000));
-const numberOf = (s: string) => Number(/(\d+)\D*$/.exec(s)?.[1] ?? 0);
+const iso = isoDate;
 /** A stable number from text, so a document keeps the same stamp impression while it is edited. */
 const seedOf = (s: string) => [...s].reduce((h, ch) => (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0, 7);
 /** Shown in the preview until the document is registered: the real code is made when it is downloaded. */
@@ -60,50 +58,7 @@ interface Check {
   sha256: string | null;
 }
 
-function blankDoc(kind: DocKind, p: ReceiptPrefs): BizDoc {
-  return {
-    kind,
-    style: p.style,
-    size: p.size,
-    currency: p.currency,
-    number: docNumber(kind, p.counters[kind] + 1),
-    date: iso(new Date()),
-    until: kind === 'invoice' ? inDays(30) : kind === 'proforma' ? inDays(14) : '',
-    customer: '',
-    customerDetails: '',
-    reference: kind === 'invoice' ? 'Credit, 30 days' : '',
-    lines: [{ qty: 1, item: '', rate: 0 }],
-    discount: 0,
-    delivery: 0,
-    gst: false,
-    paid: 0,
-    method: 'Cash',
-    payRef: '',
-    notes: '',
-    footer: p.footers[kind],
-    counterfoil: true,
-    officeCopy: false,
-    signedBy: p.signedBy,
-  };
-}
-
-/** Shrinks a chosen logo so it stays small in saved settings and in every document. */
-async function logoDataUrl(file: File): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    const k = Math.min(1, 320 / Math.max(img.width, img.height));
-    const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(img.width * k));
-    c.height = Math.max(1, Math.round(img.height * k));
-    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL('image/png');
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
+const blankDoc = newDoc;
 
 export function ReceiptMaker() {
   const paid = usePaid();
@@ -247,17 +202,7 @@ export function ReceiptMaker() {
       const bytes = prefs.check ? await checkedPdf() : await buildBizDoc(biz, full);
       if (!bytes) return undefined;
       setLedger((l) => upsert(l, entryFromDoc(doc)));
-      setPrefs((p) => {
-        const items = { ...p.items };
-        for (const l of doc.lines) if (l.item.trim() && l.rate > 0) items[l.item.trim().slice(0, 120)] = l.rate;
-        return {
-          ...p,
-          counters: { ...p.counters, [doc.kind]: Math.max(p.counters[doc.kind], numberOf(doc.number)) },
-          items: Object.fromEntries(Object.entries(items).slice(-300)),
-          footers: { ...p.footers, [doc.kind]: doc.footer },
-          signedBy: doc.signedBy,
-        };
-      });
+      setPrefs((p) => afterDoc(p, doc));
       return { bytes, name: `${TITLES[doc.kind].modern} ${doc.number}${doc.customer ? ` - ${doc.customer}` : ''}.pdf`.replace(/[\\/:*?"<>|]+/g, ' ') };
     } catch (e) {
       setError((e as Error).message);
@@ -593,6 +538,8 @@ export function ReceiptMaker() {
                       ...(hit
                         ? {
                             customer: d.customer.trim() ? d.customer : hit.inv.customer,
+                            // A payment is in the invoice's currency, or the ledger would count it against the wrong total.
+                            currency: hit.inv.currency,
                             lines: d.lines.some((l) => l.item.trim())
                               ? d.lines
                               : [{ qty: 1, item: `Payment for invoice ${hit.inv.number}`, rate: hit.balance }],

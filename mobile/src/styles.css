@@ -883,3 +883,175 @@ button.ghost {
   bottom: auto;
   z-index: 9;
 }
+
+/* ---- receipts ---------------------------------------------------------------------------------------------- */
+.rcpt {
+  display: grid;
+  gap: 14px;
+  padding: 12px 14px 120px;
+}
+.rcpt .card {
+  gap: 12px;
+  padding: 16px 14px;
+}
+.rcpt .card h2 {
+  font-size: 17px;
+}
+.rcpt select,
+.rcpt textarea,
+.rcpt-biz input,
+.rcpt-biz select {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #c9d1e0;
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+  font-size: 16px;
+}
+.rcpt-biz label {
+  display: grid;
+  gap: 6px;
+  font-weight: 500;
+  font-size: 14px;
+}
+.rcpt-biz input[type='color'],
+.rcpt input[type='color'] {
+  height: 46px;
+  padding: 4px;
+}
+.rcpt-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.rcpt-two > label {
+  min-width: 0;
+}
+/* Date fields have a wide intrinsic size in Android's WebView; keep them inside their column. */
+.rcpt input[type='date'] {
+  min-width: 0;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.rcpt-line {
+  display: grid;
+  grid-template-columns: 64px auto minmax(0, 1fr) auto 40px;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.rcpt-line .rcpt-item {
+  grid-column: 1 / -1;
+}
+.rcpt .card .rcpt-line input {
+  padding: 10px;
+}
+.rcpt-line b {
+  min-width: 72px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rcpt-line .icon-btn {
+  width: 40px;
+  height: 40px;
+}
+.rcpt .pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.rcpt-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 17px;
+}
+.rcpt-hint {
+  margin: 0;
+  font-size: 13px;
+}
+.rcpt-more {
+  justify-self: start;
+  padding-left: 0;
+  text-align: left;
+  font-size: 15px;
+}
+.rcpt-preview {
+  display: grid;
+  place-items: center;
+  padding: 16px 0;
+  border-radius: var(--radius);
+  background: var(--canvas);
+}
+.rcpt-preview canvas {
+  display: block;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(15, 31, 61, 0.18);
+}
+.rcpt-actions {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 8px;
+}
+.rcpt-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.rcpt-tiles > div {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.rcpt-tiles span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.rcpt-tiles b {
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+.rcpt-tiles .late {
+  background: #fdeceb;
+}
+.rcpt-tiles .late b,
+.rcpt-entry .late {
+  color: #a3281f;
+}
+.rcpt-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.rcpt-entry > div {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.rcpt-entry strong,
+.rcpt-entry span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rcpt-entry span {
+  font-size: 13px;
+}
+.rcpt-entry.void strong {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.pill.small {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 14px;
+}
