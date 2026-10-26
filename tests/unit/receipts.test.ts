@@ -275,6 +275,12 @@ describe('blank receipt books', () => {
     expect(first).toContain('Pay to Rokel Commercial Bank');
   });
 
+  it('prints an A4 book one page per A4 sheet even if two-to-a-sheet was ticked for A5', async () => {
+    const d = await PDFDocument.load(await buildBlankBook(biz, book({ size: 'A4', twoUp: true })));
+    expect(d.getPageCount()).toBe(3);
+    expect([Math.round(d.getPage(0).getWidth()), Math.round(d.getPage(0).getHeight())]).toEqual([595, 842]);
+  });
+
   it(`stops at ${BLANK_BOOK_MAX} numbers`, async () => {
     const d = await PDFDocument.load(await buildBlankBook(biz, book({ size: 'A4', count: 10_000, start: 1 })));
     expect(d.getPageCount()).toBe(BLANK_BOOK_MAX);

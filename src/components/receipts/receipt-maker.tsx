@@ -130,6 +130,8 @@ export function ReceiptMaker() {
     footer: DEFAULT_PREFS.footers.receipt,
     notes: '',
   });
+  /** Two to a sheet applies to A5 pages only (the box is hidden for A4, and keeps its value for when A5 is chosen again). */
+  const bookTwoUp = book.twoUp && book.size === 'A5';
   const setB = <K extends keyof BlankBook>(k: K, v: BlankBook[K]) => setBook((b) => ({ ...b, [k]: v }));
   /** The last receipt check registered, and the facts it vouches for, so downloading again reuses it. */
   const issued = useRef<{ facts: string; doc: string; check: Check }>(undefined);
@@ -185,7 +187,7 @@ export function ReceiptMaker() {
     const timer = setTimeout(async () => {
       try {
         // A book previews its first sheet only; the whole book is made on download.
-        const bytes = mode === 'book' ? await buildBlankBook(biz, { ...book, count: book.twoUp && !book.officeCopy ? 2 : 1 }) : await buildBizDoc(biz, full);
+        const bytes = mode === 'book' ? await buildBlankBook(biz, { ...book, count: bookTwoUp && !book.officeCopy ? 2 : 1 }) : await buildBizDoc(biz, full);
         pdfDoc = await openPdf(bytes);
         if (!live) return;
         if (mode === 'doc') setPages(pdfDoc.numPages);
@@ -257,7 +259,7 @@ export function ReceiptMaker() {
   }
 
   const bookCount = Math.min(BLANK_BOOK_MAX, Math.max(1, Math.floor(book.count) || 1));
-  const bookSheets = Math.ceil((bookCount * (book.officeCopy ? 2 : 1)) / (book.twoUp ? 2 : 1));
+  const bookSheets = Math.ceil((bookCount * (book.officeCopy ? 2 : 1)) / (bookTwoUp ? 2 : 1));
 
   /** The whole blank book, after the Pro check. */
   async function finishBook(): Promise<{ bytes: Uint8Array; name: string } | undefined> {
@@ -472,7 +474,7 @@ export function ReceiptMaker() {
             <p className="rk-total">
               {docNumber(book.kind, book.start)} to {docNumber(book.kind, book.start + bookCount - 1)}{' '}
               <b>
-                {bookSheets} {book.size === 'A5' && !book.twoUp ? 'A5' : 'A4'} sheet{bookSheets === 1 ? '' : 's'}
+                {bookSheets} {book.size === 'A5' && !bookTwoUp ? 'A5' : 'A4'} sheet{bookSheets === 1 ? '' : 's'}
               </b>
             </p>
             <p className="muted rk-hint">

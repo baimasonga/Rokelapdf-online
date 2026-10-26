@@ -868,7 +868,9 @@ export const BLANK_BOOK_MAX = 200;
 export async function buildBlankBook(biz: Business, o: BlankBook): Promise<Uint8Array> {
   const count = Math.min(BLANK_BOOK_MAX, Math.max(1, Math.floor(o.count)));
   const start = Math.max(1, Math.floor(o.start));
-  const size = o.twoUp ? 'A5' : o.size;
+  // Two to a sheet applies to A5 pages only; an A4 book is always one page per sheet.
+  const twoUp = o.twoUp && o.size === 'A5';
+  const size = o.size;
   const pdf = await PDFDocument.create();
   pdf.setTitle(`${TITLES[o.kind].modern} book ${docNumber(o.kind, start)}–${docNumber(o.kind, start + count - 1)}`);
   pdf.setAuthor(t(biz.name) || 'Rokela PDF');
@@ -912,7 +914,7 @@ export async function buildBlankBook(biz: Business, o: BlankBook): Promise<Uint8
     await drawCopy({ ...base, copy: o.officeCopy ? 'CUSTOMER COPY' : '' });
     if (o.officeCopy) await drawCopy({ ...base, copy: 'OFFICE COPY' });
   }
-  if (!o.twoUp) return pdf.save({ useObjectStreams: true });
+  if (!twoUp) return pdf.save({ useObjectStreams: true });
 
   // Two A5 pages on each landscape A4 sheet, with a dashed line to cut along.
   const sheet = await PDFDocument.create();
