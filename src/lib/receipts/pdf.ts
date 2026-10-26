@@ -14,7 +14,21 @@ import {
 import { dataUrlBytes } from '../editor/export';
 import { encodeQr } from '../qr';
 import { drawableText } from '../editor/model';
-import { amountInWords, isSlip, lineAmount, longDate, money, TITLES, totals, type BizDoc, type Business, type Totals } from './model';
+import {
+  amountInWords,
+  docNumber,
+  isSlip,
+  lineAmount,
+  longDate,
+  money,
+  TITLES,
+  totals,
+  type BizDoc,
+  type Business,
+  type Currency,
+  type DocKind,
+  type Totals,
+} from './model';
 
 // Lays out a business document (receipt, invoice, proforma) as a real PDF: selectable text, small files, A4 or A5,
 // in the "receipt book" style (a printed carbon book filled in in blue) or the "modern" style (clean page, the
@@ -171,6 +185,8 @@ interface Ctx {
   stamp?: PDFImage;
   paidStamp?: PDFImage;
   copy: string;
+  /** A blank page of a printed receipt book: the layout and number only, filled in by hand. */
+  blank?: boolean;
 }
 
 const MONEY = (c: Ctx, n: number) => `${c.doc.currency} ${money(n)}`;
@@ -320,11 +336,12 @@ function modernTail(c: Ctx, cv: Canvas, y: number) {
 // ============================================ receipt book ==============================================
 function bookPage(c: Ctx, cv: Canvas, first: boolean): { x0: number; y: number } {
   const k = cv.W / 595.28;
-  cv.rect(0, 0, cv.W, cv.H, { fill: rgb(0.984, 0.965, 0.91) });
+  // The cream of a carbon book, except on blank books, which are printed and should not spend ink on it.
+  if (!c.blank) cv.rect(0, 0, cv.W, cv.H, { fill: rgb(0.984, 0.965, 0.91) });
   const stub = c.doc.counterfoil && c.doc.kind === 'receipt';
   const sw = stub ? 92 * k : 0;
   if (stub) {
-    cv.rect(0, 0, sw, cv.H, { fill: rgb(0.953, 0.918, 0.824) });
+    if (!c.blank) cv.rect(0, 0, sw, cv.H, { fill: rgb(0.953, 0.918, 0.824) });
     cv.line(sw, 0, sw, cv.H, { color: rgb(0.72, 0.68, 0.56), width: 1.2 * k, dash: [3 * k, 3 * k] });
     const s = 9 * k;
     let y = 24 * k;
@@ -348,7 +365,7 @@ function bookPage(c: Ctx, cv: Canvas, first: boolean): { x0: number; y: number }
         .filter(Boolean)
         .join(', '),
     );
-    stubField(c.doc.currency, money(c.sum.total));
+    stubField(c.doc.currency, c.blank ? '' : money(c.sum.total));
   }
   const x0 = sw + 28 * k;
   const x1 = cv.W - 28 * k;
@@ -495,17 +512,21 @@ function bookTail(c: Ctx, cv: Canvas, x0: number, y: number) {
       color: c.main,
       align: 'right',
     });
-    cv.text(`${n < 0 ? '– ' : ''}${money(Math.abs(n))}`, col.x1 - 6 * k, y + 4.5 * k, {
-      size: (big ? 11 : 9.5) * k,
-      font: c.f.bold,
-      color: big && c.doc.kind !== 'receipt' ? RED : INK,
-      align: 'right',
-    });
+    if (!c.blank)
+      cv.text(`${n < 0 ? '– ' : ''}${money(Math.abs(n))}`, col.x1 - 6 * k, y + 4.5 * k, {
+        size: (big ? 11 : 9.5) * k,
+        font: c.f.bold,
+        color: big && c.doc.kind !== 'receipt' ? RED : INK,
+        align: 'right',
+      });
     y += h;
   }
   y += 10 * k;
   const W = col.x1 - col.x0;
-  y += field(c, cv, 'Amount in words', amountInWords(c.doc.kind === 'invoice' ? c.sum.total : grand[1], c.doc.currency), x0, y, W);
+  const words = c.blank ? '' : amountInWords(c.doc.kind === 'invoice' ? c.sum.total : grand[1], c.doc.currency);
+  y += field(c, cv, 'Amount in words', words, x0, y, W);
+  // A blank book leaves room to write the amount on a second line.
+  if (c.blank) y += field(c, cv, '', '', x0, y, W);
   if (c.doc.kind === 'receipt') {
     // Payment method tick boxes, as printed in receipt books.
     const s = 8.5 * k;
@@ -527,7 +548,7 @@ function bookTail(c: Ctx, cv: Canvas, x0: number, y: number) {
       x += w;
     }
     y += 18 * k;
-    if (c.doc.payRef.trim()) y += field(c, cv, 'Ref. / Transaction ID', c.doc.payRef, x0, y, W);
+    if (c.doc.payRef.trim() || c.blank) y += field(c, cv, 'Ref. / Transaction ID', c.doc.payRef, x0, y, W);
   } else if (c.doc.notes.trim()) {
     if (c.doc.kind === 'invoice') y += field(c, cv, 'Pay to', c.doc.notes, x0, y, W);
     else {
@@ -767,7 +788,8 @@ async function drawCopy(c: Ctx) {
   let { x0, y } = bookPage(c, cv, true);
   let tail = reserve(x0);
   y = bookTableHead(c, cv, x0, bookFields(c, cv, x0, y));
-  const minRows = c.doc.size === 'A5' ? 6 : 12;
+  // A blank book rules every line that fits above the totals.
+  const minRows = c.blank ? 60 : c.doc.size === 'A5' ? 6 : 12;
   for (let i = 0; i < Math.max(lines.length, minRows); i++) {
     if (y + 26 * k > H - 40 * k || (i === lines.length - 1 && y + 26 * k > H - tail)) {
       cv = new Canvas(c.pdf.addPage([W, H]), c.f);
@@ -819,4 +841,93 @@ export async function buildBizDoc(biz: Business, doc: BizDoc): Promise<Uint8Arra
   await drawCopy({ ...base, copy: doc.officeCopy ? 'CUSTOMER COPY' : '' });
   if (doc.officeCopy) await drawCopy({ ...base, copy: 'OFFICE COPY' });
   return pdf.save({ useObjectStreams: true });
+}
+
+export interface BlankBook {
+  kind: DocKind;
+  size: 'A4' | 'A5';
+  currency: Currency;
+  /** First number and how many to print. */
+  start: number;
+  count: number;
+  counterfoil: boolean;
+  /** Each number twice: CUSTOMER COPY, then OFFICE COPY. */
+  officeCopy: boolean;
+  /** Prints two A5 pages side by side on landscape A4, to be cut in half. */
+  twoUp: boolean;
+  footer: string;
+  /** Invoice: how to pay. Proforma: terms. Printed on every page. */
+  notes: string;
+}
+export const BLANK_BOOK_MAX = 200;
+
+/**
+ * A printable receipt book: numbered blank receipts, invoices or quotations in the receipt-book style, with the
+ * business's letterhead, to be filled in by hand.
+ */
+export async function buildBlankBook(biz: Business, o: BlankBook): Promise<Uint8Array> {
+  const count = Math.min(BLANK_BOOK_MAX, Math.max(1, Math.floor(o.count)));
+  const start = Math.max(1, Math.floor(o.start));
+  const size = o.twoUp ? 'A5' : o.size;
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(`${TITLES[o.kind].modern} book ${docNumber(o.kind, start)}–${docNumber(o.kind, start + count - 1)}`);
+  pdf.setAuthor(t(biz.name) || 'Rokela PDF');
+  pdf.setCreator('Rokela PDF receipts');
+  const fixed = new Date('2000-01-01T12:00:00Z');
+  pdf.setCreationDate(fixed);
+  pdf.setModificationDate(fixed);
+  const f: Fonts = {
+    regular: await pdf.embedFont(StandardFonts.Helvetica),
+    bold: await pdf.embedFont(StandardFonts.HelveticaBold),
+    italic: await pdf.embedFont(StandardFonts.HelveticaOblique),
+    mono: await pdf.embedFont(StandardFonts.CourierBold),
+  };
+  const logo = await embedImage(pdf, biz.logo);
+  for (let n = start; n < start + count; n++) {
+    const doc: BizDoc = {
+      kind: o.kind,
+      style: 'book',
+      size,
+      currency: o.currency,
+      number: docNumber(o.kind, n),
+      date: '',
+      until: '',
+      customer: '',
+      customerDetails: '',
+      reference: '',
+      lines: [],
+      discount: 0,
+      delivery: 0,
+      gst: false,
+      paid: 0,
+      method: '' as BizDoc['method'],
+      payRef: '',
+      notes: o.kind === 'receipt' ? '' : o.notes,
+      footer: o.footer,
+      counterfoil: o.counterfoil,
+      officeCopy: o.officeCopy,
+      signedBy: '',
+    };
+    const base = { pdf, f, biz, doc, sum: totals(doc), main: hex(biz.color), accent: hex(biz.accent), logo, blank: true };
+    await drawCopy({ ...base, copy: o.officeCopy ? 'CUSTOMER COPY' : '' });
+    if (o.officeCopy) await drawCopy({ ...base, copy: 'OFFICE COPY' });
+  }
+  if (!o.twoUp) return pdf.save({ useObjectStreams: true });
+
+  // Two A5 pages on each landscape A4 sheet, with a dashed line to cut along.
+  const sheet = await PDFDocument.create();
+  sheet.setTitle(pdf.getTitle() ?? 'Receipt book');
+  sheet.setAuthor(t(biz.name) || 'Rokela PDF');
+  sheet.setCreator('Rokela PDF receipts');
+  sheet.setCreationDate(fixed);
+  sheet.setModificationDate(fixed);
+  const pages = await sheet.embedPdf(await pdf.save(), pdf.getPageIndices());
+  const [W, H] = SIZES.A4;
+  for (let i = 0; i < pages.length; i += 2) {
+    const page = sheet.addPage([H, W]);
+    page.drawPage(pages[i]!, { x: 0, y: 0, width: H / 2, height: W });
+    if (pages[i + 1]) page.drawPage(pages[i + 1]!, { x: H / 2, y: 0, width: H / 2, height: W });
+    page.drawLine({ start: { x: H / 2, y: 0 }, end: { x: H / 2, y: W }, thickness: 0.5, color: rgb(0.6, 0.6, 0.6), dashArray: [4, 4] });
+  }
+  return sheet.save({ useObjectStreams: true });
 }

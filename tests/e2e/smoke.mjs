@@ -497,6 +497,15 @@ async function main() {
       'and an 80 mm till slip downloads at the width of the roll',
     );
     await shot(v, 'receipt-slip');
+    await v.getByRole('radio', { name: 'Print a blank book' }).click();
+    await v.getByLabel('First number').fill('5001');
+    await v.getByLabel('How many').fill('4');
+    const book = await fetchDownload(v.getByRole('button', { name: /Download book \(2 sheets\)/ }));
+    const bookDoc = await getDocument({ data: new Uint8Array(book.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const sheet = (await (await bookDoc.getPage(2)).getTextContent()).items.map((x) => x.str).join(' ');
+    check(bookDoc.numPages === 2 && sheet.includes('5003') && sheet.includes('5004'), 'a blank receipt book of 4 numbers prints two to an A4 sheet');
+    await shot(v, 'receipt-book');
 
     await v.goto(`${ORIGIN}/tools/create-fillable-pdf`);
     await v.getByTestId('tool-input').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: pdf });
