@@ -538,6 +538,8 @@ export function ReceiptMaker() {
                       ...(hit
                         ? {
                             customer: d.customer.trim() ? d.customer : hit.inv.customer,
+                            // A payment is in the invoice's currency, or the ledger would count it against the wrong total.
+                            currency: hit.inv.currency,
                             lines: d.lines.some((l) => l.item.trim())
                               ? d.lines
                               : [{ qty: 1, item: `Payment for invoice ${hit.inv.number}`, rate: hit.balance }],

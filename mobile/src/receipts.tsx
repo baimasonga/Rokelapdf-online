@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { ArrowLeft, Building2, FilePlus2, HandCoins, ImagePlus, Plus, RotateCcw, Save, Share2, Trash2, XCircle } from 'lucide-react';
 import {
   PAY_METHODS,
@@ -65,6 +65,8 @@ export function Receipts(props: {
   paid: (go: () => void) => void;
   setError: (m: string) => void;
   setNotice: (m: string) => void;
+  /** Android's Back button: set to a handler that closes this screen's own sheets first (true when it did). */
+  backRef: MutableRefObject<(() => boolean) | undefined>;
 }) {
   const { run, setError, setNotice } = props;
   const [prefs, setPrefs] = useState<ReceiptPrefs>(loadPrefs);
@@ -77,6 +79,17 @@ export function Receipts(props: {
   const canvas = useRef<HTMLCanvasElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
   useEffect(() => savePrefs(prefs), [prefs]);
+  const { backRef } = props;
+  useEffect(() => {
+    backRef.current = () => {
+      if (pad) return (setPad(false), true);
+      if (bizOpen) return (setBizOpen(false), true);
+      return false;
+    };
+    return () => {
+      backRef.current = undefined;
+    };
+  }, [backRef, pad, bizOpen]);
   useEffect(() => saveLedger(ledger), [ledger]);
 
   const biz = prefs.business;
@@ -138,10 +151,13 @@ export function Receipts(props: {
         void run('Making the PDF…', async () => {
           const bytes = await buildBizDoc(biz, full);
           const name = fileName(`${TITLES[doc.kind].modern} ${doc.number}${doc.customer.trim() ? ` - ${doc.customer.trim()}` : ''}.pdf`);
+          // Only a document that was actually shared or saved is recorded and uses up its number; cancelling the
+          // share sheet (it rejects) or the Save-to dialog (it returns false) leaves the ledger as it was.
+          if (how === 'share') await shareFile(name, bytes, PDF_MIME);
+          else if (!(await saveFile(name, bytes, PDF_MIME))) return;
           setLedger((l) => upsert(l, entryFromDoc(doc)));
           setPrefs((p) => afterDoc(p, doc));
-          if (how === 'share') await shareFile(name, bytes, PDF_MIME);
-          else if (await saveFile(name, bytes, PDF_MIME)) setNotice(`Saved ${name}.`);
+          if (how === 'save') setNotice(`Saved ${name}.`);
         }),
     );
   };
@@ -230,6 +246,8 @@ export function Receipts(props: {
                         ...(hit
                           ? {
                               customer: d.customer.trim() ? d.customer : hit.inv.customer,
+                              // A payment is in the invoice's currency, or the ledger would count it against the wrong total.
+                              currency: hit.inv.currency,
                               lines: d.lines.some((l) => l.item.trim())
                                 ? d.lines
                                 : [{ qty: 1, item: `Payment for invoice ${hit.inv.number}`, rate: hit.balance }],
