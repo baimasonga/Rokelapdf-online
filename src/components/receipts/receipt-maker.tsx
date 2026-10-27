@@ -83,6 +83,7 @@ export function ReceiptMaker() {
   });
   /** Two to a sheet applies to A5 pages only (the box is hidden for A4, and keeps its value for when A5 is chosen again). */
   const bookTwoUp = book.twoUp && book.size === 'A5';
+  const bookBasic = book.kind === 'receipt' && book.basic === true;
   const setB = <K extends keyof BlankBook>(k: K, v: BlankBook[K]) => setBook((b) => ({ ...b, [k]: v }));
   /** The last receipt check registered, and the facts it vouches for, so downloading again reuses it. */
   const issued = useRef<Issued>(undefined);
@@ -168,7 +169,10 @@ export function ReceiptMaker() {
     const timer = setTimeout(async () => {
       try {
         // A book previews its first sheet only; the whole book is made on download.
-        const bytes = mode === 'book' ? await buildBlankBook(biz, { ...book, count: bookTwoUp && !book.officeCopy ? 2 : 1 }) : await buildBizDoc(biz, full);
+        const bytes =
+          mode === 'book'
+            ? await buildBlankBook(biz, { ...book, count: bookBasic ? (book.officeCopy ? 2 : 4) : bookTwoUp && !book.officeCopy ? 2 : 1 })
+            : await buildBizDoc(biz, full);
         pdfDoc = await openPdf(bytes);
         if (!live) return;
         if (mode === 'doc') setPages(pdfDoc.numPages);
@@ -231,7 +235,7 @@ export function ReceiptMaker() {
   }
 
   const bookCount = Math.min(BLANK_BOOK_MAX, Math.max(1, Math.floor(book.count) || 1));
-  const bookSheets = Math.ceil((bookCount * (book.officeCopy ? 2 : 1)) / (bookTwoUp ? 2 : 1));
+  const bookSheets = Math.ceil((bookCount * (book.officeCopy ? 2 : 1)) / (bookBasic ? 4 : bookTwoUp ? 2 : 1));
 
   /** The whole blank book, after the Pro check. */
   async function finishBook(): Promise<{ bytes: Uint8Array; name: string } | undefined> {
@@ -376,27 +380,39 @@ export function ReceiptMaker() {
                 </button>
               ))}
             </span>
-            <div className="rk-row">
-              <span className="seg" role="radiogroup" aria-label="Page size">
-                {(
-                  [
-                    ['A5', 'A5'],
-                    ['A4', 'A4'],
-                  ] as const
-                ).map(([v, label]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    role="radio"
-                    aria-checked={book.size === v}
-                    className={book.size === v ? 'on' : ''}
-                    onClick={() => setB('size', v)}
-                  >
-                    {label}
-                  </button>
-                ))}
+            {book.kind === 'receipt' && (
+              <span className="seg" role="radiogroup" aria-label="Receipt book format">
+                <button type="button" role="radio" aria-checked={!bookBasic} className={!bookBasic ? 'on' : ''} onClick={() => setB('basic', false)}>
+                  Original
+                </button>
+                <button type="button" role="radio" aria-checked={bookBasic} className={bookBasic ? 'on' : ''} onClick={() => setB('basic', true)}>
+                  Basic (4 per A4)
+                </button>
               </span>
-            </div>
+            )}
+            {!bookBasic && (
+              <div className="rk-row">
+                <span className="seg" role="radiogroup" aria-label="Page size">
+                  {(
+                    [
+                      ['A5', 'A5'],
+                      ['A4', 'A4'],
+                    ] as const
+                  ).map(([v, label]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={book.size === v}
+                      className={book.size === v ? 'on' : ''}
+                      onClick={() => setB('size', v)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            )}
             <div className="rk-grid">
               <label>
                 First number
@@ -426,7 +442,7 @@ export function ReceiptMaker() {
                   <option value="USD">US Dollars (USD)</option>
                 </select>
               </label>
-              {book.size === 'A5' && (
+              {!bookBasic && book.size === 'A5' && (
                 <label className="check">
                   <input type="checkbox" checked={book.twoUp} onChange={(e) => setB('twoUp', e.target.checked)} /> Two on each A4 sheet (cut in half)
                 </label>
@@ -453,7 +469,7 @@ export function ReceiptMaker() {
             <p className="rk-total">
               {docNumber(book.kind, book.start)} to {docNumber(book.kind, book.start + bookCount - 1)}{' '}
               <b>
-                {bookSheets} {book.size === 'A5' && !bookTwoUp ? 'A5' : 'A4'} sheet{bookSheets === 1 ? '' : 's'}
+                {bookSheets} {!bookBasic && book.size === 'A5' && !bookTwoUp ? 'A5' : 'A4'} sheet{bookSheets === 1 ? '' : 's'}
               </b>
             </p>
             <p className="muted rk-hint">

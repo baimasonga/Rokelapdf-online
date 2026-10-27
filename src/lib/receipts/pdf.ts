@@ -857,6 +857,8 @@ export interface BlankBook {
   officeCopy: boolean;
   /** Prints two A5 pages side by side on landscape A4, to be cut in half. */
   twoUp: boolean;
+  /** Optional compact cash receipt, four numbered copies on each A4 sheet. */
+  basic?: boolean;
   footer: string;
   /** Invoice: how to pay. Proforma: terms. Printed on every page. */
   notes: string;
@@ -872,6 +874,7 @@ export async function buildBlankBook(biz: Business, o: BlankBook): Promise<Uint8
   const start = Math.max(1, Math.floor(o.start));
   // Two to a sheet applies to A5 pages only; an A4 book is always one page per sheet.
   const twoUp = o.twoUp && o.size === 'A5';
+  const basic = o.basic === true && o.kind === 'receipt';
   const size = o.size;
   const pdf = await PDFDocument.create();
   pdf.setTitle(`${TITLES[o.kind].modern} book ${docNumber(o.kind, start)}–${docNumber(o.kind, start + count - 1)}`);
@@ -887,6 +890,80 @@ export async function buildBlankBook(biz: Business, o: BlankBook): Promise<Uint8
     mono: await pdf.embedFont(StandardFonts.CourierBold),
   };
   const logo = await embedImage(pdf, biz.logo);
+  if (basic) {
+    const main = hex(biz.color);
+    const draw = (number: number, copy: string) => {
+      const cv = new Canvas(pdf.addPage([SIZES.A4[1] / 2, SIZES.A4[0] / 2]), f);
+      const W = cv.W;
+      const left = o.counterfoil ? 39 : 18;
+      const right = W - 18;
+      if (o.counterfoil) {
+        cv.line(31, 12, 31, cv.H - 12, { color: main, width: 0.7, dash: [2, 3] });
+        cv.text(docNumber('receipt', number), 4, 18, { size: 7, color: main });
+      }
+      if (logo) cv.image(logo, left, 14, 35, { maxH: 35 });
+      const headerLeft = left + (logo ? 42 : 0);
+      const headerWidth = right - headerLeft;
+      const fit = (value: string, width: number, font: PDFFont, initial: number, maxLines: number) => {
+        let size = initial;
+        let lines = cv.wrap(value, width, size, font);
+        while (size > 1 && (lines.length > maxLines || lines.some((line) => cv.width(line, size, font) > width))) {
+          size = Math.max(1, size - 0.5);
+          lines = cv.wrap(value, width, size, font);
+        }
+        return { size, lines };
+      };
+      const name = fit(biz.name || 'Your business name', headerWidth, f.bold, 13, 2);
+      name.lines.forEach((s, i) => cv.text(s, headerLeft, 13 + i * 15, { size: name.size, font: f.bold, color: main }));
+      const contacts = [biz.address, biz.phones, biz.email, biz.tin && `TIN ${biz.tin}`].filter(Boolean).join(' · ');
+      const contact = fit(contacts, headerWidth, f.regular, 7.5, 2);
+      contact.lines.forEach((s, i) => cv.text(s, headerLeft, 44 + i * 10, { size: contact.size }));
+      cv.line(left, 67, right, 67, { color: main });
+      cv.text('CASH RECEIPT', left, 75, { size: 13, font: f.bold, color: main });
+      cv.text(`No. ${docNumber('receipt', number)}`, right, 77, { size: 9, font: f.bold, align: 'right' });
+      if (copy) cv.text(copy, right, 89, { size: 6.5, align: 'right' });
+      const rule = (label: string, y: number, start = left, end = right) => {
+        cv.text(label, start, y, { size: 8.5, font: f.bold });
+        const x = start + cv.width(label, 8.5, f.bold) + 5;
+        if (x < end) cv.line(x, y + 9, end, y + 9, { color: main, width: 0.6, dash: [1, 2] });
+      };
+      rule('Date:', 102, left, left + 140);
+      rule('Received from:', 125);
+      rule('The sum of:', 148);
+      cv.line(left, 178, right, 178, { color: main, width: 0.6, dash: [1, 2] });
+      rule('Being part/full payment for:', 185);
+      rule('Paid by / reference:', 208, left, left + 225);
+      rule('Balance:', 208, left + 235, right);
+      cv.text(o.currency, left, 239, { size: 10, font: f.bold });
+      cv.rect(left + 32, 230, 130, 25, { stroke: main, width: 1 });
+      rule('Signed:', 239, left + 190, right);
+      if (o.footer.trim()) {
+        const footer = fit(o.footer, right - left, f.italic, 7, 1);
+        footer.lines.forEach((line) => cv.text(line, left, 272, { size: footer.size, font: f.italic, color: main }));
+      }
+    };
+    for (let n = start; n < start + count; n++) {
+      draw(n, o.officeCopy ? 'CUSTOMER COPY' : '');
+      if (o.officeCopy) draw(n, 'OFFICE COPY');
+    }
+    const sheet = await PDFDocument.create();
+    sheet.setTitle(pdf.getTitle() ?? 'Cash receipt book');
+    sheet.setAuthor(t(biz.name) || 'Rokela PDF');
+    sheet.setCreator('Rokela PDF receipts');
+    sheet.setCreationDate(fixed);
+    sheet.setModificationDate(fixed);
+    const pages = await sheet.embedPdf(await pdf.save(), pdf.getPageIndices());
+    const [height, width] = SIZES.A4;
+    for (let i = 0; i < pages.length; i += 4) {
+      const page = sheet.addPage([width, height]);
+      for (let j = 0; j < 4 && pages[i + j]; j++) {
+        page.drawPage(pages[i + j]!, { x: ((j % 2) * width) / 2, y: ((1 - Math.floor(j / 2)) * height) / 2, width: width / 2, height: height / 2 });
+      }
+      page.drawLine({ start: { x: width / 2, y: 0 }, end: { x: width / 2, y: height }, thickness: 0.5, color: MUTED, dashArray: [4, 4] });
+      page.drawLine({ start: { x: 0, y: height / 2 }, end: { x: width, y: height / 2 }, thickness: 0.5, color: MUTED, dashArray: [4, 4] });
+    }
+    return sheet.save({ useObjectStreams: true });
+  }
   for (let n = start; n < start + count; n++) {
     const doc: BizDoc = {
       kind: o.kind,

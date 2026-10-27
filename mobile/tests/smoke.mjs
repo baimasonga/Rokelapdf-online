@@ -512,6 +512,14 @@ async function main() {
       bookPdf.pages === 2 && bookPdf.text.includes('5004') && bookPdf.text.includes('KAMARA & SONS HARDWARE'),
       'a blank book of 4 receipts prints two to an A4 sheet',
     );
+    await page.getByLabel('Receipt book format').selectOption('basic');
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const basicPdf = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(
+      basicPdf.pages === 1 && basicPdf.text.includes('5001') && basicPdf.text.includes('5004') && basicPdf.text.includes('Received from:'),
+      'a basic receipt book prints four numbered receipts on one A4 sheet',
+    );
 
     step('Pro tools (src/lib/licensing.ts)');
     site.launched = '2026-01-01T00:00:00.000Z';

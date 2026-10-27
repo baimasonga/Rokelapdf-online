@@ -37,6 +37,7 @@ export interface InkOptions {
   seed: number;
   /** 0 = clean and even, 1 = heavily hand-stamped. */
   wear: number;
+  edgeWear?: number;
 }
 
 /**
@@ -45,6 +46,7 @@ export interface InkOptions {
  */
 export function inkify(rgba: Uint8ClampedArray, width: number, height: number, o: InkOptions): void {
   const wear = Math.min(1, Math.max(0, o.wear));
+  const edgeWear = Math.min(1, Math.max(0, o.edgeWear ?? 0));
   const r = rng(o.seed);
   const blotch = valueNoise(o.seed ^ 0x9e3779b9);
   const grain = valueNoise(o.seed ^ 0x85ebca6b);
@@ -70,7 +72,7 @@ export function inkify(rgba: Uint8ClampedArray, width: number, height: number, o
       const i = y * width + x;
       if (!src[i]) continue;
       // Rough edges: read the shape from a slightly displaced point (this only ever eats into the edge).
-      const d = 1.6 * scale * wear;
+      const d = (1.6 * wear + 4 * edgeWear) * scale;
       const ax = x + (edge(x / (5 * scale), y / (5 * scale)) - 0.5) * 2 * d;
       const ay = y + (edge((x + 97) / (5 * scale), (y + 31) / (5 * scale)) - 0.5) * 2 * d;
       const a = Math.min(alphaAt(ax, ay), src[i]!);
@@ -84,7 +86,7 @@ export function inkify(rgba: Uint8ClampedArray, width: number, height: number, o
       let k = 1 - wear * 0.55 * (1 - big) - press * (0.5 + 0.5 * side) * wear * 1.4;
       k *= 1 - wear * 0.35 * (1 - fine);
       // Small gaps where the rubber missed the paper.
-      if (fine < 0.12 * wear && big < 0.55) k *= 0.15;
+      if (fine < 0.12 * wear + 0.18 * edgeWear && big < 0.55) k *= 0.15;
       rgba[i * 4 + 3] = Math.round(a * Math.min(1, Math.max(0.12, k)));
     }
   }

@@ -119,6 +119,10 @@ export function StampSheet({ current, onCancel, onUse }: { current?: StampDesign
           Ink: {d.wear < 0.25 ? 'clean' : d.wear < 0.7 ? 'hand-stamped' : 'well used'}
           <input type="range" min={0} max={100} value={Math.round(d.wear * 100)} onChange={(e) => set('wear', Number(e.target.value) / 100)} />
         </label>
+        <label>
+          Rough edges
+          <input type="range" min={0} max={100} value={Math.round((d.edgeWear ?? 0) * 100)} onChange={(e) => set('edgeWear', Number(e.target.value) / 100)} />
+        </label>
       </div>
       {error ? <p className="error-inline">{error}</p> : null}
       <div className="row">

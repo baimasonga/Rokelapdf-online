@@ -799,13 +799,16 @@ function BookTab(props: {
   const count = Math.min(BLANK_BOOK_MAX, Math.max(1, Math.floor(book.count) || 1));
   // Two to a sheet applies to A5 pages only.
   const twoUp = book.twoUp && book.size === 'A5';
-  const sheets = Math.ceil((count * (book.officeCopy ? 2 : 1)) / (twoUp ? 2 : 1));
+  const basic = book.kind === 'receipt' && book.basic === true;
+  const sheets = Math.ceil((count * (book.officeCopy ? 2 : 1)) / (basic ? 4 : twoUp ? 2 : 1));
 
   useEffect(() => {
     let live = true;
     const timer = setTimeout(async () => {
       try {
-        const pdf = await openPdf(await buildBlankBook(prefs.business, { ...book, count: twoUp && !book.officeCopy ? 2 : 1 }));
+        const pdf = await openPdf(
+          await buildBlankBook(prefs.business, { ...book, count: basic ? (book.officeCopy ? 2 : 4) : twoUp && !book.officeCopy ? 2 : 1 }),
+        );
         try {
           const c = canvas.current;
           if (live && c) await renderPage(pdf.doc, 1, c, Math.min(420, (c.parentElement?.clientWidth ?? 360) - 2));
@@ -820,7 +823,7 @@ function BookTab(props: {
       live = false;
       clearTimeout(timer);
     };
-  }, [book, prefs.business, twoUp]);
+  }, [book, prefs.business, twoUp, basic]);
 
   const make = (how: 'share' | 'save') => {
     if (!prefs.business.name.trim()) {
@@ -855,6 +858,15 @@ function BookTab(props: {
             </button>
           ))}
         </div>
+        {book.kind === 'receipt' && (
+          <label>
+            Receipt book format
+            <select value={basic ? 'basic' : 'original'} onChange={(e) => set('basic', e.target.value === 'basic')}>
+              <option value="original">Original</option>
+              <option value="basic">Basic (4 per A4)</option>
+            </select>
+          </label>
+        )}
         <div className="rcpt-two">
           <label>
             First number
@@ -879,13 +891,15 @@ function BookTab(props: {
           </label>
         </div>
         <div className="rcpt-two">
-          <label>
-            Page size
-            <select value={book.size} onChange={(e) => set('size', e.target.value === 'A4' ? 'A4' : 'A5')}>
-              <option value="A5">A5</option>
-              <option value="A4">A4</option>
-            </select>
-          </label>
+          {!basic && (
+            <label>
+              Page size
+              <select value={book.size} onChange={(e) => set('size', e.target.value === 'A4' ? 'A4' : 'A5')}>
+                <option value="A5">A5</option>
+                <option value="A4">A4</option>
+              </select>
+            </label>
+          )}
           <label>
             Currency
             <select value={book.currency} onChange={(e) => set('currency', e.target.value === 'USD' ? 'USD' : 'NLe')}>
@@ -894,7 +908,7 @@ function BookTab(props: {
             </select>
           </label>
         </div>
-        {book.size === 'A5' ? (
+        {!basic && book.size === 'A5' ? (
           <label className="check">
             <input type="checkbox" checked={book.twoUp} onChange={(e) => set('twoUp', e.target.checked)} /> Two on each A4 sheet (cut in half)
           </label>
@@ -920,7 +934,7 @@ function BookTab(props: {
         <p className="rcpt-total">
           {docNumber(book.kind, book.start)} to {docNumber(book.kind, book.start + count - 1)}
           <b>
-            {sheets} {book.size === 'A5' && !twoUp ? 'A5' : 'A4'} sheet{sheets === 1 ? '' : 's'}
+            {sheets} {!basic && book.size === 'A5' && !twoUp ? 'A5' : 'A4'} sheet{sheets === 1 ? '' : 's'}
           </b>
         </p>
       </section>

@@ -4942,10 +4942,13 @@ button.studio-pick.on:hover:not(:disabled) {
 }
 .rk-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 1rem;
 }
 .rk-card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.8rem;
   padding: 1.1rem 1.2rem;
   border-radius: 16px;
@@ -4978,6 +4981,7 @@ details.rk-card[open] summary::after {
   content: 'Done';
 }
 details.rk-card summary .muted {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5148,6 +5152,7 @@ details.rk-card summary .muted {
 }
 .rk-mode button {
   flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5272,7 +5277,7 @@ details.rk-card summary .muted {
 }
 @media (max-width: 1000px) {
   .rk {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .rk-preview {
     position: static;
@@ -5280,6 +5285,11 @@ details.rk-card summary .muted {
   }
 }
 @media (max-width: 560px) {
+  .rk-mode {
+    display: grid;
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+  }
   .rk-grid,
   .rk-grid.three {
     grid-template-columns: 1fr;
@@ -5298,6 +5308,12 @@ details.rk-card summary .muted {
   .rk-row {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+@media (max-width: 360px) {
+  .rk-card [aria-label='Receipt book format'] button {
+    font-size: 0.8rem;
+    padding-inline: 0.3rem;
   }
 }
 .batch-stamp-pick {
