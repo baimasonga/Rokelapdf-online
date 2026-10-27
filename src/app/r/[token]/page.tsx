@@ -1,7 +1,7 @@
 'use client';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
-import { Check, CheckCircle2, Clock, FileInput, Upload } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Check, CheckCircle2, Clock, FileInput, RotateCw, Trash2, Upload } from 'lucide-react';
 import { PasswordPrompt, PublicFrame, SenderBrand } from '@/components/public';
 import { Button, Form, Muted, Panel, Progress, useNotice } from '@/components/ui';
 import { ApiError, api, enc } from '@/lib/client/api';
@@ -28,26 +28,11 @@ export default function UploadRequestPage() {
   const [secret, setSecret] = useState('');
   const [view, setView] = useState<View>({ k: 'loading' });
   const [progress, setProgress] = useState<Record<string, UploadProgress | undefined>>({});
+  const uploading = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [retry, setRetry] = useState<Record<string, File | undefined>>({});
+  const [syncNeeded, setSyncNeeded] = useState(false);
   const h = useCallback((s = secret) => ({ 'x-submission-secret': s }), [secret]);
-
-  const processing = view.k === 'files' && view.sub.files.some((f: any) => f.status === 'processing');
-  const uploading = Object.values(progress).some(Boolean);
-  useEffect(() => {
-    if (!processing || !secret) return;
-    let live = true;
-    const timer = setInterval(() => {
-      api(`${base}/submission`, { auth: false, headers: { 'x-submission-secret': secret } }).then(
-        (sub) => {
-          if (live) setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
-        },
-        () => undefined,
-      );
-    }, 2000);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [base, secret, processing]);
 
   const open = useCallback(
     async (pw?: string) => {
@@ -71,11 +56,38 @@ export default function UploadRequestPage() {
   const refresh = async (s = secret) => {
     const sub = await api(`${base}/submission`, { auth: false, headers: h(s) });
     setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
+    setSyncNeeded(false);
   };
 
+  const processing = view.k === 'files' && view.sub.files.some((f: any) => f.status === 'processing');
+  useEffect(() => {
+    if ((!processing && !syncNeeded) || busy) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const sub = await api(`${base}/submission`, { auth: false, headers: h() });
+        if (active && !uploading.current) {
+          setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
+          setSyncNeeded(false);
+        }
+      } catch {
+        // Keep the current file state during a temporary connection failure.
+      }
+      if (active) timer = setTimeout(poll, 2000);
+    };
+    timer = setTimeout(poll, 2000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [base, busy, h, processing, syncNeeded]);
+
   const upload = async (r: any, file: File | undefined) => {
-    if (!file || progress[r.key]) return;
-    setProgress((x) => ({ ...x, [r.key]: { sent: 0, total: file.size, resumed: false } }));
+    if (!file || uploading.current || syncNeeded) return;
+    uploading.current = true;
+    setBusy(true);
+    setRetry((x) => ({ ...x, [r.key]: undefined }));
     try {
       await uploadFile({
         file,
@@ -86,13 +98,18 @@ export default function UploadRequestPage() {
         complete: (id) => api(`${base}/uploads/${enc(id)}/complete`, { auth: false, body: {}, headers: h() }),
         onProgress: (p) => setProgress((x) => ({ ...x, [r.key]: p })),
       });
-      setProgress((x) => ({ ...x, [r.key]: undefined }));
-      await refresh();
+      await refresh().catch((e) => {
+        setSyncNeeded(true);
+        notice((e as Error).message, true);
+      });
     } catch (e) {
+      setRetry((x) => ({ ...x, [r.key]: file }));
       notice((e as Error).message, true);
-      await refresh().catch(() => undefined);
+      await refresh().catch(() => setSyncNeeded(true));
     } finally {
       setProgress((x) => ({ ...x, [r.key]: undefined }));
+      uploading.current = false;
+      setBusy(false);
     }
   };
 
@@ -156,15 +173,15 @@ export default function UploadRequestPage() {
           <ol className="reqs" aria-label="Files to send">
             {info.requirements.map((r: any, i: number) => {
               const mine = view.sub.files.filter((f: any) => f.requirement_key === r.key);
-              const done = mine.length > 0;
+              const done = mine.some((f: any) => f.status === 'available');
               return (
                 <li
                   key={r.key}
                   className={`req${done ? ' done' : ''}`}
-                  onDragOver={(e) => !progress[r.key] && mine.length < r.max_files && e.preventDefault()}
+                  onDragOver={(e) => !busy && !syncNeeded && mine.length < r.max_files && e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (!progress[r.key] && mine.length < r.max_files) void upload(r, e.dataTransfer.files[0]);
+                    if (mine.length < r.max_files) void upload(r, e.dataTransfer.files[0]);
                   }}
                 >
                   <span className="req-mark" aria-hidden="true">
@@ -183,27 +200,54 @@ export default function UploadRequestPage() {
                         {mine.map((f: any) => (
                           <li key={f.id}>
                             <span className="file-ext sm">{(/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] ?? 'file').toUpperCase()}</span>
-                            <span>{`${f.name} · ${fmtBytes(f.size)} · ${f.status === 'processing' ? 'received, being checked' : f.status}`}</span>
+                            <span className="req-file-name">{`${f.name} · ${fmtBytes(f.size)} · ${f.status === 'processing' ? 'received, being checked' : f.status === 'available' ? 'Ready' : f.status === 'rejected' || f.status === 'deleted' ? 'Not accepted — remove and replace' : 'Upload interrupted'}`}</span>
                             <Button
-                              disabled={uploading}
+                              kind="ghost"
+                              title={`Remove ${f.name}`}
+                              disabled={busy || syncNeeded}
                               onClick={async () => {
-                                await api(`${base}/submission/files/${enc(f.id)}`, { method: 'DELETE', auth: false, headers: h() });
-                                await refresh();
+                                if (uploading.current) return;
+                                uploading.current = true;
+                                setBusy(true);
+                                try {
+                                  await api(`${base}/submission/files/${enc(f.id)}`, { method: 'DELETE', auth: false, headers: h() });
+                                  setRetry((x) => ({ ...x, [r.key]: undefined }));
+                                  await refresh().catch((e) => {
+                                    setSyncNeeded(true);
+                                    throw e;
+                                  });
+                                } finally {
+                                  uploading.current = false;
+                                  setBusy(false);
+                                }
                               }}
                             >
-                              Remove {f.name}
+                              <Trash2 size={16} aria-label={`Remove ${f.name}`} />
                             </Button>
                           </li>
                         ))}
                       </ul>
                     )}
                     <Progress p={progress[r.key]} />
+                    {retry[r.key] && (
+                      <div className="actions">
+                        <Button disabled={busy || syncNeeded} onClick={() => upload(r, retry[r.key])}>
+                          <RotateCw size={16} aria-hidden="true" /> Retry {retry[r.key]!.name}
+                        </Button>
+                        {!mine.some((f: any) => f.status === 'uploading' && f.name === retry[r.key]!.name && f.size === retry[r.key]!.size) && (
+                          <Button disabled={busy || syncNeeded} onClick={() => setRetry((x) => ({ ...x, [r.key]: undefined }))}>
+                            Discard retry
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {!progress[r.key] && mine.length < r.max_files && (
+                  {mine.length < r.max_files && (
                     <label className="button file-button req-pick">
                       <Upload size={16} aria-hidden="true" /> {done ? 'Add another' : 'Choose file'}
                       <input
                         type="file"
+                        disabled={busy || syncNeeded}
                         accept={r.accept.map((x: string) => `.${x}`).join(',')}
                         aria-label={`Upload ${r.label}`}
                         onChange={(e) => void upload(r, e.target.files?.[0]).finally(() => (e.target.value = ''))}
@@ -217,8 +261,16 @@ export default function UploadRequestPage() {
           <div className="req-send">
             <Button
               kind="primary"
-              disabled={uploading}
+              disabled={
+                busy ||
+                syncNeeded ||
+                Object.values(retry).some(Boolean) ||
+                view.sub.files.some((f: any) => ['uploading', 'rejected', 'deleted'].includes(f.status))
+              }
               onClick={async () => {
+                if (uploading.current) return;
+                uploading.current = true;
+                setBusy(true);
                 try {
                   await api(`${base}/submission/submit`, { auth: false, body: {}, headers: h() });
                   await refresh();
@@ -226,6 +278,9 @@ export default function UploadRequestPage() {
                   const missing = (e as ApiError).details?.missing as string[] | undefined;
                   if (missing) throw new Error(`Still needed: ${missing.map((k) => info.requirements.find((r: any) => r.key === k)?.label ?? k).join(', ')}`);
                   throw e;
+                } finally {
+                  uploading.current = false;
+                  setBusy(false);
                 }
               }}
             >

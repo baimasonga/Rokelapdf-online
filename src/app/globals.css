@@ -4511,6 +4511,17 @@ button.org-page:hover:not(:disabled) {
   align-items: center;
   gap: 0.5rem;
 }
+.req-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.req-files button {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
 .file-ext.sm {
   width: 30px;
   height: 34px;
@@ -4565,7 +4576,12 @@ button.org-page:hover:not(:disabled) {
     grid-template-columns: 1fr 1fr;
   }
   .req {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+  .req-pick {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 
