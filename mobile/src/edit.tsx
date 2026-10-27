@@ -3,13 +3,15 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { buildEditedPdf } from '@/lib/client/editor-export';
 import { norm } from '@/lib/editor/model';
 import { overlayEdits, type OverlayItem, type ShownPage } from '@/lib/editor/overlay';
-import { Eraser, Highlighter, ImagePlus, PenTool, Type, type LucideIcon } from 'lucide-react';
+import { Eraser, Highlighter, ImagePlus, PenTool, Stamp, Type, type LucideIcon } from 'lucide-react';
+import type { StampDesign } from '@/lib/stamp/design';
+import { renderStamp } from '@/lib/stamp/render';
 import { Sheet } from './ui';
 
-// Editing on the phone: text, highlights, drawing, white-out ("cover") and pictures are placed on pages as shown,
+// Editing on the phone: text, highlights, drawing, white-out ("cover"), pictures and stamps are placed on pages as shown,
 // then drawn into the PDF on the device with the web editor's export. Nothing is uploaded.
 
-export type Tool = 'text' | 'highlight' | 'draw' | 'cover' | 'image';
+export type Tool = 'text' | 'highlight' | 'draw' | 'cover' | 'image' | 'stamp';
 export type Item = OverlayItem & { id: number; aspect?: number };
 
 export const TOOLS: Array<[Tool, string, LucideIcon]> = [
@@ -18,6 +20,7 @@ export const TOOLS: Array<[Tool, string, LucideIcon]> = [
   ['draw', 'Draw', PenTool],
   ['cover', 'Cover', Eraser],
   ['image', 'Image', ImagePlus],
+  ['stamp', 'Stamp', Stamp],
 ];
 export const HINTS: Record<Tool, string> = {
   text: 'Tap where the text goes. Tap text again to change it; drag to move.',
@@ -25,6 +28,7 @@ export const HINTS: Record<Tool, string> = {
   draw: 'Draw with your finger.',
   cover: 'Drag over words to hide them. To change words, cover them, then add text on top.',
   image: 'Tap where the picture goes. Drag to move; drag the corner to resize.',
+  stamp: 'Tap where to stamp. Each tap is a fresh impression; drag to move, drag the corner to resize.',
 };
 export const COLORS = ['#111827', '#1d4ed8', '#c62828', '#1e7d3a'];
 const HIGHLIGHT = '#ffe14d';
@@ -56,6 +60,8 @@ export interface EditState {
   items: Item[];
   /** A picture chosen for the Image tool, waiting to be placed. */
   picture?: { src: string; aspect: number };
+  /** The stamp the Stamp tool presses (src/lib/stamp), chosen in the Stamp sheet. */
+  stamp?: StampDesign;
 }
 
 /** Edits on one page: draws boxes and strokes, places text and pictures, moves and resizes them. */
@@ -64,9 +70,15 @@ export function EditLayer({
   state,
   onChange,
   onText,
+  widthPt,
+  onStamped,
 }: {
   page: number;
   state: EditState;
+  /** The page's shown width in PDF points, so a stamp lands at its real size on paper. */
+  widthPt?: number;
+  /** A numbered stamp was pressed: its next number went up. */
+  onStamped?: (d: StampDesign) => void;
   onChange: (fn: (items: Item[]) => Item[]) => void;
   /** Ask for text at a point (new) or for an existing text item. */
   onText: (at: { page: number; u: number; v: number } | Item) => void;
@@ -138,6 +150,20 @@ export function EditLayer({
       const v = clamp(p.v - h / 2, 0, Math.max(0, 1 - h));
       const src = state.picture.src;
       onChange((items) => [...items, { id: newItemId(), page, kind: 'image', u, v, w, h, src, color: '#000000', aspect: state.picture!.aspect }]);
+    } else if (state.tool === 'stamp' && state.stamp) {
+      // A fresh impression every time, as with a rubber stamp, at its size on paper; its ink blends with the page.
+      const d = state.stamp;
+      const imp = renderStamp(d, { seed: Math.floor(Math.random() * 2 ** 31) });
+      const r = rect();
+      const w = clamp(imp.widthPt / (widthPt ?? 595.28), 0.06, 0.9);
+      const h = (w * (r.width / r.height)) / imp.aspect;
+      const u = clamp(p.u - w / 2, 0, 1 - w);
+      const v = clamp(p.v - h / 2, 0, Math.max(0, 1 - h));
+      onChange((items) => [
+        ...items,
+        { id: newItemId(), page, kind: 'image', u, v, w, h, src: imp.src, color: '#000000', aspect: imp.aspect, blend: 'multiply' },
+      ]);
+      if (d.numbered) onStamped?.({ ...d, next: d.next + 1 });
     }
   };
 
@@ -238,7 +264,7 @@ export function EditLayer({
               onPointerUp={drop}
               onPointerCancel={drop}
             >
-              <img src={it.src} alt="" draggable={false} />
+              <img src={it.src} alt="" draggable={false} style={it.blend ? { mixBlendMode: 'multiply' } : undefined} />
               <button
                 className="remove"
                 aria-label="Remove picture"

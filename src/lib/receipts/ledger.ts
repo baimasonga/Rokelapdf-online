@@ -30,6 +30,8 @@ export interface LedgerEntry {
   method?: string;
   /** Cancelled by the business: kept for the record, left out of every sum. */
   void?: boolean;
+  /** When this entry last changed (ms since 1970), so syncing across devices keeps the latest version. */
+  updatedAt?: number;
 }
 
 export type InvoiceStatus = 'paid' | 'part' | 'unpaid' | 'overdue';
@@ -55,6 +57,7 @@ export function entryFromDoc(doc: BizDoc): LedgerEntry {
     paidAtIssue: doc.kind === 'invoice' ? sum.paid : 0,
     ...(doc.kind === 'receipt' && doc.against ? { against: doc.against } : {}),
     ...(doc.kind !== 'proforma' ? { method: doc.method } : {}),
+    updatedAt: Date.now(),
   };
 }
 
@@ -64,7 +67,7 @@ export function upsert(entries: LedgerEntry[], e: LedgerEntry): LedgerEntry[] {
 }
 
 export function setVoid(entries: LedgerEntry[], e: Pick<LedgerEntry, 'kind' | 'number'>, value: boolean): LedgerEntry[] {
-  return entries.map((x) => (sameDoc(x, e) ? { ...x, void: value } : x));
+  return entries.map((x) => (sameDoc(x, e) ? { ...x, void: value, updatedAt: Date.now() } : x));
 }
 
 const live = (entries: LedgerEntry[]) => entries.filter((e) => !e.void);
@@ -248,6 +251,39 @@ export function ledgerCsv(entries: LedgerEntry[], today: string): string {
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? round2(v) : 0);
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 
+/** One entry from storage or another device, or undefined when it is damaged. Also used by the server. */
+export function cleanEntry(raw: unknown): LedgerEntry | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const kind = r.kind === 'receipt' || r.kind === 'invoice' || r.kind === 'proforma' ? r.kind : undefined;
+  const number = str(r.number, 40).trim();
+  const date = str(r.date, 10);
+  if (!kind || !number || !ISO.test(date)) return undefined;
+  // The API sends keys in snake_case (paid_at_issue, updated_at); storage and devices use camelCase.
+  const updated = r.updatedAt ?? r.updated_at;
+  const at = typeof updated === 'number' && Number.isFinite(updated) && updated > 0 ? Math.floor(updated) : undefined;
+  return {
+    kind,
+    number,
+    date,
+    due: ISO.test(str(r.due, 10)) ? str(r.due, 10) : '',
+    customer: str(r.customer, 120),
+    currency: r.currency === 'USD' ? 'USD' : 'NLe',
+    total: num(r.total),
+    paidAtIssue: num(r.paidAtIssue ?? r.paid_at_issue),
+    ...(typeof r.against === 'string' && r.against.trim() ? { against: str(r.against, 40) } : {}),
+    ...(typeof r.method === 'string' ? { method: str(r.method, 40) } : {}),
+    ...(r.void === true ? { void: true } : {}),
+    ...(at ? { updatedAt: at } : {}),
+  };
+}
+
+/** The key two copies of the same document share on every device. */
+export const entryKey = (e: Pick<LedgerEntry, 'kind' | 'number'>) => `${e.kind} ${e.number.trim().toLowerCase()}`;
+
+/** Newest document first, as the ledger lists them. */
+export const byNewest = (a: LedgerEntry, b: LedgerEntry) => b.date.localeCompare(a.date) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+
 /** Reads the ledger, dropping anything damaged. */
 export function loadLedger(): LedgerEntry[] {
   let raw: unknown;
@@ -257,28 +293,10 @@ export function loadLedger(): LedgerEntry[] {
     raw = [];
   }
   if (!Array.isArray(raw)) return [];
-  const out: LedgerEntry[] = [];
-  for (const r of raw.slice(0, LEDGER_MAX) as Array<Record<string, unknown>>) {
-    if (!r || typeof r !== 'object') continue;
-    const kind = r.kind === 'receipt' || r.kind === 'invoice' || r.kind === 'proforma' ? r.kind : undefined;
-    const number = str(r.number, 40).trim();
-    const date = str(r.date, 10);
-    if (!kind || !number || !ISO.test(date)) continue;
-    out.push({
-      kind,
-      number,
-      date,
-      due: ISO.test(str(r.due, 10)) ? str(r.due, 10) : '',
-      customer: str(r.customer, 120),
-      currency: r.currency === 'USD' ? 'USD' : 'NLe',
-      total: num(r.total),
-      paidAtIssue: num(r.paidAtIssue),
-      ...(typeof r.against === 'string' && r.against.trim() ? { against: str(r.against, 40) } : {}),
-      ...(typeof r.method === 'string' ? { method: str(r.method, 40) } : {}),
-      ...(r.void === true ? { void: true } : {}),
-    });
-  }
-  return out;
+  return raw
+    .slice(0, LEDGER_MAX)
+    .map(cleanEntry)
+    .filter((e): e is LedgerEntry => !!e);
 }
 
 export function saveLedger(entries: LedgerEntry[]): void {

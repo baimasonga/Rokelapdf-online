@@ -69,6 +69,8 @@ export const TABLE_PRIVILEGES: Record<string, Priv[]> = {
   org_plans: R, // operators change plans through tooling with the owner connection
   user_licenses: R, // likewise for licences
   receipt_checks: RIU, // evidence: never deleted (a trigger also refuses DELETE)
+  receipt_sync_entries: RIU, // a document is cancelled (void), never deleted
+  receipt_sync_profiles: RIU,
   audit_events: RI, // append-only
   rate_limits: ALL,
   share_accounts: RIU, // lock anchor (row locks need UPDATE)

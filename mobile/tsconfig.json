@@ -14,6 +14,7 @@
     "paths": {
       "@/components/editor/pdfjs": ["./src/pdfjs-shim.ts"],
       "@/*": ["../src/*"],
+      "react": ["./node_modules/@types/react"],
       "pdf-lib": ["./node_modules/pdf-lib"],
       "@pdf-lib/fontkit": ["./node_modules/@pdf-lib/fontkit"],
       "@cantoo/pdf-lib": ["./node_modules/@cantoo/pdf-lib"],

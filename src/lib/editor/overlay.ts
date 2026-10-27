@@ -17,7 +17,8 @@ interface Base {
   color: string;
 }
 export type OverlayItem =
-  | (Base & { kind: 'image'; u: number; v: number; w: number; h: number; src: string })
+  /** `blend`: a stamp, whose ink blends with the page like real ink (printed text shows through). */
+  | (Base & { kind: 'image'; u: number; v: number; w: number; h: number; src: string; blend?: 'multiply' })
   | (Base & { kind: 'highlight' | 'whiteout'; u: number; v: number; w: number; h: number })
   | (Base & { kind: 'ink'; points: Array<[number, number]>; width: number })
   /** `u`, `v`: top-left corner of the text; `size`: font size as a fraction of the shown page width. */
@@ -38,7 +39,7 @@ export function overlayEdits(pages: readonly ShownPage[], items: readonly Overla
     let a: Annot;
     switch (it.kind) {
       case 'image':
-        a = { kind: 'image', id, color: it.color, ...box(it.u, it.v, it.w, it.h, r), src: it.src, rot: r };
+        a = { kind: 'image', id, color: it.color, ...box(it.u, it.v, it.w, it.h, r), src: it.src, rot: r, ...(it.blend ? { blend: it.blend } : {}) };
         break;
       case 'highlight':
       case 'whiteout':

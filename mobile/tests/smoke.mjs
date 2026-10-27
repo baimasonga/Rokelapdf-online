@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { chromium } from 'playwright-core';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import { PDFDocument as SecureDocument } from '@cantoo/pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
@@ -101,6 +101,12 @@ async function main() {
     );
     await ctx.route('https://www.rokelapdf.com/api/v1/me/access', (r) => (site.offline ? r.abort() : r.fulfill({ json: site.access })));
     await ctx.route('https://demo.supabase.co/**', (r) => r.fulfill({ json: {} }));
+    // Receipt sync (docs/receipt-sync.md): the account holds nothing yet; what the app sends is kept for checks.
+    const synced = [];
+    await ctx.route('https://www.rokelapdf.com/api/v1/me/receipt-sync', (r) => {
+      synced.push(r.request().postDataJSON());
+      r.fulfill({ json: { cursor: 0, more: false, entries: [], counters: { receipt: 0, invoice: 0, proforma: 0 }, business: null, business_at: 0 } });
+    });
     const converted = [];
     await ctx.route('https://www.rokelapdf.com/api/v1/convert/**', (r) => {
       converted.push(new URL(r.request().url()).pathname);
@@ -257,6 +263,33 @@ async function main() {
     r = await textOf(await saved());
     check(r.pages === 1, 'one picture makes a one-page PDF');
 
+    step('Stamp');
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('radio', { name: 'Stamp' }).click();
+    const stampSheet = page.getByRole('dialog', { name: 'Stamp' });
+    await stampSheet.getByRole('listitem').filter({ hasText: 'New: Received' }).click();
+    await stampSheet.getByLabel('Small line at the bottom').fill('KAMARA & SONS');
+    await stampSheet.getByLabel('Number each stamp').check();
+    await stampSheet.getByRole('button', { name: 'Use this stamp' }).click();
+    const stampLayer = page.locator('.edit-layer').first();
+    const sb = await stampLayer.boundingBox();
+    await page.mouse.click(sb.x + sb.width * 0.3, sb.y + sb.height * 0.6);
+    await page.mouse.click(sb.x + sb.width * 0.7, sb.y + sb.height * 0.8);
+    check((await page.locator('.edit-layer .placed img[style*="multiply"]').count()) === 2, 'each tap places a fresh stamp impression');
+    check(
+      (await page.evaluate(() => JSON.parse(localStorage.getItem('rokela.stamps.v1'))[0].next)) === 3,
+      'a numbered stamp counts up with each tap and is kept',
+    );
+    await page.getByRole('button', { name: 'Done' }).click();
+    await notice(/Changes saved/);
+    const stamped = await PDFDocument.load(await saved());
+    const res = stamped.getPage(0).node.Resources();
+    const xobjects = res.lookup(PDFName.of('XObject'));
+    const states = res.lookup(PDFName.of('ExtGState'));
+    const multiply = states ? [...states.entries()].some(([, v]) => String(stamped.context.lookup(v).get(PDFName.of('BM'))) === '/Multiply') : false;
+    check(xobjects && [...xobjects.keys()].length >= 2 && multiply, 'the saved PDF has both stamps, inked with multiply like real ink');
+
     step('Edit: text, highlight, draw, cover, image');
     await openPdf('agreement.pdf');
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -405,7 +438,7 @@ async function main() {
       invoice.text.includes('Kamara & Sons Hardware') && invoice.text.includes('INV-0001') && invoice.text.includes('1,550.00'),
       'an invoice is made on the phone in the website’s layout',
     );
-    await page.getByRole('radio', { name: 'Sales ledger' }).click();
+    await page.getByRole('radio', { name: 'Ledger', exact: true }).click();
     await page.getByRole('button', { name: 'Record payment' }).click();
     check((await page.getByLabel('Payment for invoice').inputValue()) === 'INV-0001', 'Record payment opens a receipt for that invoice');
     await page.getByLabel('Price 1').fill('550');
@@ -413,13 +446,19 @@ async function main() {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const receipt = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
     check(receipt.text.includes('Payment for invoice INV-0001') && receipt.text.includes('550.00'), 'the payment receipt is made');
-    await page.getByRole('radio', { name: 'Sales ledger' }).click();
+    await page.getByRole('radio', { name: 'Ledger', exact: true }).click();
     await page.getByText('Owes 1,000.00').waitFor();
     rdl = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Statement' }).click();
     const st = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
     check(st.text.includes('Statement of account') && st.text.includes('NLe 1,000.00'), 'the ledger shows 1,000.00 owed, and the statement says so');
-    await page.getByRole('radio', { name: 'New document' }).click();
+    await page.getByText(/Synced with your account/).waitFor({ timeout: 15_000 });
+    check(
+      synced.some((b) => b.entries?.some((e) => e.number === 'INV-0001')) &&
+        synced.some((b) => b.business?.data.name === 'Kamara & Sons Hardware' && !b.business.data.logo),
+      'signed in, the ledger and business details are synced with the account (the logo stays on the phone)',
+    );
+    await page.getByRole('radio', { name: 'New', exact: true }).click();
     await page.getByLabel('Paper').selectOption('58mm');
     await page.getByLabel('Item 1', { exact: true }).fill('Rice, 25 kg');
     await page.getByLabel('Price 1').fill('480');
@@ -428,6 +467,51 @@ async function main() {
     const slipBytes = new Uint8Array(readFileSync(await (await rdl).path()));
     const slipWidth = (await PDFDocument.load(slipBytes)).getPage(0).getWidth();
     check(Math.round((slipWidth * 25.4) / 72) === 58, 'a 58 mm till slip is made at the width of the roll');
+
+    // The check QR code: registered on (stubbed) rokelapdf.com, printed with its code, the file's digest recorded.
+    const checks = [];
+    await ctx.route('https://www.rokelapdf.com/api/v1/me/receipt-checks**', async (r) => {
+      const body = r.request().postDataJSON();
+      checks.push({ path: new URL(r.request().url()).pathname, body });
+      if (r.request().url().endsWith('/digest')) return r.fulfill({ json: { id: 'rck_1', code: 'ABCDEFGHJKMNPQRS', url: 'x', sha256: body.sha256 } });
+      r.fulfill({ status: 201, json: { id: 'rck_1', code: 'ABCDEFGHJKMNPQRS', url: 'https://www.rokelapdf.com/receipts/ABCDEFGHJKMNPQRS', sha256: null } });
+    });
+    await page.getByRole('button', { name: /More options/ }).click();
+    await page.getByLabel('QR code to check it').check();
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const checked = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(
+      checked.text.includes('ABCD EFGH JKMN PQRS') &&
+        checks[0]?.body.business_name === 'Kamara & Sons Hardware' &&
+        /^[0-9a-f]{64}$/.test(checks[1]?.body.sha256 ?? ''),
+      'with the check QR code ticked, the receipt is registered, printed with its code, and its fingerprint recorded',
+    );
+    await page.evaluate(() => localStorage.removeItem('rokela-auth'));
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByLabel('Item 1', { exact: true }).fill('Sugar, 1 bag');
+    await page.getByLabel('Price 1').fill('90');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const signSheet = page.getByRole('dialog', { name: 'Sign in for the check QR code' });
+    await signSheet.waitFor();
+    await signSheet.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await page.getByRole('button', { name: 'Back' }).click();
+    check(
+      (await page.getByLabel('Item 1', { exact: true }).inputValue()) === 'Sugar, 1 bag',
+      'signed out, it asks to sign in, and the draft is kept while signing in',
+    );
+    await page.getByRole('button', { name: /More options/ }).click();
+    await page.getByLabel('QR code to check it').uncheck();
+
+    await page.getByRole('radio', { name: 'Blank book' }).click();
+    await page.getByLabel('How many').fill('4');
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const bookPdf = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(
+      bookPdf.pages === 2 && bookPdf.text.includes('5004') && bookPdf.text.includes('KAMARA & SONS HARDWARE'),
+      'a blank book of 4 receipts prints two to an A4 sheet',
+    );
 
     step('Pro tools (src/lib/licensing.ts)');
     site.launched = '2026-01-01T00:00:00.000Z';

@@ -22,6 +22,8 @@ export interface ReceiptPrefs {
   paidStamp: boolean;
   /** Prints a QR code anyone can scan to check the document (docs/receipt-checks.md); needs an account. */
   check: boolean;
+  /** When the business profile was last edited (ms since 1970), so syncing keeps the latest one. */
+  businessAt?: number;
   /** The signature put on documents (PNG data URL), made on this device. */
   signature?: string;
 }
@@ -43,6 +45,22 @@ export const DEFAULT_PREFS: ReceiptPrefs = {
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 const color = (v: unknown, d: string) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : d);
 
+/** A business profile from storage or another device, repaired where damaged. Also used by the server. */
+export function cleanBusiness(raw: unknown): Business {
+  const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    name: str(b.name, 80),
+    tagline: str(b.tagline, 120),
+    address: str(b.address, 160),
+    phones: str(b.phones, 80),
+    email: str(b.email, 80),
+    tin: str(b.tin, 30),
+    color: color(b.color, DEFAULT_BUSINESS.color),
+    accent: color(b.accent, DEFAULT_BUSINESS.accent),
+    logo: typeof b.logo === 'string' && /^data:image\/(png|jpeg);base64,/.test(b.logo) && b.logo.length < 700_000 ? b.logo : undefined,
+  };
+}
+
 /** Reads the saved settings, repairing anything damaged or missing. */
 export function loadPrefs(): ReceiptPrefs {
   let raw: Record<string, unknown> = {};
@@ -51,7 +69,6 @@ export function loadPrefs(): ReceiptPrefs {
   } catch {
     raw = {};
   }
-  const b = (raw.business ?? {}) as Record<string, unknown>;
   const counters = (raw.counters ?? {}) as Record<string, unknown>;
   const footers = (raw.footers ?? {}) as Record<string, unknown>;
   const items: Record<string, number> = {};
@@ -59,17 +76,8 @@ export function loadPrefs(): ReceiptPrefs {
     if (typeof v === 'number' && Number.isFinite(v) && v >= 0) items[k.slice(0, 120)] = v;
   const count = (k: DocKind) => (typeof counters[k] === 'number' && Number.isFinite(counters[k]) ? Math.max(0, Math.floor(counters[k] as number)) : 0);
   return {
-    business: {
-      name: str(b.name, 80),
-      tagline: str(b.tagline, 120),
-      address: str(b.address, 160),
-      phones: str(b.phones, 80),
-      email: str(b.email, 80),
-      tin: str(b.tin, 30),
-      color: color(b.color, DEFAULT_BUSINESS.color),
-      accent: color(b.accent, DEFAULT_BUSINESS.accent),
-      logo: typeof b.logo === 'string' && /^data:image\/(png|jpeg);base64,/.test(b.logo) && b.logo.length < 700_000 ? b.logo : undefined,
-    },
+    business: cleanBusiness(raw.business),
+    ...(typeof raw.businessAt === 'number' && Number.isFinite(raw.businessAt) ? { businessAt: raw.businessAt } : {}),
     counters: { receipt: count('receipt'), invoice: count('invoice'), proforma: count('proforma') },
     items,
     style: raw.style === 'book' ? 'book' : 'modern',

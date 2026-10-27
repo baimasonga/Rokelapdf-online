@@ -19,6 +19,7 @@ import { CloudflareMailer, ResendMailer, type Mailer } from './mail';
 import { ConversionService, HttpConverter, type ConversionLimits, type Converter } from './convert';
 import { LicenseService } from './licenses';
 import { ReceiptCheckService } from './receipt-checks';
+import { ReceiptSyncService } from './receipt-sync';
 import { BasicContentScanner, ChainedScanner, DEFAULT_SHARING_CONFIG, SharingKeys, SharingService, type FileScanner, type ObjectStore } from './sharing';
 
 export interface Container {
@@ -32,6 +33,7 @@ export interface Container {
   conversions: ConversionService;
   licenses: LicenseService;
   receiptChecks: ReceiptCheckService;
+  receiptSync: ReceiptSyncService;
   warrior: WarriorMonitor | undefined;
   warriorReadiness: (() => Promise<void>) | undefined;
   localStore: LocalObjectStore | undefined;
@@ -69,6 +71,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
   const workspaces = new WorkspaceService(pool, clock, config.trialMode);
   const licenses = new LicenseService(pool, clock, config.paidFeaturesFrom);
   const receiptChecks = new ReceiptCheckService(pool, clock, licenses, config.publicOrigin);
+  const receiptSync = new ReceiptSyncService(pool, clock, licenses);
   let localStore: LocalObjectStore | undefined;
   let objects = o.objects;
   if (!objects) {
@@ -195,6 +198,7 @@ export function createContainer(config: AppConfig = loadConfig(), o: Overrides =
     conversions,
     licenses,
     receiptChecks,
+    receiptSync,
     warrior,
     warriorReadiness: warrior ? () => checkWarriorReadiness(config, warrior) : undefined,
     localStore,

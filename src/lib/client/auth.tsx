@@ -41,6 +41,15 @@ export async function sessionToken(): Promise<string | undefined> {
   }
 }
 
+/** The current session (who is signed in and their token), waiting for a stored one to be restored; null when signed out. */
+export async function currentSession(): Promise<Session | null> {
+  try {
+    return (await (await supabaseClient()).auth.getSession()).data.session;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [supabase, setSupabase] = useState<SupabaseClient>();
   const [session, setSession] = useState<Session | null>(null);

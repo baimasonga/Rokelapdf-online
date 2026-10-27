@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { ArrowLeft, Building2, FilePlus2, HandCoins, ImagePlus, Plus, RotateCcw, Save, Share2, Trash2, XCircle } from 'lucide-react';
+import { ArrowLeft, Building2, Cloud, CloudOff, FilePlus2, HandCoins, ImagePlus, Plus, RotateCcw, Save, Share2, Trash2, XCircle } from 'lucide-react';
 import {
   PAY_METHODS,
   TITLES,
+  docNumber,
   isSlip,
   lineAmount,
   money,
@@ -14,7 +15,7 @@ import {
   type PageSize,
   type PayMethod,
 } from '@/lib/receipts/model';
-import { buildBizDoc, buildStatement } from '@/lib/receipts/pdf';
+import { BLANK_BOOK_MAX, buildBizDoc, buildBlankBook, buildStatement, type BlankBook } from '@/lib/receipts/pdf';
 import { afterDoc, isoDate, loadPrefs, logoDataUrl, newDoc, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
 import {
   customers,
@@ -33,6 +34,10 @@ import {
 import { TEMPLATES, newStamp } from '@/lib/stamp/design';
 import { renderStamp } from '@/lib/stamp/render';
 import { PDF_MIME, saveFile, shareFile } from './native';
+import { SITE, currentSession } from './account';
+import { PREVIEW_CODE, checkedPdf, type Issued, type Post } from '@/lib/receipts/check';
+import { syncedAgo, useReceiptSync, type SyncStatus } from '@/lib/receipts/use-sync';
+import { applySync, mergeEntries } from '@/lib/receipts/sync';
 import { openPdf, renderPage } from './pdf';
 import { SignaturePad } from './sign';
 import { AppBar, IconButton, Sheet } from './ui';
@@ -57,6 +62,37 @@ const seedOf = (s: string) => [...s].reduce((h, ch) => (Math.imul(h, 31) + ch.ch
 const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, ' ');
 const STATUS: Record<string, string> = { paid: 'Paid', part: 'Part paid', unpaid: 'Unpaid', overdue: 'Overdue' };
 
+const DRAFT = 'rokela.receipts.draft';
+/** The document being written, kept so it survives signing in, a phone call or the app being closed. */
+function loadDraft(): BizDoc | undefined {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT) ?? 'null') as Partial<BizDoc> | null;
+    if (!d || (d.kind !== 'receipt' && d.kind !== 'invoice' && d.kind !== 'proforma') || !Array.isArray(d.lines)) return undefined;
+    const lines = d.lines
+      .filter((l) => l && typeof l.item === 'string' && Number.isFinite(l.qty) && Number.isFinite(l.rate))
+      .map((l) => ({ qty: l.qty, item: l.item.slice(0, 120), rate: l.rate }))
+      .slice(0, 60);
+    return {
+      ...newDoc(d.kind, loadPrefs()),
+      ...d,
+      lines: lines.length ? lines : [{ qty: 1, item: '', rate: 0 }],
+      signature: undefined,
+      stamp: undefined,
+      paidStamp: undefined,
+      check: undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+function saveDraft(doc: BizDoc) {
+  try {
+    localStorage.setItem(DRAFT, JSON.stringify(doc));
+  } catch {
+    /* storage full or unavailable: the draft is just not kept */
+  }
+}
+
 export function Receipts(props: {
   onBack: () => void;
   /** Runs work behind the progress overlay; errors are shown by the app. */
@@ -65,14 +101,19 @@ export function Receipts(props: {
   paid: (go: () => void) => void;
   setError: (m: string) => void;
   setNotice: (m: string) => void;
+  /** Opens sign-in (for the check QR code); the app comes back to this screen afterwards. */
+  signIn: () => void;
   /** Android's Back button: set to a handler that closes this screen's own sheets first (true when it did). */
   backRef: MutableRefObject<(() => boolean) | undefined>;
 }) {
   const { run, setError, setNotice } = props;
   const [prefs, setPrefs] = useState<ReceiptPrefs>(loadPrefs);
-  const [doc, setDoc] = useState<BizDoc>(() => newDoc('receipt', loadPrefs()));
+  const [doc, setDoc] = useState<BizDoc>(() => loadDraft() ?? newDoc('receipt', loadPrefs()));
+  /** The check QR code needs an account: asks the person to sign in, keeping the draft. */
+  const [needSignIn, setNeedSignIn] = useState(false);
+  const issued = useRef<Issued>(undefined);
   const [ledger, setLedger] = useState<LedgerEntry[]>(loadLedger);
-  const [tab, setTab] = useState<'new' | 'ledger'>('new');
+  const [tab, setTab] = useState<'new' | 'book' | 'ledger'>('new');
   const [bizOpen, setBizOpen] = useState(() => !loadPrefs().business.name);
   const [more, setMore] = useState(false);
   const [pad, setPad] = useState(false);
@@ -83,17 +124,65 @@ export function Receipts(props: {
   useEffect(() => {
     backRef.current = () => {
       if (pad) return (setPad(false), true);
+      if (needSignIn) return (setNeedSignIn(false), true);
       if (bizOpen) return (setBizOpen(false), true);
       return false;
     };
     return () => {
       backRef.current = undefined;
     };
-  }, [backRef, pad, bizOpen]);
+  }, [backRef, pad, bizOpen, needSignIn]);
   useEffect(() => saveLedger(ledger), [ledger]);
+  useEffect(() => saveDraft(doc), [doc]);
 
   const biz = prefs.business;
-  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v } }));
+  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v }, businessAt: Date.now() }));
+
+  // Sync with the person's account (docs/receipt-sync.md): the same ledger, numbering and business details as on the
+  // website. The logo stays on each device.
+  const { status: syncStatus, syncNow } = useReceiptSync({
+    ready: true,
+    local: { entries: ledger, counters: prefs.counters, business: prefs.business, businessAt: prefs.businessAt ?? 0 },
+    session: async () => {
+      let s;
+      try {
+        s = await currentSession();
+      } catch {
+        return null; // offline: the ledger stays here and syncs later
+      }
+      if (!s) return null;
+      const token = s.access_token;
+      return {
+        user: s.user.id,
+        post: async (body) => {
+          const res = await fetch(`${SITE}/api/v1/me/receipt-sync`, {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const j = (await res.json().catch(() => null)) as { message?: string } | null;
+          if (!res.ok) throw new Error(res.status === 401 ? 'sign in again' : (j?.message ?? 'try again later'));
+          return j as never;
+        },
+      };
+    },
+    onMerged: (m) => {
+      const before = prefs.counters;
+      // Applied to what is here now: anything changed while the sync ran is newer, so it is kept and sent next time.
+      setLedger((l) => mergeEntries(l, m.entries));
+      setPrefs((p) => {
+        const a = applySync({ entries: [], counters: p.counters, business: p.business, businessAt: p.businessAt ?? 0 }, m);
+        return { ...p, counters: a.counters, business: a.business, businessAt: a.businessAt };
+      });
+      // The document being written keeps its number unless another device has just used it.
+      setDoc((d) =>
+        d.number === docNumber(d.kind, before[d.kind] + 1) && m.counters[d.kind] > before[d.kind]
+          ? { ...d, number: docNumber(d.kind, m.counters[d.kind] + 1) }
+          : d,
+      );
+    },
+  });
   const set = <K extends keyof BizDoc>(k: K, v: BizDoc[K]) => setDoc((d) => ({ ...d, [k]: v }));
   const setLine = (i: number, patch: Partial<BizDoc['lines'][number]>) =>
     setDoc((d) => ({ ...d, lines: d.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
@@ -106,7 +195,12 @@ export function Receipts(props: {
     const d = newStamp({ ...TEMPLATES[2]!.design, numbered: false, bottom: (biz.name || '').toUpperCase().slice(0, 28), wear: 0.5 });
     return renderStamp(d, { seed: seedOf(doc.number), date: new Date(`${doc.date}T12:00:00`) }).src;
   }, [prefs.paidStamp, biz.name, doc.number, doc.date]);
-  const full: BizDoc = { ...doc, signature: prefs.signature, paidStamp: paidSrc };
+  const full: BizDoc = {
+    ...doc,
+    signature: prefs.signature,
+    paidStamp: paidSrc,
+    check: prefs.check ? { url: `${SITE}/receipts/${PREVIEW_CODE}`, code: PREVIEW_CODE } : undefined,
+  };
 
   // Live preview of the first page, rebuilt shortly after each change.
   useEffect(() => {
@@ -130,7 +224,7 @@ export function Receipts(props: {
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `full` is rebuilt from these on every render
-  }, [tab, biz, doc, prefs.signature, paidSrc]);
+  }, [tab, biz, doc, prefs.signature, prefs.check, paidSrc]);
 
   const problem = (): string | undefined => {
     if (!biz.name.trim()) return 'Add your business name first.';
@@ -149,7 +243,8 @@ export function Receipts(props: {
     props.paid(
       () =>
         void run('Making the PDF…', async () => {
-          const bytes = await buildBizDoc(biz, full);
+          const bytes = prefs.check ? await withCheck() : await buildBizDoc(biz, full);
+          if (!bytes) return;
           const name = fileName(`${TITLES[doc.kind].modern} ${doc.number}${doc.customer.trim() ? ` - ${doc.customer.trim()}` : ''}.pdf`);
           // Only a document that was actually shared or saved is recorded and uses up its number; cancelling the
           // share sheet (it rejects) or the Save-to dialog (it returns false) leaves the ledger as it was.
@@ -161,6 +256,41 @@ export function Receipts(props: {
         }),
     );
   };
+  /** The document with its check QR code (src/lib/receipts/check.ts); undefined when the person must sign in first. */
+  async function withCheck(): Promise<Uint8Array | undefined> {
+    const session = await currentSession();
+    if (!session) return void setNeedSignIn(true);
+    let signedOut = false;
+    const post: Post = async (path, body) => {
+      let res: Response;
+      try {
+        res = await fetch(`${SITE}${path}`, {
+          method: 'POST',
+          credentials: 'omit',
+          headers: { authorization: `Bearer ${session.access_token}`, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        throw new Error('The check QR code needs the internet. Connect, or untick “QR code to check it”.');
+      }
+      if (res.status === 401) {
+        signedOut = true;
+        throw new Error('Sign in again.');
+      }
+      const j = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) throw new Error(`Could not add the check QR code: ${j?.message ?? 'try again later'}.`);
+      return j as never;
+    };
+    try {
+      const out = await checkedPdf(biz, full, post, issued.current);
+      issued.current = out.issued;
+      return out.bytes;
+    } catch (e) {
+      if (signedOut) return void setNeedSignIn(true);
+      throw e;
+    }
+  }
+
   const next = () => {
     const p = afterDoc(prefs, doc);
     setPrefs(p);
@@ -202,10 +332,13 @@ export function Receipts(props: {
       <main className="rcpt">
         <div className="seg" role="radiogroup" aria-label="Receipts">
           <button role="radio" aria-checked={tab === 'new'} className={tab === 'new' ? 'on' : ''} onClick={() => setTab('new')}>
-            New document
+            New
+          </button>
+          <button role="radio" aria-checked={tab === 'book'} className={tab === 'book' ? 'on' : ''} onClick={() => setTab('book')}>
+            Blank book
           </button>
           <button role="radio" aria-checked={tab === 'ledger'} className={tab === 'ledger' ? 'on' : ''} onClick={() => setTab('ledger')}>
-            Sales ledger
+            Ledger
           </button>
         </div>
 
@@ -487,6 +620,16 @@ export function Receipts(props: {
                   <label className="check">
                     <input type="checkbox" checked={doc.officeCopy} onChange={(e) => set('officeCopy', e.target.checked)} /> Add an office copy
                   </label>
+                  <label className="check rcpt-check">
+                    <input type="checkbox" checked={prefs.check} onChange={(e) => setPrefs((p) => ({ ...p, check: e.target.checked }))} />
+                    <span>
+                      QR code to check it
+                      <small className="muted">
+                        Anyone who scans it sees your business name, the number, date, total and customer on rokelapdf.com. Needs the internet and a free
+                        account; the document itself is not sent.
+                      </small>
+                    </span>
+                  </label>
                 </div>
               ) : null}
             </section>
@@ -507,6 +650,8 @@ export function Receipts(props: {
             </div>
             <p className="note">Made on this phone. Your business details, numbers and prices stay on this phone.</p>
           </>
+        ) : tab === 'book' ? (
+          <BookTab prefs={prefs} paid={props.paid} run={run} setError={setError} setNotice={setNotice} onNoBusiness={() => setBizOpen(true)} />
         ) : (
           <Ledger
             entries={ledger}
@@ -516,6 +661,9 @@ export function Receipts(props: {
             onVoid={(e, v) => setLedger((l) => setVoid(l, e, v))}
             paid={props.paid}
             run={run}
+            sync={syncStatus}
+            onSync={() => void syncNow()}
+            signIn={props.signIn}
           />
         )}
       </main>
@@ -592,6 +740,25 @@ export function Receipts(props: {
           </div>
         </Sheet>
       ) : null}
+      {needSignIn ? (
+        <Sheet title="Sign in for the check QR code" onClose={() => setNeedSignIn(false)}>
+          <p className="muted">The QR code is registered on rokelapdf.com under your account. Your document is kept here while you sign in.</p>
+          <div className="row">
+            <button className="ghost pill" onClick={() => setNeedSignIn(false)}>
+              Not now
+            </button>
+            <button
+              className="primary pill"
+              onClick={() => {
+                setNeedSignIn(false);
+                props.signIn();
+              }}
+            >
+              Sign in
+            </button>
+          </div>
+        </Sheet>
+      ) : null}
       {pad ? (
         <SignaturePad
           onCancel={() => setPad(false)}
@@ -605,6 +772,174 @@ export function Receipts(props: {
   );
 }
 
+/** Numbered blank receipts, invoices or quotations with the business's letterhead, to print and fill in by hand. */
+function BookTab(props: {
+  prefs: ReceiptPrefs;
+  paid: (go: () => void) => void;
+  run: (label: string, fn: () => Promise<void>) => Promise<void>;
+  setError: (m: string) => void;
+  setNotice: (m: string) => void;
+  onNoBusiness: () => void;
+}) {
+  const { prefs } = props;
+  const [book, setBook] = useState<BlankBook>(() => ({
+    kind: 'receipt',
+    size: 'A5',
+    currency: prefs.currency,
+    start: 5001,
+    count: 50,
+    counterfoil: true,
+    officeCopy: false,
+    twoUp: true,
+    footer: prefs.footers.receipt,
+    notes: '',
+  }));
+  const set = <K extends keyof BlankBook>(k: K, v: BlankBook[K]) => setBook((b) => ({ ...b, [k]: v }));
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const count = Math.min(BLANK_BOOK_MAX, Math.max(1, Math.floor(book.count) || 1));
+  // Two to a sheet applies to A5 pages only.
+  const twoUp = book.twoUp && book.size === 'A5';
+  const sheets = Math.ceil((count * (book.officeCopy ? 2 : 1)) / (twoUp ? 2 : 1));
+
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(async () => {
+      try {
+        const pdf = await openPdf(await buildBlankBook(prefs.business, { ...book, count: twoUp && !book.officeCopy ? 2 : 1 }));
+        try {
+          const c = canvas.current;
+          if (live && c) await renderPage(pdf.doc, 1, c, Math.min(420, (c.parentElement?.clientWidth ?? 360) - 2));
+        } finally {
+          void pdf.close();
+        }
+      } catch {
+        // The preview is a convenience; making the book reports real errors.
+      }
+    }, 350);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [book, prefs.business, twoUp]);
+
+  const make = (how: 'share' | 'save') => {
+    if (!prefs.business.name.trim()) {
+      props.onNoBusiness();
+      return props.setError('Add your business name first.');
+    }
+    props.paid(
+      () =>
+        void props.run('Making the book…', async () => {
+          const bytes = await buildBlankBook(prefs.business, { ...book, count });
+          const name = fileName(`${TITLES[book.kind].modern} book ${docNumber(book.kind, book.start)}-${docNumber(book.kind, book.start + count - 1)}.pdf`);
+          if (how === 'share') await shareFile(name, bytes, PDF_MIME);
+          else if (await saveFile(name, bytes, PDF_MIME)) props.setNotice(`Saved ${name}.`);
+        }),
+    );
+  };
+
+  return (
+    <>
+      <section className="card">
+        <p className="muted rcpt-hint">Numbered pages with your letterhead, to print and fill in by hand at the till or the market.</p>
+        <div className="seg" role="radiogroup" aria-label="Book of">
+          {KINDS.map(([k, label]) => (
+            <button
+              key={k}
+              role="radio"
+              aria-checked={book.kind === k}
+              className={book.kind === k ? 'on' : ''}
+              onClick={() => setBook((b) => ({ ...b, kind: k, footer: prefs.footers[k] }))}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="rcpt-two">
+          <label>
+            First number
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={book.start || ''}
+              onChange={(e) => set('start', Math.max(1, Math.floor(Number(e.target.value)) || 1))}
+            />
+          </label>
+          <label>
+            How many
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={BLANK_BOOK_MAX}
+              value={book.count || ''}
+              onChange={(e) => set('count', Math.min(BLANK_BOOK_MAX, Math.max(0, Math.floor(Number(e.target.value)) || 0)))}
+            />
+          </label>
+        </div>
+        <div className="rcpt-two">
+          <label>
+            Page size
+            <select value={book.size} onChange={(e) => set('size', e.target.value === 'A4' ? 'A4' : 'A5')}>
+              <option value="A5">A5</option>
+              <option value="A4">A4</option>
+            </select>
+          </label>
+          <label>
+            Currency
+            <select value={book.currency} onChange={(e) => set('currency', e.target.value === 'USD' ? 'USD' : 'NLe')}>
+              <option value="NLe">NLe</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
+        </div>
+        {book.size === 'A5' ? (
+          <label className="check">
+            <input type="checkbox" checked={book.twoUp} onChange={(e) => set('twoUp', e.target.checked)} /> Two on each A4 sheet (cut in half)
+          </label>
+        ) : null}
+        {book.kind === 'receipt' ? (
+          <label className="check">
+            <input type="checkbox" checked={book.counterfoil} onChange={(e) => set('counterfoil', e.target.checked)} /> Counterfoil strip
+          </label>
+        ) : null}
+        <label className="check">
+          <input type="checkbox" checked={book.officeCopy} onChange={(e) => set('officeCopy', e.target.checked)} /> Office copy of each number
+        </label>
+        {book.kind !== 'receipt' ? (
+          <label>
+            {book.kind === 'invoice' ? 'How to pay, on every page (optional)' : 'Terms, on every page (optional)'}
+            <textarea rows={2} maxLength={300} value={book.notes} onChange={(e) => set('notes', e.target.value)} />
+          </label>
+        ) : null}
+        <label>
+          Footer message
+          <textarea rows={2} maxLength={200} value={book.footer} onChange={(e) => set('footer', e.target.value)} />
+        </label>
+        <p className="rcpt-total">
+          {docNumber(book.kind, book.start)} to {docNumber(book.kind, book.start + count - 1)}
+          <b>
+            {sheets} {book.size === 'A5' && !twoUp ? 'A5' : 'A4'} sheet{sheets === 1 ? '' : 's'}
+          </b>
+        </p>
+      </section>
+      <div className="rcpt-preview">
+        <canvas ref={canvas} aria-label={`Preview of the first sheet of the ${TITLES[book.kind].modern.toLowerCase()} book`} />
+      </div>
+      <div className="rcpt-actions two">
+        <button className="primary pill" onClick={() => make('share')}>
+          <Share2 size={18} aria-hidden="true" /> Share
+        </button>
+        <button className="ghost pill" onClick={() => make('save')}>
+          <Save size={18} aria-hidden="true" /> Save
+        </button>
+      </div>
+      <p className="note">Share to a printer app or a print shop, and print at actual size. Printed books keep their own numbers.</p>
+    </>
+  );
+}
+
 function Ledger(props: {
   entries: LedgerEntry[];
   biz: Business;
@@ -613,8 +948,12 @@ function Ledger(props: {
   onVoid: (e: LedgerEntry, value: boolean) => void;
   paid: (go: () => void) => void;
   run: (label: string, fn: () => Promise<void>) => Promise<void>;
+  sync: SyncStatus;
+  onSync: () => void;
+  signIn: () => void;
 }) {
   const { entries, currency } = props;
+  const syncLine = <SyncLine sync={props.sync} onSync={props.onSync} signIn={props.signIn} />;
   const now = new Date();
   const today = isoDate(now);
   const from = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -627,6 +966,7 @@ function Ledger(props: {
       <div className="empty">
         <HandCoins size={32} aria-hidden="true" />
         <p>Every receipt, invoice and quotation you share or save appears here, so you can see your sales and who owes you.</p>
+        {syncLine}
       </div>
     );
 
@@ -736,7 +1076,35 @@ function Ledger(props: {
       <button className="ghost pill" onClick={exportCsv}>
         Export to a spreadsheet (CSV)
       </button>
-      <p className="note">The ledger is kept on this phone only. Export it now and then to keep a copy.</p>
+      {syncLine}
     </>
+  );
+}
+
+/** Where the ledger is kept: in step with the account, or only on this phone. */
+function SyncLine({ sync, onSync, signIn }: { sync: SyncStatus; onSync: () => void; signIn: () => void }) {
+  if (sync.k === 'signed-out')
+    return (
+      <p className="note rcpt-sync">
+        <CloudOff size={15} aria-hidden="true" /> Kept on this phone only.{' '}
+        <button className="link" onClick={signIn}>
+          Sign in
+        </button>{' '}
+        to share it with the website and your other devices.
+      </p>
+    );
+  if (sync.k === 'error')
+    return (
+      <p className="note rcpt-sync">
+        <CloudOff size={15} aria-hidden="true" /> Not synced: {sync.message}.{' '}
+        <button className="link" onClick={onSync}>
+          Try again
+        </button>
+      </p>
+    );
+  return (
+    <p className="note rcpt-sync" role="status">
+      <Cloud size={15} aria-hidden="true" /> {sync.k === 'syncing' ? 'Syncing with your account…' : `Synced with your account ${syncedAgo(sync.at)}.`}
+    </p>
   );
 }

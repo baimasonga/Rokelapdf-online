@@ -1,6 +1,8 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { Download, FileSpreadsheet, HandCoins, RotateCcw, Search, XCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Cloud, CloudOff, Download, FileSpreadsheet, HandCoins, RotateCcw, Search, XCircle } from 'lucide-react';
+import { syncedAgo, type SyncStatus } from '@/lib/receipts/use-sync';
 import { Button } from '@/components/ui';
 import { customers, invoiceState, ledgerCsv, statement, summary, type LedgerEntry } from '@/lib/receipts/ledger';
 import { money, shortDate, type Business, type Currency } from '@/lib/receipts/model';
@@ -45,6 +47,9 @@ export function LedgerView(props: {
   /** Opens a receipt for a payment on this invoice. */
   onPay: (inv: LedgerEntry, balance: number) => void;
   requirePaid: () => boolean | Promise<boolean>;
+  /** Sync with the person's account (docs/receipt-sync.md). */
+  sync: SyncStatus;
+  onSync: () => void;
 }) {
   const { entries, biz } = props;
   const [currency, setCurrency] = useState<Currency>(() => (entries[0]?.currency === 'USD' ? 'USD' : 'NLe'));
@@ -90,6 +95,7 @@ export function LedgerView(props: {
         <h2>Sales ledger</h2>
         <p>Every receipt, invoice and quotation you download or share appears here, so you can see your sales, who owes you, and send customers a statement.</p>
         <p className="muted">Make an invoice to start. To record a payment on it later, choose “Record payment” here.</p>
+        <SyncLine sync={props.sync} onSync={props.onSync} />
       </section>
     );
 
@@ -270,7 +276,32 @@ export function LedgerView(props: {
           </Button>
         )}
       </section>
-      <p className="muted rk-hint">The ledger is kept in this browser only. Export it regularly to keep a copy; clearing the browser&apos;s data deletes it.</p>
+      <SyncLine sync={props.sync} onSync={props.onSync} />
     </div>
+  );
+}
+
+/** Where the ledger is kept: in step with the account, or only in this browser. */
+function SyncLine({ sync, onSync }: { sync: SyncStatus; onSync: () => void }) {
+  if (sync.k === 'signed-out')
+    return (
+      <p className="muted rk-hint rk-sync">
+        <CloudOff size={15} aria-hidden="true" /> Kept in this browser only. <Link href={`/signin?next=${encodeURIComponent('/receipts')}`}>Sign in</Link> to
+        keep your ledger, numbering and business details on all your devices, including the Android app.
+      </p>
+    );
+  if (sync.k === 'error')
+    return (
+      <p className="muted rk-hint rk-sync">
+        <CloudOff size={15} aria-hidden="true" /> Not synced: {sync.message}{' '}
+        <button type="button" className="link" onClick={onSync}>
+          Try again
+        </button>
+      </p>
+    );
+  return (
+    <p className="muted rk-hint rk-sync" role="status">
+      <Cloud size={15} aria-hidden="true" /> {sync.k === 'syncing' ? 'Syncing with your account…' : `Synced with your account ${syncedAgo(sync.at)}.`}
+    </p>
   );
 }

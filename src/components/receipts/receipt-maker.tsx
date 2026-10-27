@@ -3,9 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, ClipboardList, Download, FilePlus2, ImagePlus, Plus, QrCode, Share2, Stamp as StampIcon, Trash2 } from 'lucide-react';
 import { usePaid } from '@/components/paid';
-import { ApiError, api, enc } from '@/lib/client/api';
-import { sessionToken } from '@/lib/client/auth';
-import { sha256Hex } from '@/lib/client/sha256';
+import { ApiError, api } from '@/lib/client/api';
+import { PREVIEW_CODE, checkedPdf, type Issued, type Post } from '@/lib/receipts/check';
+import { currentSession, sessionToken } from '@/lib/client/auth';
+import { useReceiptSync } from '@/lib/receipts/use-sync';
+import { applySync, mergeEntries } from '@/lib/receipts/sync';
 import { Button } from '@/components/ui';
 import { SignaturePad } from '@/components/editor/signature-pad';
 import { StampStudio } from '@/components/editor/stamp-studio';
@@ -46,17 +48,7 @@ const KINDS: Array<[DocKind, string]> = [
 const iso = isoDate;
 /** A stable number from text, so a document keeps the same stamp impression while it is edited. */
 const seedOf = (s: string) => [...s].reduce((h, ch) => (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0, 7);
-/** Shown in the preview until the document is registered: the real code is made when it is downloaded. */
-const PREVIEW_CODE = 'XXXXXXXXXXXXXXXX';
 const SIGN_IN = 'signin';
-
-/** A registered receipt check (docs/receipt-checks.md), as the API returns it. */
-interface Check {
-  id: string;
-  code: string;
-  url: string;
-  sha256: string | null;
-}
 
 const blankDoc = newDoc;
 
@@ -93,7 +85,7 @@ export function ReceiptMaker() {
   const bookTwoUp = book.twoUp && book.size === 'A5';
   const setB = <K extends keyof BlankBook>(k: K, v: BlankBook[K]) => setBook((b) => ({ ...b, [k]: v }));
   /** The last receipt check registered, and the facts it vouches for, so downloading again reuses it. */
-  const issued = useRef<{ facts: string; doc: string; check: Check }>(undefined);
+  const issued = useRef<Issued>(undefined);
   const canvas = useRef<HTMLCanvasElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
 
@@ -116,7 +108,33 @@ export function ReceiptMaker() {
   }, [prefs, loaded]);
 
   const biz = prefs.business;
-  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v } }));
+  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v }, businessAt: Date.now() }));
+
+  // Sync with the person's account (docs/receipt-sync.md): the ledger, numbering and business profile on every device.
+  const { status: syncStatus, syncNow } = useReceiptSync({
+    ready: loaded,
+    local: { entries: ledger, counters: prefs.counters, business: prefs.business, businessAt: prefs.businessAt ?? 0 },
+    session: async () => {
+      const s = await currentSession();
+      if (!s) return null;
+      return { user: s.user.id, post: (body) => api('/api/v1/me/receipt-sync', { auth: false, headers: { authorization: `Bearer ${s.access_token}` }, body }) };
+    },
+    onMerged: (m) => {
+      const before = prefs.counters;
+      // Applied to what is here now: anything changed while the sync ran is newer, so it is kept and sent next time.
+      setLedger((l) => mergeEntries(l, m.entries));
+      setPrefs((p) => {
+        const a = applySync({ entries: [], counters: p.counters, business: p.business, businessAt: p.businessAt ?? 0 }, m);
+        return { ...p, counters: a.counters, business: a.business, businessAt: a.businessAt };
+      });
+      // The document being written keeps its number unless another device has just used it.
+      setDoc((d) =>
+        d.number === docNumber(d.kind, before[d.kind] + 1) && m.counters[d.kind] > before[d.kind]
+          ? { ...d, number: docNumber(d.kind, m.counters[d.kind] + 1) }
+          : d,
+      );
+    },
+  });
   const set = <K extends keyof BizDoc>(k: K, v: BizDoc[K]) => setDoc((d) => ({ ...d, [k]: v }));
   const setLine = (i: number, patch: Partial<Line>) => setDoc((d) => ({ ...d, lines: d.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
   const sum = totals(doc);
@@ -199,7 +217,7 @@ export function ReceiptMaker() {
     if (!(await paid.require('receipts'))) return undefined;
     setBusy(true);
     try {
-      const bytes = prefs.check ? await checkedPdf() : await buildBizDoc(biz, full);
+      const bytes = prefs.check ? await withCheck() : await buildBizDoc(biz, full);
       if (!bytes) return undefined;
       setLedger((l) => upsert(l, entryFromDoc(doc)));
       setPrefs((p) => afterDoc(p, doc));
@@ -236,41 +254,18 @@ export function ReceiptMaker() {
     }
   }
 
-  /**
-   * Registers the document's facts (once per set of facts), prints its QR code and records the file's fingerprint. A
-   * document whose facts or look changed after it was registered gets a new check, and the old one is cancelled as
-   * replaced, so only the latest file reads as valid.
-   */
-  async function checkedPdf(): Promise<Uint8Array | undefined> {
+  /** The document with its check QR code (src/lib/receipts/check.ts), after sign-in. */
+  async function withCheck(): Promise<Uint8Array | undefined> {
     const token = await sessionToken();
     if (!token) {
       setError(SIGN_IN);
       return undefined;
     }
-    const call = <T,>(path: string, body?: unknown) => api<T>(path, { auth: false, headers: { authorization: `Bearer ${token}` }, body });
-    const facts = {
-      kind: doc.kind,
-      business_name: biz.name.trim(),
-      number: doc.number.trim(),
-      issued_on: doc.date,
-      currency: doc.currency,
-      total: sum.total,
-      ...(doc.customer.trim() ? { customer_name: doc.customer.trim() } : {}),
-    };
-    const key = JSON.stringify(facts);
+    const post: Post = (path, body) => api(path, { auth: false, headers: { authorization: `Bearer ${token}` }, body });
     try {
-      const prev = issued.current;
-      if (prev?.facts === key) {
-        const bytes = await buildBizDoc(biz, { ...full, check: prev.check });
-        if (prev.check.sha256 === (await sha256Hex(bytes))) return bytes;
-      }
-      const check = await call<Check>('/api/v1/me/receipt-checks', facts);
-      const bytes = await buildBizDoc(biz, { ...full, check });
-      check.sha256 = (await call<Check>(`/api/v1/me/receipt-checks/${enc(check.id)}/digest`, { sha256: await sha256Hex(bytes) })).sha256;
-      const docKey = `${facts.kind} ${facts.number}`;
-      issued.current = { facts: key, doc: docKey, check };
-      if (prev?.doc === docKey) await call(`/api/v1/me/receipt-checks/${enc(prev.check.id)}/cancel`, { reason: 'replaced' }).catch(() => undefined);
-      return bytes;
+      const out = await checkedPdf(biz, full, post, issued.current);
+      issued.current = out.issued;
+      return out.bytes;
     } catch (e) {
       setError(e instanceof ApiError && e.status === 401 ? SIGN_IN : `Could not add the check QR code: ${(e as Error).message}`);
       return undefined;
@@ -356,6 +351,8 @@ export function ReceiptMaker() {
             biz={biz}
             onPay={recordPayment}
             requirePaid={() => paid.require('receipts')}
+            sync={syncStatus}
+            onSync={() => void syncNow()}
           />
         )}
 

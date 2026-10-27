@@ -1055,3 +1055,110 @@ button.ghost {
   padding: 0 12px;
   font-size: 14px;
 }
+.rcpt-check {
+  align-items: flex-start;
+}
+.rcpt-check input {
+  margin-top: 2px;
+  flex: none;
+}
+.rcpt-check > span {
+  display: grid;
+  gap: 2px;
+}
+.rcpt-check small {
+  font-size: 13px;
+  line-height: 1.35;
+}
+.rcpt-actions.two {
+  grid-template-columns: 1.4fr 1fr;
+}
+.rcpt .card label.check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 400;
+  font-size: 15px;
+}
+.rcpt .card label.rcpt-check {
+  align-items: flex-start;
+}
+
+/* ---- stamp sheet ------------------------------------------------------------------------------------------- */
+.stamp-picks {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.stamp-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.stamp-pick span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.stamp-pick.on {
+  border-color: var(--navy);
+  font-weight: 600;
+}
+.stamp-pick.new {
+  color: var(--muted);
+}
+.stamp-preview {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: #fbfaf6;
+}
+.stamp-preview img {
+  max-width: 70%;
+  max-height: 150px;
+  mix-blend-mode: multiply;
+}
+.stamp-preview .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.stamp-form input:not([type='checkbox']):not([type='range']),
+.stamp-form textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #c9d1e0;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 16px;
+}
+.stamp-form label:not(.check) {
+  display: grid;
+  gap: 6px;
+  font-weight: 500;
+  font-size: 14px;
+}
+.stamp-form input[type='range'] {
+  accent-color: var(--coral);
+}
+.rcpt-sync {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+}
+.rcpt-sync .link {
+  padding: 0;
+}
