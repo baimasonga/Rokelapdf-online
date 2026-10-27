@@ -33,6 +33,7 @@ export const PAID_TOOLS: Readonly<Record<string, PaidFeature>> = {
   'sign-pdf': 'sign',
   'stamp-pdf': 'sign',
   'stamp-many-pdfs': 'sign',
+  'seam-stamp-pdf': 'sign',
   'ocr-pdf': 'ocr',
   'protect-pdf': 'protect',
   'split-pdf': 'split',

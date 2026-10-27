@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, degrees } from 'pdf-lib';
 import { OPS, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { stampDocument } from '@/lib/stamp/batch';
+import { seamStampDocument, stampDocument } from '@/lib/stamp/batch';
 import type { Impression } from '@/lib/stamp/render';
 import { png } from './png';
 
@@ -96,5 +96,27 @@ describe('stamping many PDFs', () => {
     const [[box]] = await stampsShown(await stampDocument(await d.save(), { place: 'bottom-right', pages: 'all', marginMm: 30 }, impression));
     expect(box![0]).toBeGreaterThanOrEqual(0);
     expect(box![0] + box![2]).toBeLessThanOrEqual(100.5);
+  });
+});
+
+describe('the seam stamp', () => {
+  /** A 2:1, 113 pt wide seal cut into n strips. */
+  const strips = async (n: number): Promise<Impression[]> => Array.from({ length: n }, () => ({ src: dataUrl, aspect: 113.4 / n / 56.7, widthPt: 113.4 / n }));
+
+  it('puts one strip on each page, flush with the right edge, at the same height, upright on rotated pages', async () => {
+    const pages = await stampsShown(await seamStampDocument(await threePages(true), 0.5, strips));
+    pages.forEach(([box, extra], i) => {
+      const [W, H] = i === 1 ? [841.89, 595.28] : [595.28, 841.89];
+      expect(extra, `page ${i + 1}: one strip`).toBeUndefined();
+      expect(box![0] + box![2], `page ${i + 1} right edge`).toBeCloseTo(W, 0);
+      expect(box![2], `page ${i + 1} strip width`).toBeCloseTo(113.4 / 3, 0);
+      expect(box![1], `page ${i + 1} height on the page`).toBeCloseTo((H - 56.7) / 2, 0);
+    });
+  });
+
+  it('needs at least two pages', async () => {
+    const d = await PDFDocument.create();
+    d.addPage();
+    await expect(seamStampDocument(await d.save(), 0.5, strips)).rejects.toThrow(/two pages/);
   });
 });

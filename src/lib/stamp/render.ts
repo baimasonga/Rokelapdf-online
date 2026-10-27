@@ -196,3 +196,24 @@ export function renderStamp(d: StampDesign, o: { seed: number; date?: Date; numb
   }
   return { src: final.toDataURL('image/png'), aspect: final.width / final.height, widthPt: d.sizeMm * PT_PER_MM * (out.width / flat.width) };
 }
+
+/**
+ * Cuts an impression into `n` vertical strips, left to right, for a seam stamp: one strip on the edge of each page, so
+ * the whole seal only lines up when every page is there, in order (browser only).
+ */
+export async function sliceImpression(imp: Impression, n: number): Promise<Impression[]> {
+  const img = new Image();
+  img.src = imp.src;
+  await img.decode();
+  const out: Impression[] = [];
+  for (let i = 0; i < n; i++) {
+    const x0 = Math.round((img.width * i) / n);
+    const x1 = Math.round((img.width * (i + 1)) / n);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, x1 - x0);
+    c.height = img.height;
+    c.getContext('2d')!.drawImage(img, x0, 0, c.width, c.height, 0, 0, c.width, c.height);
+    out.push({ src: c.toDataURL('image/png'), aspect: c.width / c.height, widthPt: (imp.widthPt * c.width) / img.width });
+  }
+  return out;
+}

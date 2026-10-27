@@ -487,6 +487,18 @@ async function main() {
       'stamp many PDFs: the stamp on the first page of each file, all in one ZIP',
     );
 
+    // Seam stamp: one seal cut into a strip on the right edge of each page.
+    await v.goto(`${ORIGIN}/tools/seam-stamp-pdf`);
+    await v.getByTestId('tool-input').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: pdf });
+    await v.getByRole('img', { name: /stamp$/ }).waitFor();
+    await v.getByRole('button', { name: /^Seam stamp/ }).click();
+    const seamed = await fetchDownload(v.getByRole('link', { name: /^Download/ }));
+    const seamDoc = await getDocument({ data: new Uint8Array(seamed.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    let strips = 0;
+    for (let p = 1; p <= seamDoc.numPages; p++) if ((await (await seamDoc.getPage(p)).getOperatorList()).fnArray.includes(OPS.paintImageXObject)) strips++;
+    check(seamed.name === 'contract-seam-stamped.pdf' && strips === seamDoc.numPages && strips === 2, 'seam stamp: a strip of the seal on every page');
+
     await v.goto(`${ORIGIN}/receipts`);
     await v.getByLabel('Business name').fill('Kamara & Sons Hardware');
     await v.getByLabel('Customer name').fill('Mr. Ibrahim Conteh');

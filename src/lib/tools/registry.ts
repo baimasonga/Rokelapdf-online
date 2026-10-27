@@ -22,6 +22,7 @@ export type ToolSlug =
   | 'sign-pdf'
   | 'stamp-pdf'
   | 'stamp-many-pdfs'
+  | 'seam-stamp-pdf'
   | 'fill-pdf-form'
   | 'create-fillable-pdf'
   | 'protect-pdf'
@@ -302,6 +303,19 @@ export const TOOLS: ToolDef[] = [
     short: 'One stamp on a whole pile of PDFs at once.',
     description:
       'Stamp many PDFs in one go: choose your company seal or a “RECEIVED” or “APPROVED” stamp, where it goes and on which pages, and download every stamped file as a ZIP. Each page gets a fresh hand-stamped impression; numbered stamps count up per document.',
+    group: 'sign',
+    icon: 'Stamp',
+    accept: 'pdf',
+    multiple: false,
+    batch: true,
+  },
+  {
+    slug: 'seam-stamp-pdf',
+    color: '#7f1d1d',
+    title: 'Seam stamp',
+    short: 'A seal across the edges of every page, so no page can be swapped.',
+    description:
+      'Add a seam stamp (a cross-page seal) to a contract or tender: your seal is cut into strips, one on the edge of every page, and lines up only when all the pages are there, in order. Swapped or missing pages show at a glance.',
     group: 'sign',
     icon: 'Stamp',
     accept: 'pdf',
