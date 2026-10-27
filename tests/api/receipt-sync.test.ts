@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { makeEnv, type TestEnv } from '../support/env';
 import type { LedgerEntry } from '@/lib/receipts/ledger';
 import { DEFAULT_BUSINESS } from '@/lib/receipts/model';
-import { freshState, syncReceipts, type SyncLocal, type SyncPost } from '@/lib/receipts/sync';
+import { applySync, batches, freshState, syncReceipts, type SyncLocal, type SyncPost } from '@/lib/receipts/sync';
 
 // Receipt Maker sync (docs/receipt-sync.md): the website and the app share a ledger, numbering and business profile
 // through the account. Two "devices" run the real client sync against the real API.
@@ -124,5 +124,68 @@ describe('receipt sync', () => {
     const tooMany = Array.from({ length: 201 }, (_, i) => entry(`X-${i}`));
     expect((await env.call('POST', PATH, { token: v.token, body: { since: 0, entries: tooMany } })).status).toBe(400);
     expect((await env.call('POST', PATH, { token: v.token, body: { since: -1 } })).status).toBe(400);
+  });
+
+  it('takes a business profile saved before sync existed (no edit time) when the account has none', async () => {
+    env = await makeEnv();
+    const u = await env.user('old@example.test', { verified: true });
+    await syncReceipts({ ...empty(), business: { ...DEFAULT_BUSINESS, name: 'Old Shop' }, businessAt: 0 }, freshState('u'), device(u.token), 100);
+    // A new device (no profile of its own) takes the account's, whatever its time.
+    const other = await syncReceipts(empty(), freshState('u'), device(u.token), 200);
+    expect(other.local.business.name).toBe('Old Shop');
+    // A device with its own profile and no newer edit keeps it.
+    const own = await syncReceipts(
+      { ...empty(), business: { ...DEFAULT_BUSINESS, name: 'Mine' }, businessAt: 0 },
+      { ...freshState('u'), pushedAt: 50 },
+      device(u.token),
+      300,
+    );
+    expect(own.local.business.name).toBe('Mine');
+  });
+
+  it('merges two devices updating the profile at the same moment: higher numbers and the newer profile win', async () => {
+    env = await makeEnv();
+    const u = await env.user('busy@example.test', { verified: true });
+    const send = (body: unknown) => env.call('POST', PATH, { token: u.token, body });
+    await Promise.all([
+      send({ since: 0, counters: { receipt: 9, invoice: 1, proforma: 0 }, business: { data: { ...DEFAULT_BUSINESS, name: 'Newer' }, at: 2000 } }),
+      send({ since: 0, counters: { receipt: 3, invoice: 7, proforma: 2 }, business: { data: { ...DEFAULT_BUSINESS, name: 'Older' }, at: 1000 } }),
+    ]);
+    const r = await send({ since: 0 });
+    expect(r.body.counters).toEqual({ receipt: 9, invoice: 7, proforma: 2 });
+    expect(r.body.business.name).toBe('Newer');
+    // Lower numbers and older profiles never win later either.
+    await send({ since: 0, counters: { receipt: 1, invoice: 1, proforma: 1 }, business: { data: { ...DEFAULT_BUSINESS, name: 'Stale' }, at: 1500 } });
+    const again = await send({ since: 0 });
+    expect(again.body.counters).toEqual({ receipt: 9, invoice: 7, proforma: 2 });
+    expect(again.body.business.name).toBe('Newer');
+  });
+
+  it('keeps every request under the API size limit, even with long numbers and names', async () => {
+    env = await makeEnv();
+    const u = await env.user('long@example.test', { verified: true });
+    const long = Array.from({ length: 450 }, (_, i) =>
+      entry(`${'N'.repeat(34)}-${String(i).padStart(4, '0')}`, { customer: 'C'.repeat(120), against: 'A'.repeat(40) }),
+    );
+    const parts = batches(long, 500);
+    expect(parts.length).toBeGreaterThan(2);
+    for (const b of parts) expect(JSON.stringify({ since: 0, entries: b }).length).toBeLessThan(64 * 1024);
+    const r = await syncReceipts({ ...empty(), entries: long }, freshState('u'), device(u.token), 100);
+    expect(r.local.entries).toHaveLength(450);
+    expect((await syncReceipts(empty(), freshState('u'), device(u.token), 200)).local.entries).toHaveLength(450);
+  });
+
+  it('keeps changes made on this device while a sync was running', () => {
+    const synced: SyncLocal = { ...empty(), entries: [entry('INV-1', { updatedAt: 100 })], counters: { receipt: 0, invoice: 1, proforma: 0 } };
+    const now: SyncLocal = {
+      entries: [entry('INV-2', { updatedAt: 150 }), entry('INV-1', { void: true, updatedAt: 160 })],
+      counters: { receipt: 0, invoice: 2, proforma: 0 },
+      business: { ...DEFAULT_BUSINESS, name: 'Edited meanwhile' },
+      businessAt: 170,
+    };
+    const a = applySync(now, { ...synced, business: { ...DEFAULT_BUSINESS, name: 'From the sync' }, businessAt: 120 });
+    expect(a.entries.map((e) => `${e.number}${e.void ? ' void' : ''}`).sort()).toEqual(['INV-1 void', 'INV-2']);
+    expect(a.counters.invoice).toBe(2);
+    expect(a.business.name).toBe('Edited meanwhile');
   });
 });

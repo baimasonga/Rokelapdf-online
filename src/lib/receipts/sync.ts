@@ -8,6 +8,8 @@ import { cleanBusiness } from './store';
 
 const KEY = 'rokela.receipts.sync';
 const PUSH_MAX = 200;
+/** Request bodies stay under this many characters (the API refuses more than 64 KiB). */
+const PUSH_CHARS = 48_000;
 
 type Counters = Record<DocKind, number>;
 
@@ -46,7 +48,7 @@ export type SyncPost = (body: unknown) => Promise<Answer>;
 
 const ZERO: Counters = { receipt: 0, invoice: 0, proforma: 0 };
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-const maxCounters = (a: Counters, b: Partial<Counters>): Counters => ({
+export const maxCounters = (a: Counters, b: Partial<Counters>): Counters => ({
   receipt: Math.max(a.receipt, n(b.receipt)),
   invoice: Math.max(a.invoice, n(b.invoice)),
   proforma: Math.max(a.proforma, n(b.proforma)),
@@ -67,19 +69,50 @@ export function mergeEntries(local: LedgerEntry[], incoming: LedgerEntry[]): Led
 }
 
 /** One full sync: send what is waiting here, then take everything new from the account. */
+/** Splits documents into requests of at most PUSH_MAX documents and PUSH_CHARS characters (the first also carries `extra`). */
+export function batches(entries: LedgerEntry[], extra = 0): LedgerEntry[][] {
+  const out: LedgerEntry[][] = [[]];
+  let size = 200 + extra;
+  for (const e of entries) {
+    const len = JSON.stringify(e).length + 1;
+    const cur = out[out.length - 1]!;
+    if (cur.length && (cur.length >= PUSH_MAX || size + len > PUSH_CHARS)) {
+      out.push([e]);
+      size = 200 + len;
+    } else {
+      cur.push(e);
+      size += len;
+    }
+  }
+  return out;
+}
+
+/**
+ * The result of a sync applied to what this device holds *now*: documents, numbering or business details changed here
+ * while the sync was running are newer than the sync's copy, so they are kept (and sent next time).
+ */
+export function applySync(current: SyncLocal, synced: SyncLocal): SyncLocal {
+  const theirs = synced.businessAt > current.businessAt || (!current.business.name.trim() && !!synced.business.name.trim());
+  return {
+    entries: mergeEntries(current.entries, synced.entries),
+    counters: maxCounters(current.counters, synced.counters),
+    business: theirs ? { ...synced.business, logo: current.business.logo } : current.business,
+    businessAt: theirs ? synced.businessAt : current.businessAt,
+  };
+}
+
 export async function syncReceipts(local: SyncLocal, state: SyncState, post: SyncPost, now = Date.now()): Promise<{ local: SyncLocal; state: SyncState }> {
   const waiting = local.entries.filter((e) => (e.updatedAt ?? 0) > state.pushedAt);
   const countersChanged = (Object.keys(ZERO) as DocKind[]).some((k) => local.counters[k] > state.counters[k]);
   const businessChanged = local.businessAt > state.pushedAt && !!local.business.name.trim();
   let answer: Answer | undefined;
-  for (let i = 0; i < waiting.length || (i === 0 && (countersChanged || businessChanged)); i += PUSH_MAX) {
-    answer = await post({
-      since: state.cursor,
-      entries: waiting.slice(i, i + PUSH_MAX),
-      ...(i === 0 && countersChanged ? { counters: local.counters } : {}),
-      ...(i === 0 && businessChanged ? { business: { data: { ...local.business, logo: undefined }, at: local.businessAt } } : {}),
-    });
-  }
+  const profile = {
+    ...(countersChanged ? { counters: local.counters } : {}),
+    ...(businessChanged ? { business: { data: { ...local.business, logo: undefined }, at: local.businessAt } } : {}),
+  };
+  for (const [i, batch] of batches(waiting, JSON.stringify(profile).length).entries())
+    if (batch.length || (i === 0 && (countersChanged || businessChanged)))
+      answer = await post({ since: state.cursor, entries: batch, ...(i === 0 ? profile : {}) });
   // Take everything that changed in the account since this device last looked (including what it just sent).
   let cursor = state.cursor;
   let incoming: LedgerEntry[] = [];
@@ -90,7 +123,8 @@ export async function syncReceipts(local: SyncLocal, state: SyncState, post: Syn
   } while (answer.more);
   const counters = maxCounters(local.counters, answer.counters);
   const theirAt = n(answer.businessAt ?? answer.business_at);
-  const theirs = answer.business && theirAt > local.businessAt ? cleanBusiness(answer.business) : undefined;
+  // The account's profile wins when it is newer, or when this device has none yet (whatever its time).
+  const theirs = answer.business && (theirAt > local.businessAt || !local.business.name.trim()) ? cleanBusiness(answer.business) : undefined;
   return {
     local: {
       entries: mergeEntries(local.entries, incoming),

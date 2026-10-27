@@ -7,6 +7,7 @@ import { ApiError, api } from '@/lib/client/api';
 import { PREVIEW_CODE, checkedPdf, type Issued, type Post } from '@/lib/receipts/check';
 import { currentSession, sessionToken } from '@/lib/client/auth';
 import { useReceiptSync } from '@/lib/receipts/use-sync';
+import { applySync, mergeEntries } from '@/lib/receipts/sync';
 import { Button } from '@/components/ui';
 import { SignaturePad } from '@/components/editor/signature-pad';
 import { StampStudio } from '@/components/editor/stamp-studio';
@@ -120,8 +121,12 @@ export function ReceiptMaker() {
     },
     onMerged: (m) => {
       const before = prefs.counters;
-      setLedger(m.entries);
-      setPrefs((p) => ({ ...p, counters: m.counters, business: m.business, businessAt: m.businessAt }));
+      // Applied to what is here now: anything changed while the sync ran is newer, so it is kept and sent next time.
+      setLedger((l) => mergeEntries(l, m.entries));
+      setPrefs((p) => {
+        const a = applySync({ entries: [], counters: p.counters, business: p.business, businessAt: p.businessAt ?? 0 }, m);
+        return { ...p, counters: a.counters, business: a.business, businessAt: a.businessAt };
+      });
       // The document being written keeps its number unless another device has just used it.
       setDoc((d) =>
         d.number === docNumber(d.kind, before[d.kind] + 1) && m.counters[d.kind] > before[d.kind]

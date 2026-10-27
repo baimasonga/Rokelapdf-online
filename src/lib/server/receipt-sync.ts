@@ -16,7 +16,6 @@ export const SYNC_PUSH_MAX = 200;
 export const SYNC_PULL_MAX = 500;
 
 type Counters = Record<DocKind, number>;
-const KINDS: DocKind[] = ['receipt', 'invoice', 'proforma'];
 
 export interface SyncInput {
   /** The last `cursor` this device received (0 the first time). */
@@ -83,27 +82,29 @@ export class ReceiptSyncService {
     }
 
     if (input.counters !== undefined || input.business !== undefined) {
-      const old = (
-        await this.#pool.query<{ counters: unknown; business: unknown; business_at: string }>(
-          'SELECT counters, business, business_at FROM receipt_sync_profiles WHERE user_id = $1',
-          [p.userId],
-        )
-      ).rows[0];
-      const was = cleanCounters(old?.counters);
       const sent = cleanCounters(input.counters);
-      // Numbering only goes up, so two devices never hand out the same number twice.
-      const counters = Object.fromEntries(KINDS.map((k) => [k, Math.max(was[k], sent[k])])) as Counters;
-      const wasAt = Number(old?.business_at ?? 0);
       const at = input.business && Number.isFinite(input.business.at) ? Math.max(0, Math.floor(input.business.at)) : 0;
-      const newer = !!input.business && at > wasAt;
-      const business = newer ? { ...cleanBusiness(input.business!.data), logo: undefined } : (old?.business ?? null);
-      const changed = !old || newer || KINDS.some((k) => counters[k] !== was[k]);
-      if (changed)
-        await this.#pool.query(
-          `INSERT INTO receipt_sync_profiles (user_id, counters, business, business_at, seq) VALUES ($1, $2::jsonb, $3::jsonb, $4, nextval('receipt_sync_seq'))
-           ON CONFLICT (user_id) DO UPDATE SET counters = EXCLUDED.counters, business = EXCLUDED.business, business_at = EXCLUDED.business_at, seq = EXCLUDED.seq`,
-          [p.userId, JSON.stringify(counters), business === null ? null : JSON.stringify(business), newer ? at : wasAt],
-        );
+      const business = input.business ? JSON.stringify({ ...cleanBusiness(input.business.data), logo: undefined }) : null;
+      // One statement, so two devices syncing at once cannot undo each other: numbering only goes up, and the business
+      // profile is replaced only by a newer one (or taken as it is when the account has none yet, e.g. a profile saved
+      // before sync existed, which has no edit time).
+      await this.#pool.query(
+        `INSERT INTO receipt_sync_profiles (user_id, counters, business, business_at, seq)
+         VALUES ($1, $2::jsonb, $3::jsonb, $4, nextval('receipt_sync_seq'))
+         ON CONFLICT (user_id) DO UPDATE SET
+           counters = jsonb_build_object(
+             'receipt', GREATEST(COALESCE((receipt_sync_profiles.counters->>'receipt')::bigint, 0), (EXCLUDED.counters->>'receipt')::bigint),
+             'invoice', GREATEST(COALESCE((receipt_sync_profiles.counters->>'invoice')::bigint, 0), (EXCLUDED.counters->>'invoice')::bigint),
+             'proforma', GREATEST(COALESCE((receipt_sync_profiles.counters->>'proforma')::bigint, 0), (EXCLUDED.counters->>'proforma')::bigint)),
+           business = CASE WHEN EXCLUDED.business IS NOT NULL
+                            AND (receipt_sync_profiles.business IS NULL OR EXCLUDED.business_at > receipt_sync_profiles.business_at)
+                           THEN EXCLUDED.business ELSE receipt_sync_profiles.business END,
+           business_at = CASE WHEN EXCLUDED.business IS NOT NULL
+                               AND (receipt_sync_profiles.business IS NULL OR EXCLUDED.business_at > receipt_sync_profiles.business_at)
+                              THEN EXCLUDED.business_at ELSE receipt_sync_profiles.business_at END,
+           seq = EXCLUDED.seq`,
+        [p.userId, JSON.stringify(sent), business, at],
+      );
     }
 
     const since = Math.max(0, Math.floor(input.since) || 0);
