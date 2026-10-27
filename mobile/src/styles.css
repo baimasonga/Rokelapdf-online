@@ -1070,3 +1070,16 @@ button.ghost {
   font-size: 13px;
   line-height: 1.35;
 }
+.rcpt-actions.two {
+  grid-template-columns: 1.4fr 1fr;
+}
+.rcpt .card label.check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 400;
+  font-size: 15px;
+}
+.rcpt .card label.rcpt-check {
+  align-items: flex-start;
+}

@@ -405,7 +405,7 @@ async function main() {
       invoice.text.includes('Kamara & Sons Hardware') && invoice.text.includes('INV-0001') && invoice.text.includes('1,550.00'),
       'an invoice is made on the phone in the website’s layout',
     );
-    await page.getByRole('radio', { name: 'Sales ledger' }).click();
+    await page.getByRole('radio', { name: 'Ledger', exact: true }).click();
     await page.getByRole('button', { name: 'Record payment' }).click();
     check((await page.getByLabel('Payment for invoice').inputValue()) === 'INV-0001', 'Record payment opens a receipt for that invoice');
     await page.getByLabel('Price 1').fill('550');
@@ -413,13 +413,13 @@ async function main() {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const receipt = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
     check(receipt.text.includes('Payment for invoice INV-0001') && receipt.text.includes('550.00'), 'the payment receipt is made');
-    await page.getByRole('radio', { name: 'Sales ledger' }).click();
+    await page.getByRole('radio', { name: 'Ledger', exact: true }).click();
     await page.getByText('Owes 1,000.00').waitFor();
     rdl = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Statement' }).click();
     const st = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
     check(st.text.includes('Statement of account') && st.text.includes('NLe 1,000.00'), 'the ledger shows 1,000.00 owed, and the statement says so');
-    await page.getByRole('radio', { name: 'New document' }).click();
+    await page.getByRole('radio', { name: 'New', exact: true }).click();
     await page.getByLabel('Paper').selectOption('58mm');
     await page.getByLabel('Item 1', { exact: true }).fill('Rice, 25 kg');
     await page.getByLabel('Price 1').fill('480');
@@ -463,6 +463,16 @@ async function main() {
     );
     await page.getByRole('button', { name: /More options/ }).click();
     await page.getByLabel('QR code to check it').uncheck();
+
+    await page.getByRole('radio', { name: 'Blank book' }).click();
+    await page.getByLabel('How many').fill('4');
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const bookPdf = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(
+      bookPdf.pages === 2 && bookPdf.text.includes('5004') && bookPdf.text.includes('KAMARA & SONS HARDWARE'),
+      'a blank book of 4 receipts prints two to an A4 sheet',
+    );
 
     step('Pro tools (src/lib/licensing.ts)');
     site.launched = '2026-01-01T00:00:00.000Z';

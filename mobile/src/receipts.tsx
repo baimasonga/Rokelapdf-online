@@ -3,6 +3,7 @@ import { ArrowLeft, Building2, FilePlus2, HandCoins, ImagePlus, Plus, RotateCcw,
 import {
   PAY_METHODS,
   TITLES,
+  docNumber,
   isSlip,
   lineAmount,
   money,
@@ -14,7 +15,7 @@ import {
   type PageSize,
   type PayMethod,
 } from '@/lib/receipts/model';
-import { buildBizDoc, buildStatement } from '@/lib/receipts/pdf';
+import { BLANK_BOOK_MAX, buildBizDoc, buildBlankBook, buildStatement, type BlankBook } from '@/lib/receipts/pdf';
 import { afterDoc, isoDate, loadPrefs, logoDataUrl, newDoc, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
 import {
   customers,
@@ -110,7 +111,7 @@ export function Receipts(props: {
   const [needSignIn, setNeedSignIn] = useState(false);
   const issued = useRef<Issued>(undefined);
   const [ledger, setLedger] = useState<LedgerEntry[]>(loadLedger);
-  const [tab, setTab] = useState<'new' | 'ledger'>('new');
+  const [tab, setTab] = useState<'new' | 'book' | 'ledger'>('new');
   const [bizOpen, setBizOpen] = useState(() => !loadPrefs().business.name);
   const [more, setMore] = useState(false);
   const [pad, setPad] = useState(false);
@@ -283,10 +284,13 @@ export function Receipts(props: {
       <main className="rcpt">
         <div className="seg" role="radiogroup" aria-label="Receipts">
           <button role="radio" aria-checked={tab === 'new'} className={tab === 'new' ? 'on' : ''} onClick={() => setTab('new')}>
-            New document
+            New
+          </button>
+          <button role="radio" aria-checked={tab === 'book'} className={tab === 'book' ? 'on' : ''} onClick={() => setTab('book')}>
+            Blank book
           </button>
           <button role="radio" aria-checked={tab === 'ledger'} className={tab === 'ledger' ? 'on' : ''} onClick={() => setTab('ledger')}>
-            Sales ledger
+            Ledger
           </button>
         </div>
 
@@ -598,6 +602,8 @@ export function Receipts(props: {
             </div>
             <p className="note">Made on this phone. Your business details, numbers and prices stay on this phone.</p>
           </>
+        ) : tab === 'book' ? (
+          <BookTab prefs={prefs} paid={props.paid} run={run} setError={setError} setNotice={setNotice} onNoBusiness={() => setBizOpen(true)} />
         ) : (
           <Ledger
             entries={ledger}
@@ -711,6 +717,174 @@ export function Receipts(props: {
           }}
         />
       ) : null}
+    </>
+  );
+}
+
+/** Numbered blank receipts, invoices or quotations with the business's letterhead, to print and fill in by hand. */
+function BookTab(props: {
+  prefs: ReceiptPrefs;
+  paid: (go: () => void) => void;
+  run: (label: string, fn: () => Promise<void>) => Promise<void>;
+  setError: (m: string) => void;
+  setNotice: (m: string) => void;
+  onNoBusiness: () => void;
+}) {
+  const { prefs } = props;
+  const [book, setBook] = useState<BlankBook>(() => ({
+    kind: 'receipt',
+    size: 'A5',
+    currency: prefs.currency,
+    start: 5001,
+    count: 50,
+    counterfoil: true,
+    officeCopy: false,
+    twoUp: true,
+    footer: prefs.footers.receipt,
+    notes: '',
+  }));
+  const set = <K extends keyof BlankBook>(k: K, v: BlankBook[K]) => setBook((b) => ({ ...b, [k]: v }));
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const count = Math.min(BLANK_BOOK_MAX, Math.max(1, Math.floor(book.count) || 1));
+  // Two to a sheet applies to A5 pages only.
+  const twoUp = book.twoUp && book.size === 'A5';
+  const sheets = Math.ceil((count * (book.officeCopy ? 2 : 1)) / (twoUp ? 2 : 1));
+
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(async () => {
+      try {
+        const pdf = await openPdf(await buildBlankBook(prefs.business, { ...book, count: twoUp && !book.officeCopy ? 2 : 1 }));
+        try {
+          const c = canvas.current;
+          if (live && c) await renderPage(pdf.doc, 1, c, Math.min(420, (c.parentElement?.clientWidth ?? 360) - 2));
+        } finally {
+          void pdf.close();
+        }
+      } catch {
+        // The preview is a convenience; making the book reports real errors.
+      }
+    }, 350);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [book, prefs.business, twoUp]);
+
+  const make = (how: 'share' | 'save') => {
+    if (!prefs.business.name.trim()) {
+      props.onNoBusiness();
+      return props.setError('Add your business name first.');
+    }
+    props.paid(
+      () =>
+        void props.run('Making the book…', async () => {
+          const bytes = await buildBlankBook(prefs.business, { ...book, count });
+          const name = fileName(`${TITLES[book.kind].modern} book ${docNumber(book.kind, book.start)}-${docNumber(book.kind, book.start + count - 1)}.pdf`);
+          if (how === 'share') await shareFile(name, bytes, PDF_MIME);
+          else if (await saveFile(name, bytes, PDF_MIME)) props.setNotice(`Saved ${name}.`);
+        }),
+    );
+  };
+
+  return (
+    <>
+      <section className="card">
+        <p className="muted rcpt-hint">Numbered pages with your letterhead, to print and fill in by hand at the till or the market.</p>
+        <div className="seg" role="radiogroup" aria-label="Book of">
+          {KINDS.map(([k, label]) => (
+            <button
+              key={k}
+              role="radio"
+              aria-checked={book.kind === k}
+              className={book.kind === k ? 'on' : ''}
+              onClick={() => setBook((b) => ({ ...b, kind: k, footer: prefs.footers[k] }))}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="rcpt-two">
+          <label>
+            First number
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={book.start || ''}
+              onChange={(e) => set('start', Math.max(1, Math.floor(Number(e.target.value)) || 1))}
+            />
+          </label>
+          <label>
+            How many
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={BLANK_BOOK_MAX}
+              value={book.count || ''}
+              onChange={(e) => set('count', Math.min(BLANK_BOOK_MAX, Math.max(0, Math.floor(Number(e.target.value)) || 0)))}
+            />
+          </label>
+        </div>
+        <div className="rcpt-two">
+          <label>
+            Page size
+            <select value={book.size} onChange={(e) => set('size', e.target.value === 'A4' ? 'A4' : 'A5')}>
+              <option value="A5">A5</option>
+              <option value="A4">A4</option>
+            </select>
+          </label>
+          <label>
+            Currency
+            <select value={book.currency} onChange={(e) => set('currency', e.target.value === 'USD' ? 'USD' : 'NLe')}>
+              <option value="NLe">NLe</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
+        </div>
+        {book.size === 'A5' ? (
+          <label className="check">
+            <input type="checkbox" checked={book.twoUp} onChange={(e) => set('twoUp', e.target.checked)} /> Two on each A4 sheet (cut in half)
+          </label>
+        ) : null}
+        {book.kind === 'receipt' ? (
+          <label className="check">
+            <input type="checkbox" checked={book.counterfoil} onChange={(e) => set('counterfoil', e.target.checked)} /> Counterfoil strip
+          </label>
+        ) : null}
+        <label className="check">
+          <input type="checkbox" checked={book.officeCopy} onChange={(e) => set('officeCopy', e.target.checked)} /> Office copy of each number
+        </label>
+        {book.kind !== 'receipt' ? (
+          <label>
+            {book.kind === 'invoice' ? 'How to pay, on every page (optional)' : 'Terms, on every page (optional)'}
+            <textarea rows={2} maxLength={300} value={book.notes} onChange={(e) => set('notes', e.target.value)} />
+          </label>
+        ) : null}
+        <label>
+          Footer message
+          <textarea rows={2} maxLength={200} value={book.footer} onChange={(e) => set('footer', e.target.value)} />
+        </label>
+        <p className="rcpt-total">
+          {docNumber(book.kind, book.start)} to {docNumber(book.kind, book.start + count - 1)}
+          <b>
+            {sheets} {book.size === 'A5' && !twoUp ? 'A5' : 'A4'} sheet{sheets === 1 ? '' : 's'}
+          </b>
+        </p>
+      </section>
+      <div className="rcpt-preview">
+        <canvas ref={canvas} aria-label={`Preview of the first sheet of the ${TITLES[book.kind].modern.toLowerCase()} book`} />
+      </div>
+      <div className="rcpt-actions two">
+        <button className="primary pill" onClick={() => make('share')}>
+          <Share2 size={18} aria-hidden="true" /> Share
+        </button>
+        <button className="ghost pill" onClick={() => make('save')}>
+          <Save size={18} aria-hidden="true" /> Save
+        </button>
+      </div>
+      <p className="note">Share to a printer app or a print shop, and print at actual size. Printed books keep their own numbers.</p>
     </>
   );
 }
