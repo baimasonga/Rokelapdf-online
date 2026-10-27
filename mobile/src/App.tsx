@@ -68,6 +68,8 @@ import { AppBar, BarButton, IconButton, Progress, Row, Sheet, ToolTile, type Too
 import { RECENT_MAX, forget, openRecent, recentFiles, remember, type Recent } from './recent';
 import logo from '@/../public/brand/rokela-icon.png';
 import { Receipts } from './receipts';
+import { StampSheet } from './stamp';
+import { upsertStamp } from '@/lib/stamp/store';
 
 type View = { k: 'view'; file: PdfFile; pdf: OpenPdf; id: number };
 type Screen =
@@ -96,7 +98,8 @@ type Panel =
   | { k: 'protect' }
   | { k: 'unlock'; file: PdfFile }
   | { k: 'form'; fields: FormFieldInfo[] }
-  | { k: 'text'; item?: Item; at?: { page: number; u: number; v: number } };
+  | { k: 'text'; item?: Item; at?: { page: number; u: number; v: number } }
+  | { k: 'stamp' };
 
 let opened = 0;
 const base = (name: string) => name.replace(/\.pdf$/i, '');
@@ -410,9 +413,25 @@ export function App() {
       await show({ name: suffixed(v.file.name, 'edited'), bytes });
       setNotice('Changes saved into the PDF. Save or share the edited copy.');
     });
+  /** Shown page widths in PDF points, read when the Stamp tool is chosen, so stamps land at their size on paper. */
+  const [pageWidths, setPageWidths] = useState<number[]>([]);
+  const stamping = edit?.tool === 'stamp';
+  const viewDoc = screen.k === 'view' ? screen.pdf.doc : undefined;
+  useEffect(() => {
+    if (!stamping || !viewDoc) return;
+    let live = true;
+    void Promise.all(Array.from({ length: viewDoc.numPages }, (_, i) => viewDoc.getPage(i + 1).then((p) => p.getViewport({ scale: 1 }).width))).then(
+      (w) => live && setPageWidths(w),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [stamping, viewDoc]);
   const chooseTool = (tool: Tool) => {
     setEdit((e) => (e ? { ...e, tool } : e));
     if (tool === 'image') picture.current?.click();
+    if (tool === 'stamp') setPanel({ k: 'stamp' });
   };
   const onPicture = (e: ChangeEvent<HTMLInputElement>) =>
     void run('Preparing the picture…', async () => {
@@ -789,7 +808,9 @@ export function App() {
                 ? 'Tap where you want to sign. Drag to move; drag the corner to resize.'
                 : edit!.tool === 'image' && !edit!.picture
                   ? 'Choose a picture first.'
-                  : HINTS[edit!.tool]}
+                  : edit!.tool === 'stamp' && !edit!.stamp
+                    ? 'Choose a stamp first.'
+                    : HINTS[edit!.tool]}
             </p>
           ) : null}
           <Viewer
@@ -807,6 +828,11 @@ export function App() {
                 <EditLayer
                   page={page}
                   state={edit}
+                  widthPt={pageWidths[page]}
+                  onStamped={(d) => {
+                    setEdit((s) => (s ? { ...s, stamp: d } : s));
+                    upsertStamp(d);
+                  }}
                   onChange={(fn) => setEdit((s) => (s ? { ...s, items: fn(s.items) } : s))}
                   onText={(t) => setPanel('id' in t ? { k: 'text', item: t } : { k: 'text', at: t })}
                 />
@@ -964,6 +990,16 @@ export function App() {
             ))}
           </div>
         </Sheet>
+      ) : null}
+      {panel?.k === 'stamp' ? (
+        <StampSheet
+          current={edit?.stamp}
+          onCancel={() => setPanel(undefined)}
+          onUse={(d) => {
+            setEdit((s) => (s ? { ...s, tool: 'stamp', stamp: d } : s));
+            setPanel(undefined);
+          }}
+        />
       ) : null}
       {panel?.k === 'compress' && view ? <CompressSheet onClose={() => setPanel(undefined)} onPick={(level) => void compress(view, level)} /> : null}
       {panel?.k === 'paid' ? (

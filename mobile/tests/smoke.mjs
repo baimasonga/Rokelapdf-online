@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { chromium } from 'playwright-core';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import { PDFDocument as SecureDocument } from '@cantoo/pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
@@ -256,6 +256,33 @@ async function main() {
     await notice(/Made a PDF from 1 picture/);
     r = await textOf(await saved());
     check(r.pages === 1, 'one picture makes a one-page PDF');
+
+    step('Stamp');
+    await openPdf('agreement.pdf');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('radio', { name: 'Stamp' }).click();
+    const stampSheet = page.getByRole('dialog', { name: 'Stamp' });
+    await stampSheet.getByRole('listitem').filter({ hasText: 'New: Received' }).click();
+    await stampSheet.getByLabel('Small line at the bottom').fill('KAMARA & SONS');
+    await stampSheet.getByLabel('Number each stamp').check();
+    await stampSheet.getByRole('button', { name: 'Use this stamp' }).click();
+    const stampLayer = page.locator('.edit-layer').first();
+    const sb = await stampLayer.boundingBox();
+    await page.mouse.click(sb.x + sb.width * 0.3, sb.y + sb.height * 0.6);
+    await page.mouse.click(sb.x + sb.width * 0.7, sb.y + sb.height * 0.8);
+    check((await page.locator('.edit-layer .placed img[style*="multiply"]').count()) === 2, 'each tap places a fresh stamp impression');
+    check(
+      (await page.evaluate(() => JSON.parse(localStorage.getItem('rokela.stamps.v1'))[0].next)) === 3,
+      'a numbered stamp counts up with each tap and is kept',
+    );
+    await page.getByRole('button', { name: 'Done' }).click();
+    await notice(/Changes saved/);
+    const stamped = await PDFDocument.load(await saved());
+    const res = stamped.getPage(0).node.Resources();
+    const xobjects = res.lookup(PDFName.of('XObject'));
+    const states = res.lookup(PDFName.of('ExtGState'));
+    const multiply = states ? [...states.entries()].some(([, v]) => String(stamped.context.lookup(v).get(PDFName.of('BM'))) === '/Multiply') : false;
+    check(xobjects && [...xobjects.keys()].length >= 2 && multiply, 'the saved PDF has both stamps, inked with multiply like real ink');
 
     step('Edit: text, highlight, draw, cover, image');
     await openPdf('agreement.pdf');
