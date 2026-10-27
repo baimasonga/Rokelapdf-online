@@ -5311,3 +5311,19 @@ details.rk-card summary .muted {
   width: auto;
   mix-blend-mode: multiply;
 }
+.rk-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.rk-sync .link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

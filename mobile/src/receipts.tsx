@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { ArrowLeft, Building2, FilePlus2, HandCoins, ImagePlus, Plus, RotateCcw, Save, Share2, Trash2, XCircle } from 'lucide-react';
+import { ArrowLeft, Building2, Cloud, CloudOff, FilePlus2, HandCoins, ImagePlus, Plus, RotateCcw, Save, Share2, Trash2, XCircle } from 'lucide-react';
 import {
   PAY_METHODS,
   TITLES,
@@ -36,6 +36,7 @@ import { renderStamp } from '@/lib/stamp/render';
 import { PDF_MIME, saveFile, shareFile } from './native';
 import { SITE, currentSession } from './account';
 import { PREVIEW_CODE, checkedPdf, type Issued, type Post } from '@/lib/receipts/check';
+import { syncedAgo, useReceiptSync, type SyncStatus } from '@/lib/receipts/use-sync';
 import { openPdf, renderPage } from './pdf';
 import { SignaturePad } from './sign';
 import { AppBar, IconButton, Sheet } from './ui';
@@ -134,7 +135,49 @@ export function Receipts(props: {
   useEffect(() => saveDraft(doc), [doc]);
 
   const biz = prefs.business;
-  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v } }));
+  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v }, businessAt: Date.now() }));
+
+  // Sync with the person's account (docs/receipt-sync.md): the same ledger, numbering and business details as on the
+  // website. The logo stays on each device.
+  const { status: syncStatus, syncNow } = useReceiptSync({
+    ready: true,
+    local: { entries: ledger, counters: prefs.counters, business: prefs.business, businessAt: prefs.businessAt ?? 0 },
+    session: async () => {
+      let s;
+      try {
+        s = await currentSession();
+      } catch {
+        return null; // offline: the ledger stays here and syncs later
+      }
+      if (!s) return null;
+      const token = s.access_token;
+      return {
+        user: s.user.id,
+        post: async (body) => {
+          const res = await fetch(`${SITE}/api/v1/me/receipt-sync`, {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const j = (await res.json().catch(() => null)) as { message?: string } | null;
+          if (!res.ok) throw new Error(res.status === 401 ? 'sign in again' : (j?.message ?? 'try again later'));
+          return j as never;
+        },
+      };
+    },
+    onMerged: (m) => {
+      const before = prefs.counters;
+      setLedger(m.entries);
+      setPrefs((p) => ({ ...p, counters: m.counters, business: m.business, businessAt: m.businessAt }));
+      // The document being written keeps its number unless another device has just used it.
+      setDoc((d) =>
+        d.number === docNumber(d.kind, before[d.kind] + 1) && m.counters[d.kind] > before[d.kind]
+          ? { ...d, number: docNumber(d.kind, m.counters[d.kind] + 1) }
+          : d,
+      );
+    },
+  });
   const set = <K extends keyof BizDoc>(k: K, v: BizDoc[K]) => setDoc((d) => ({ ...d, [k]: v }));
   const setLine = (i: number, patch: Partial<BizDoc['lines'][number]>) =>
     setDoc((d) => ({ ...d, lines: d.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
@@ -613,6 +656,9 @@ export function Receipts(props: {
             onVoid={(e, v) => setLedger((l) => setVoid(l, e, v))}
             paid={props.paid}
             run={run}
+            sync={syncStatus}
+            onSync={() => void syncNow()}
+            signIn={props.signIn}
           />
         )}
       </main>
@@ -897,8 +943,12 @@ function Ledger(props: {
   onVoid: (e: LedgerEntry, value: boolean) => void;
   paid: (go: () => void) => void;
   run: (label: string, fn: () => Promise<void>) => Promise<void>;
+  sync: SyncStatus;
+  onSync: () => void;
+  signIn: () => void;
 }) {
   const { entries, currency } = props;
+  const syncLine = <SyncLine sync={props.sync} onSync={props.onSync} signIn={props.signIn} />;
   const now = new Date();
   const today = isoDate(now);
   const from = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -911,6 +961,7 @@ function Ledger(props: {
       <div className="empty">
         <HandCoins size={32} aria-hidden="true" />
         <p>Every receipt, invoice and quotation you share or save appears here, so you can see your sales and who owes you.</p>
+        {syncLine}
       </div>
     );
 
@@ -1020,7 +1071,35 @@ function Ledger(props: {
       <button className="ghost pill" onClick={exportCsv}>
         Export to a spreadsheet (CSV)
       </button>
-      <p className="note">The ledger is kept on this phone only. Export it now and then to keep a copy.</p>
+      {syncLine}
     </>
+  );
+}
+
+/** Where the ledger is kept: in step with the account, or only on this phone. */
+function SyncLine({ sync, onSync, signIn }: { sync: SyncStatus; onSync: () => void; signIn: () => void }) {
+  if (sync.k === 'signed-out')
+    return (
+      <p className="note rcpt-sync">
+        <CloudOff size={15} aria-hidden="true" /> Kept on this phone only.{' '}
+        <button className="link" onClick={signIn}>
+          Sign in
+        </button>{' '}
+        to share it with the website and your other devices.
+      </p>
+    );
+  if (sync.k === 'error')
+    return (
+      <p className="note rcpt-sync">
+        <CloudOff size={15} aria-hidden="true" /> Not synced: {sync.message}.{' '}
+        <button className="link" onClick={onSync}>
+          Try again
+        </button>
+      </p>
+    );
+  return (
+    <p className="note rcpt-sync" role="status">
+      <Cloud size={15} aria-hidden="true" /> {sync.k === 'syncing' ? 'Syncing with your account…' : `Synced with your account ${syncedAgo(sync.at)}.`}
+    </p>
   );
 }

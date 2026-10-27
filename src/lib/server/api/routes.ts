@@ -7,6 +7,7 @@ import { Router, created, json, parse, type Ctx } from './router';
 import { attachment, readBody } from '../convert';
 import { PAID_FEATURES, TRIAL_DAYS } from '../../licensing';
 import { RECEIPT_CANCEL_REASONS, RECEIPT_CURRENCIES, RECEIPT_KINDS } from '../receipt-checks';
+import { SYNC_PUSH_MAX } from '../receipt-sync';
 
 const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
 const dateOpt = (v: string | undefined) => (v === undefined ? undefined : new Date(v));
@@ -25,6 +26,17 @@ const receiptBody = z
   })
   .strict();
 const receiptParams = z.object({ id: z.string().regex(/^rck_[0-9a-f]{24}$/) }).strict();
+const syncBody = z
+  .object({
+    since: z.number().int().nonnegative(),
+    entries: z.array(z.unknown()).max(SYNC_PUSH_MAX).default([]),
+    counters: z.record(z.string(), z.unknown()).optional(),
+    business: z
+      .object({ data: z.record(z.string(), z.unknown()), at: z.number().nonnegative() })
+      .strict()
+      .optional(),
+  })
+  .strict();
 
 /**
  * Every API route. Workspace routes are session-authenticated and the services authorize membership and role;
@@ -104,6 +116,11 @@ export function buildRouter(): Router {
   r.add('POST', '/api/v1/me/receipt-checks/:id/cancel', 'user', async (x) =>
     rc(x).cancel(me(x), parse(receiptParams, x.params).id, parse(z.object({ reason: z.enum(RECEIPT_CANCEL_REASONS) }).strict(), await x.body()).reason),
   );
+  // Receipt Maker sync (docs/receipt-sync.md): the ledger, numbering and business profile shared by the website and the app.
+  r.add('POST', '/api/v1/me/receipt-sync', 'user', async (x) => {
+    const b = parse(syncBody, await x.body());
+    return x.c.receiptSync.sync(me(x), { since: b.since, entries: b.entries, counters: b.counters, business: b.business });
+  });
   r.add('GET', '/api/v1/workspaces/:orgId/subscription', 'user', async (x) => x.c.workspaces.subscription(me(x), org(x)));
   r.add('GET', '/api/v1/workspaces/:orgId/audit', 'user', async (x) => {
     const q = parse(
@@ -175,11 +192,12 @@ export function buildRouter(): Router {
     });
   });
 
-  // The Android app reads its configuration, checks access to the paid tools, converts Word ⇄ PDF and registers receipt
-  // checks; nothing else is reachable from it.
+  // The Android app reads its configuration, checks access to the paid tools, converts Word ⇄ PDF, registers receipt
+  // checks and syncs its receipts; nothing else is reachable from it.
   r.allowApp('GET', '/api/v1/config').allowApp('POST', '/api/v1/convert/:target').allowApp('GET', '/api/v1/me/access');
   r.allowApp('GET', '/api/v1/me/receipt-checks').allowApp('POST', '/api/v1/me/receipt-checks');
   r.allowApp('POST', '/api/v1/me/receipt-checks/:id/digest').allowApp('POST', '/api/v1/me/receipt-checks/:id/cancel');
+  r.allowApp('POST', '/api/v1/me/receipt-sync');
 
   // ---- overview and documents ------------------------------------------------------------------------
   r.add('GET', `${P}/overview`, 'user', async (x) => sh(x).overview(me(x), org(x)));

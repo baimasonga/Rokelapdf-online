@@ -160,6 +160,17 @@ async function main() {
     await p.getByText('Exact match').waitFor();
     check(true, 'and confirms the downloaded PDF is the one that was made');
 
+    step('Receipt sync');
+    await p.goto(`${ORIGIN}/receipts`);
+    await p.getByRole('radio', { name: 'Sales ledger' }).click();
+    await p.getByText(/Synced with your account/).waitFor({ timeout: 20_000 });
+    const syncedRows = (await db.query('SELECT doc_key FROM rokela.receipt_sync_entries')).rows.map((r) => r.doc_key);
+    const profile = (await db.query('SELECT counters, business FROM rokela.receipt_sync_profiles')).rows[0];
+    check(
+      syncedRows.includes('receipt 0001') && profile?.counters.receipt >= 1 && profile?.business?.name === 'Kamara & Sons Hardware',
+      'signed in, the ledger, numbering and business details are kept in the account',
+    );
+
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
     console.log('\nPaid tools end-to-end test passed.');
   } finally {

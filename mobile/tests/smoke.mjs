@@ -101,6 +101,12 @@ async function main() {
     );
     await ctx.route('https://www.rokelapdf.com/api/v1/me/access', (r) => (site.offline ? r.abort() : r.fulfill({ json: site.access })));
     await ctx.route('https://demo.supabase.co/**', (r) => r.fulfill({ json: {} }));
+    // Receipt sync (docs/receipt-sync.md): the account holds nothing yet; what the app sends is kept for checks.
+    const synced = [];
+    await ctx.route('https://www.rokelapdf.com/api/v1/me/receipt-sync', (r) => {
+      synced.push(r.request().postDataJSON());
+      r.fulfill({ json: { cursor: 0, more: false, entries: [], counters: { receipt: 0, invoice: 0, proforma: 0 }, business: null, business_at: 0 } });
+    });
     const converted = [];
     await ctx.route('https://www.rokelapdf.com/api/v1/convert/**', (r) => {
       converted.push(new URL(r.request().url()).pathname);
@@ -446,6 +452,12 @@ async function main() {
     await page.getByRole('button', { name: 'Statement' }).click();
     const st = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
     check(st.text.includes('Statement of account') && st.text.includes('NLe 1,000.00'), 'the ledger shows 1,000.00 owed, and the statement says so');
+    await page.getByText(/Synced with your account/).waitFor({ timeout: 15_000 });
+    check(
+      synced.some((b) => b.entries?.some((e) => e.number === 'INV-0001')) &&
+        synced.some((b) => b.business?.data.name === 'Kamara & Sons Hardware' && !b.business.data.logo),
+      'signed in, the ledger and business details are synced with the account (the logo stays on the phone)',
+    );
     await page.getByRole('radio', { name: 'New', exact: true }).click();
     await page.getByLabel('Paper').selectOption('58mm');
     await page.getByLabel('Item 1', { exact: true }).fill('Rice, 25 kg');

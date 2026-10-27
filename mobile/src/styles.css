@@ -1152,3 +1152,13 @@ button.ghost {
 .stamp-form input[type='range'] {
   accent-color: var(--coral);
 }
+.rcpt-sync {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+}
+.rcpt-sync .link {
+  padding: 0;
+}

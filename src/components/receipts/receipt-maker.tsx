@@ -5,7 +5,8 @@ import { BookOpen, ClipboardList, Download, FilePlus2, ImagePlus, Plus, QrCode, 
 import { usePaid } from '@/components/paid';
 import { ApiError, api } from '@/lib/client/api';
 import { PREVIEW_CODE, checkedPdf, type Issued, type Post } from '@/lib/receipts/check';
-import { sessionToken } from '@/lib/client/auth';
+import { currentSession, sessionToken } from '@/lib/client/auth';
+import { useReceiptSync } from '@/lib/receipts/use-sync';
 import { Button } from '@/components/ui';
 import { SignaturePad } from '@/components/editor/signature-pad';
 import { StampStudio } from '@/components/editor/stamp-studio';
@@ -106,7 +107,29 @@ export function ReceiptMaker() {
   }, [prefs, loaded]);
 
   const biz = prefs.business;
-  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v } }));
+  const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v }, businessAt: Date.now() }));
+
+  // Sync with the person's account (docs/receipt-sync.md): the ledger, numbering and business profile on every device.
+  const { status: syncStatus, syncNow } = useReceiptSync({
+    ready: loaded,
+    local: { entries: ledger, counters: prefs.counters, business: prefs.business, businessAt: prefs.businessAt ?? 0 },
+    session: async () => {
+      const s = await currentSession();
+      if (!s) return null;
+      return { user: s.user.id, post: (body) => api('/api/v1/me/receipt-sync', { auth: false, headers: { authorization: `Bearer ${s.access_token}` }, body }) };
+    },
+    onMerged: (m) => {
+      const before = prefs.counters;
+      setLedger(m.entries);
+      setPrefs((p) => ({ ...p, counters: m.counters, business: m.business, businessAt: m.businessAt }));
+      // The document being written keeps its number unless another device has just used it.
+      setDoc((d) =>
+        d.number === docNumber(d.kind, before[d.kind] + 1) && m.counters[d.kind] > before[d.kind]
+          ? { ...d, number: docNumber(d.kind, m.counters[d.kind] + 1) }
+          : d,
+      );
+    },
+  });
   const set = <K extends keyof BizDoc>(k: K, v: BizDoc[K]) => setDoc((d) => ({ ...d, [k]: v }));
   const setLine = (i: number, patch: Partial<Line>) => setDoc((d) => ({ ...d, lines: d.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
   const sum = totals(doc);
@@ -323,6 +346,8 @@ export function ReceiptMaker() {
             biz={biz}
             onPay={recordPayment}
             requirePaid={() => paid.require('receipts')}
+            sync={syncStatus}
+            onSync={() => void syncNow()}
           />
         )}
 

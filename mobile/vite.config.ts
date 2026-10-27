@@ -13,7 +13,7 @@ export default defineConfig({
       { find: '@', replacement: fileURLToPath(new URL('../src', import.meta.url)) },
     ],
     // Shared files live outside mobile/; their imports must resolve to this app's node_modules (CI installs only these).
-    dedupe: ['pdf-lib', '@pdf-lib/fontkit', '@cantoo/pdf-lib', 'fflate', 'tesseract.js', 'pdfjs-dist'],
+    dedupe: ['react', 'react-dom', 'pdf-lib', '@pdf-lib/fontkit', '@cantoo/pdf-lib', 'fflate', 'tesseract.js', 'pdfjs-dist'],
   },
   build: { outDir: 'dist', target: 'es2020', chunkSizeWarningLimit: 4000 },
 });
