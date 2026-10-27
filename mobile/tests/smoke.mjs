@@ -429,6 +429,41 @@ async function main() {
     const slipWidth = (await PDFDocument.load(slipBytes)).getPage(0).getWidth();
     check(Math.round((slipWidth * 25.4) / 72) === 58, 'a 58 mm till slip is made at the width of the roll');
 
+    // The check QR code: registered on (stubbed) rokelapdf.com, printed with its code, the file's digest recorded.
+    const checks = [];
+    await ctx.route('https://www.rokelapdf.com/api/v1/me/receipt-checks**', async (r) => {
+      const body = r.request().postDataJSON();
+      checks.push({ path: new URL(r.request().url()).pathname, body });
+      if (r.request().url().endsWith('/digest')) return r.fulfill({ json: { id: 'rck_1', code: 'ABCDEFGHJKMNPQRS', url: 'x', sha256: body.sha256 } });
+      r.fulfill({ status: 201, json: { id: 'rck_1', code: 'ABCDEFGHJKMNPQRS', url: 'https://www.rokelapdf.com/receipts/ABCDEFGHJKMNPQRS', sha256: null } });
+    });
+    await page.getByRole('button', { name: /More options/ }).click();
+    await page.getByLabel('QR code to check it').check();
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const checked = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(
+      checked.text.includes('ABCD EFGH JKMN PQRS') &&
+        checks[0]?.body.business_name === 'Kamara & Sons Hardware' &&
+        /^[0-9a-f]{64}$/.test(checks[1]?.body.sha256 ?? ''),
+      'with the check QR code ticked, the receipt is registered, printed with its code, and its fingerprint recorded',
+    );
+    await page.evaluate(() => localStorage.removeItem('rokela-auth'));
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByLabel('Item 1', { exact: true }).fill('Sugar, 1 bag');
+    await page.getByLabel('Price 1').fill('90');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const signSheet = page.getByRole('dialog', { name: 'Sign in for the check QR code' });
+    await signSheet.waitFor();
+    await signSheet.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await page.getByRole('button', { name: 'Back' }).click();
+    check(
+      (await page.getByLabel('Item 1', { exact: true }).inputValue()) === 'Sugar, 1 bag',
+      'signed out, it asks to sign in, and the draft is kept while signing in',
+    );
+    await page.getByRole('button', { name: /More options/ }).click();
+    await page.getByLabel('QR code to check it').uncheck();
+
     step('Pro tools (src/lib/licensing.ts)');
     site.launched = '2026-01-01T00:00:00.000Z';
     site.access = { access: 'none', until: null, reason: 'trial_ended' };

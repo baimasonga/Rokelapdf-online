@@ -74,7 +74,7 @@ type Screen =
   | { k: 'home' }
   | { k: 'receipts' }
   | View
-  | { k: 'convert'; from?: View; then?: Target }
+  | { k: 'convert'; from?: View; then?: Target; receipts?: boolean }
   | { k: 'pages'; from: View; sources: Uint8Array[]; docs: PDFDocumentProxy[]; extra: OpenPdf[]; sheets: PageSheet[] };
 /** A file waiting for the person to save or share it (conversions, protected copies). */
 interface Ready {
@@ -293,6 +293,7 @@ export function App() {
     setPlaced(undefined);
     setEdit(undefined);
     if (screen.k === 'convert' && screen.from) return setScreen(screen.from);
+    if (screen.k === 'convert' && screen.receipts) return setScreen({ k: 'receipts' });
     if (screen.k === 'pages') {
       screen.extra.forEach((d) => void d.close());
       setSelected(new Set());
@@ -325,10 +326,11 @@ export function App() {
     return () => void sub.then((h) => h.remove());
   }, []);
 
-  const openAccount = (from?: View, then?: Target) => {
+  /** Sign-in and conversion. `receipts`: opened from Receipts (the check QR code), which it returns to. */
+  const openAccount = (from?: View, then?: Target, receipts?: boolean) => {
     clearMessages();
     setSession(undefined);
-    setScreen({ k: 'convert', ...(from ? { from } : {}), ...(then ? { then } : {}) });
+    setScreen({ k: 'convert', ...(from ? { from } : {}), ...(then ? { then } : {}), ...(receipts ? { receipts } : {}) });
     void currentSession().then(setSession, (e: Error) => {
       setSession(null);
       setError(e.message);
@@ -899,6 +901,7 @@ export function App() {
             setError={(m) => setError(m)}
             setNotice={(m) => setNotice(m)}
             backRef={receiptsBack}
+            signIn={() => openAccount(undefined, undefined, true)}
           />
           {snack}
         </>
@@ -912,6 +915,7 @@ export function App() {
             busy={busyOr}
             onSignedIn={(s) => {
               setSession(s);
+              if (screen.receipts) return setScreen({ k: 'receipts' });
               if (screen.from) {
                 setScreen(screen.from);
                 if (screen.then && screen.then !== 'pdf') void exportTo(screen.from, screen.then);

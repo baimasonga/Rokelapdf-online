@@ -33,6 +33,8 @@ import {
 import { TEMPLATES, newStamp } from '@/lib/stamp/design';
 import { renderStamp } from '@/lib/stamp/render';
 import { PDF_MIME, saveFile, shareFile } from './native';
+import { SITE, currentSession } from './account';
+import { PREVIEW_CODE, checkedPdf, type Issued, type Post } from '@/lib/receipts/check';
 import { openPdf, renderPage } from './pdf';
 import { SignaturePad } from './sign';
 import { AppBar, IconButton, Sheet } from './ui';
@@ -57,6 +59,37 @@ const seedOf = (s: string) => [...s].reduce((h, ch) => (Math.imul(h, 31) + ch.ch
 const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, ' ');
 const STATUS: Record<string, string> = { paid: 'Paid', part: 'Part paid', unpaid: 'Unpaid', overdue: 'Overdue' };
 
+const DRAFT = 'rokela.receipts.draft';
+/** The document being written, kept so it survives signing in, a phone call or the app being closed. */
+function loadDraft(): BizDoc | undefined {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT) ?? 'null') as Partial<BizDoc> | null;
+    if (!d || (d.kind !== 'receipt' && d.kind !== 'invoice' && d.kind !== 'proforma') || !Array.isArray(d.lines)) return undefined;
+    const lines = d.lines
+      .filter((l) => l && typeof l.item === 'string' && Number.isFinite(l.qty) && Number.isFinite(l.rate))
+      .map((l) => ({ qty: l.qty, item: l.item.slice(0, 120), rate: l.rate }))
+      .slice(0, 60);
+    return {
+      ...newDoc(d.kind, loadPrefs()),
+      ...d,
+      lines: lines.length ? lines : [{ qty: 1, item: '', rate: 0 }],
+      signature: undefined,
+      stamp: undefined,
+      paidStamp: undefined,
+      check: undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+function saveDraft(doc: BizDoc) {
+  try {
+    localStorage.setItem(DRAFT, JSON.stringify(doc));
+  } catch {
+    /* storage full or unavailable: the draft is just not kept */
+  }
+}
+
 export function Receipts(props: {
   onBack: () => void;
   /** Runs work behind the progress overlay; errors are shown by the app. */
@@ -65,12 +98,17 @@ export function Receipts(props: {
   paid: (go: () => void) => void;
   setError: (m: string) => void;
   setNotice: (m: string) => void;
+  /** Opens sign-in (for the check QR code); the app comes back to this screen afterwards. */
+  signIn: () => void;
   /** Android's Back button: set to a handler that closes this screen's own sheets first (true when it did). */
   backRef: MutableRefObject<(() => boolean) | undefined>;
 }) {
   const { run, setError, setNotice } = props;
   const [prefs, setPrefs] = useState<ReceiptPrefs>(loadPrefs);
-  const [doc, setDoc] = useState<BizDoc>(() => newDoc('receipt', loadPrefs()));
+  const [doc, setDoc] = useState<BizDoc>(() => loadDraft() ?? newDoc('receipt', loadPrefs()));
+  /** The check QR code needs an account: asks the person to sign in, keeping the draft. */
+  const [needSignIn, setNeedSignIn] = useState(false);
+  const issued = useRef<Issued>(undefined);
   const [ledger, setLedger] = useState<LedgerEntry[]>(loadLedger);
   const [tab, setTab] = useState<'new' | 'ledger'>('new');
   const [bizOpen, setBizOpen] = useState(() => !loadPrefs().business.name);
@@ -83,14 +121,16 @@ export function Receipts(props: {
   useEffect(() => {
     backRef.current = () => {
       if (pad) return (setPad(false), true);
+      if (needSignIn) return (setNeedSignIn(false), true);
       if (bizOpen) return (setBizOpen(false), true);
       return false;
     };
     return () => {
       backRef.current = undefined;
     };
-  }, [backRef, pad, bizOpen]);
+  }, [backRef, pad, bizOpen, needSignIn]);
   useEffect(() => saveLedger(ledger), [ledger]);
+  useEffect(() => saveDraft(doc), [doc]);
 
   const biz = prefs.business;
   const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v } }));
@@ -106,7 +146,12 @@ export function Receipts(props: {
     const d = newStamp({ ...TEMPLATES[2]!.design, numbered: false, bottom: (biz.name || '').toUpperCase().slice(0, 28), wear: 0.5 });
     return renderStamp(d, { seed: seedOf(doc.number), date: new Date(`${doc.date}T12:00:00`) }).src;
   }, [prefs.paidStamp, biz.name, doc.number, doc.date]);
-  const full: BizDoc = { ...doc, signature: prefs.signature, paidStamp: paidSrc };
+  const full: BizDoc = {
+    ...doc,
+    signature: prefs.signature,
+    paidStamp: paidSrc,
+    check: prefs.check ? { url: `${SITE}/receipts/${PREVIEW_CODE}`, code: PREVIEW_CODE } : undefined,
+  };
 
   // Live preview of the first page, rebuilt shortly after each change.
   useEffect(() => {
@@ -130,7 +175,7 @@ export function Receipts(props: {
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `full` is rebuilt from these on every render
-  }, [tab, biz, doc, prefs.signature, paidSrc]);
+  }, [tab, biz, doc, prefs.signature, prefs.check, paidSrc]);
 
   const problem = (): string | undefined => {
     if (!biz.name.trim()) return 'Add your business name first.';
@@ -149,7 +194,8 @@ export function Receipts(props: {
     props.paid(
       () =>
         void run('Making the PDF…', async () => {
-          const bytes = await buildBizDoc(biz, full);
+          const bytes = prefs.check ? await withCheck() : await buildBizDoc(biz, full);
+          if (!bytes) return;
           const name = fileName(`${TITLES[doc.kind].modern} ${doc.number}${doc.customer.trim() ? ` - ${doc.customer.trim()}` : ''}.pdf`);
           // Only a document that was actually shared or saved is recorded and uses up its number; cancelling the
           // share sheet (it rejects) or the Save-to dialog (it returns false) leaves the ledger as it was.
@@ -161,6 +207,41 @@ export function Receipts(props: {
         }),
     );
   };
+  /** The document with its check QR code (src/lib/receipts/check.ts); undefined when the person must sign in first. */
+  async function withCheck(): Promise<Uint8Array | undefined> {
+    const session = await currentSession();
+    if (!session) return void setNeedSignIn(true);
+    let signedOut = false;
+    const post: Post = async (path, body) => {
+      let res: Response;
+      try {
+        res = await fetch(`${SITE}${path}`, {
+          method: 'POST',
+          credentials: 'omit',
+          headers: { authorization: `Bearer ${session.access_token}`, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        throw new Error('The check QR code needs the internet. Connect, or untick “QR code to check it”.');
+      }
+      if (res.status === 401) {
+        signedOut = true;
+        throw new Error('Sign in again.');
+      }
+      const j = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) throw new Error(`Could not add the check QR code: ${j?.message ?? 'try again later'}.`);
+      return j as never;
+    };
+    try {
+      const out = await checkedPdf(biz, full, post, issued.current);
+      issued.current = out.issued;
+      return out.bytes;
+    } catch (e) {
+      if (signedOut) return void setNeedSignIn(true);
+      throw e;
+    }
+  }
+
   const next = () => {
     const p = afterDoc(prefs, doc);
     setPrefs(p);
@@ -487,6 +568,16 @@ export function Receipts(props: {
                   <label className="check">
                     <input type="checkbox" checked={doc.officeCopy} onChange={(e) => set('officeCopy', e.target.checked)} /> Add an office copy
                   </label>
+                  <label className="check rcpt-check">
+                    <input type="checkbox" checked={prefs.check} onChange={(e) => setPrefs((p) => ({ ...p, check: e.target.checked }))} />
+                    <span>
+                      QR code to check it
+                      <small className="muted">
+                        Anyone who scans it sees your business name, the number, date, total and customer on rokelapdf.com. Needs the internet and a free
+                        account; the document itself is not sent.
+                      </small>
+                    </span>
+                  </label>
                 </div>
               ) : null}
             </section>
@@ -588,6 +679,25 @@ export function Receipts(props: {
             />
             <button className="primary pill" onClick={() => setBizOpen(false)}>
               Done
+            </button>
+          </div>
+        </Sheet>
+      ) : null}
+      {needSignIn ? (
+        <Sheet title="Sign in for the check QR code" onClose={() => setNeedSignIn(false)}>
+          <p className="muted">The QR code is registered on rokelapdf.com under your account. Your document is kept here while you sign in.</p>
+          <div className="row">
+            <button className="ghost pill" onClick={() => setNeedSignIn(false)}>
+              Not now
+            </button>
+            <button
+              className="primary pill"
+              onClick={() => {
+                setNeedSignIn(false);
+                props.signIn();
+              }}
+            >
+              Sign in
             </button>
           </div>
         </Sheet>

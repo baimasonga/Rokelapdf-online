@@ -60,7 +60,7 @@ export interface QrMatrix {
 }
 
 export function encodeQr(text: string): QrMatrix {
-  const bytes = [...Buffer.from(text, 'utf8')];
+  const bytes = [...new TextEncoder().encode(text)];
   let version = 1;
   for (; version <= MAX_VERSION; version++) {
     const countBits = version < 10 ? 8 : 16;

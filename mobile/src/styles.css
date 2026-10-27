@@ -1055,3 +1055,18 @@ button.ghost {
   padding: 0 12px;
   font-size: 14px;
 }
+.rcpt-check {
+  align-items: flex-start;
+}
+.rcpt-check input {
+  margin-top: 2px;
+  flex: none;
+}
+.rcpt-check > span {
+  display: grid;
+  gap: 2px;
+}
+.rcpt-check small {
+  font-size: 13px;
+  line-height: 1.35;
+}
