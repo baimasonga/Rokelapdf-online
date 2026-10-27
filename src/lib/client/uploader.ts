@@ -45,15 +45,21 @@ export async function uploadFile<T>(o: UploadOps<T>): Promise<T> {
   let resumed = false;
   const prior = recall(o.resumeKey);
   if (prior) {
+    let st: Awaited<ReturnType<typeof o.status>> | undefined;
     try {
-      const st = await o.status(prior);
-      if (st.status === 'uploading') {
-        session = { upload_id: prior, part_size: st.part_size, part_count: st.part_count };
-        held = st.uploaded_parts;
-        resumed = true;
-      }
+      st = await o.status(prior);
     } catch {
       /* expired or unknown: start again */
+    }
+    if (st && ['processing', 'available', 'rejected'].includes(st.status)) {
+      const done = await o.complete(prior);
+      remember(o.resumeKey, null);
+      return done;
+    }
+    if (st?.status === 'uploading') {
+      session = { upload_id: prior, part_size: st.part_size, part_count: st.part_count };
+      held = st.uploaded_parts;
+      resumed = true;
     }
   }
   if (!session) {

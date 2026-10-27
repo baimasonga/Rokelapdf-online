@@ -900,9 +900,64 @@ async function main() {
     await r.goto(reqUrl);
     await r.getByLabel('Your name').fill('Aminata');
     await r.getByRole('button', { name: 'Start', exact: true }).click();
+    await r.setViewportSize({ width: 390, height: 844 });
+    const uploadInput = r.getByLabel('Upload ID scan');
+    await r.route('**/public/upload-requests/*/uploads', (route) => route.fulfill({ status: 503, json: { message: 'Upload unavailable' } }), { times: 1 });
+    await uploadInput.setInputFiles({ name: 'discard.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await r.getByRole('button', { name: 'Discard retry' }).click();
+    check(!(await r.getByRole('button', { name: 'Send files', exact: true }).isDisabled()), 'a failed upload can be discarded');
+    let releaseUpload;
+    const uploadGate = new Promise((resolve) => (releaseUpload = resolve));
+    const uploadRoute = '**/public/upload-requests/*/uploads';
+    await r.route(uploadRoute, async (route) => {
+      await uploadGate;
+      await route.continue();
+    });
+    const started = r.waitForRequest(uploadRoute);
+    await r.route(
+      '**/public/upload-requests/*/uploads/*/parts',
+      (route) => route.fulfill({ status: 503, json: { message: 'Temporary upload interruption' } }),
+      {
+        times: 1,
+      },
+    );
     await r.getByLabel('Upload ID scan').setInputFiles({ name: 'id.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
-    await r.getByText(/id\.pdf · .* · (received, being checked|available)/).waitFor();
+    await started;
+    try {
+      check(await uploadInput.isDisabled(), 'file picker disabled while an upload is in flight');
+      check(await r.getByRole('button', { name: 'Send files', exact: true }).isDisabled(), 'cannot submit while a file is uploading');
+    } finally {
+      releaseUpload();
+    }
+    await r.getByRole('button', { name: 'Retry id.pdf' }).waitFor();
+    await r.getByRole('progressbar').waitFor({ state: 'hidden' });
+    check((await r.getByRole('progressbar').count()) === 0, 'failed upload clears its progress indicator');
+    await r.route('**/public/upload-requests/*/submission', (route) => route.fulfill({ status: 503, json: { message: 'Status unavailable' } }), { times: 1 });
+    await r.getByRole('button', { name: 'Retry id.pdf' }).click();
+    await r.getByText(/id\.pdf · .* · (received, being checked|Ready)/).waitFor();
+    await r.unroute(uploadRoute);
+    await r.getByText(/id\.pdf · .* · Ready/).waitFor();
+    ok('retry resumes the interrupted upload and scan status updates automatically');
+    await r.getByRole('button', { name: 'Remove id.pdf', exact: true }).click();
+    await r.waitForFunction(() => {
+      const input = document.querySelector('input[aria-label="Upload ID scan"]');
+      return input && !input.disabled;
+    });
+    await uploadInput.setInputFiles({ name: 'rejected.pdf', mimeType: 'application/pdf', buffer: Buffer.from('invalid PDF data') });
+    await r.getByText(/rejected\.pdf · .* · Not accepted/).waitFor();
+    check((await r.locator('.req.done').count()) === 0, 'rejected file does not mark its requirement ready');
+    check(await r.getByRole('button', { name: 'Send files', exact: true }).isDisabled(), 'rejected file must be replaced before sending');
+    await r.getByRole('button', { name: 'Remove rejected.pdf', exact: true }).click();
+    await r.waitForFunction(() => {
+      const input = document.querySelector('input[aria-label="Upload ID scan"]');
+      return input && !input.disabled;
+    });
+    await uploadInput.setInputFiles({ name: 'id.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await r.getByText(/id\.pdf · .* · Ready/).waitFor();
+    check(await r.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'upload request fits a mobile viewport');
+    check((await r.locator('.req-body').boundingBox()).width >= 220, 'file details retain readable width on mobile');
     await shot(r, 'upload-request');
+    await r.setViewportSize({ width: 1280, height: 800 });
     await r.getByRole('button', { name: 'Send files', exact: true }).click();
     await r.getByRole('heading', { name: 'Files sent' }).waitFor();
     await p.reload();

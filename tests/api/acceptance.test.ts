@@ -330,6 +330,25 @@ describe('acceptance: file sharing and short links', () => {
       (await env.call('POST', `${R}/submissions`, { body: { grant: opened.body.grant, name } })).body.submission_secret as string;
     const alice = await start('Alice');
     const bob = await start('Bob');
+    const interrupted = await env.call('POST', `${R}/uploads`, {
+      headers: { 'x-submission-secret': bob },
+      body: { requirement_key: 'contract', name: 'interrupted.pdf', size: 10 },
+    });
+    expect(interrupted.status).toBe(201);
+    const unfinished = await env.call('GET', `${R}/submission`, { headers: { 'x-submission-secret': bob } });
+    expect((await env.call('DELETE', `${R}/submission/files/${unfinished.body.files[0].id}`, { headers: { 'x-submission-secret': bob } })).status).toBe(200);
+    expect((await env.call('GET', `${R}/uploads/${interrupted.body.upload_id}`, { headers: { 'x-submission-secret': bob } })).status).toBe(404);
+    expect((await env.call('POST', `${R}/uploads/${interrupted.body.upload_id}/complete`, { headers: { 'x-submission-secret': bob }, body: {} })).status).toBe(
+      404,
+    );
+    const replacement = await env.call('POST', `${R}/uploads`, {
+      headers: { 'x-submission-secret': bob },
+      body: { requirement_key: 'contract', name: 'interrupted.pdf', size: 10 },
+    });
+    expect(replacement.status).toBe(201);
+    expect((await env.call('POST', `${R}/uploads/${replacement.body.upload_id}/abort`, { headers: { 'x-submission-secret': bob }, body: {} })).status).toBe(
+      200,
+    );
     const sendFile = async (secret: string, requirement: string, name: string, bytes: Buffer) => {
       const h = { 'x-submission-secret': secret };
       const begin = await env.call('POST', `${R}/uploads`, {

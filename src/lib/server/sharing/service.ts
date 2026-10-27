@@ -2716,7 +2716,7 @@ export class SharingService {
     const { r, sub } = await this.#submission(token, secret);
     const b = await this.#d.store.get('blob', r.orgId, uploadId);
     const f = b?.targetType === 'submission_file' ? await this.#d.store.get('submissionFile', r.orgId, b.targetId) : undefined;
-    if (!b || !f || f.submissionId !== sub.id) throw notFound();
+    if (!b || !f || f.submissionId !== sub.id || f.status !== 'current') throw notFound();
     return { r, sub, b };
   }
 
@@ -2742,8 +2742,10 @@ export class SharingService {
     return this.#d.store.transaction(async (tx) => {
       const cur = await tx.getForUpdate('submission', r.orgId, sub.id);
       if (!cur || cur.status !== 'open') throw new DomainError('conflict', 'this submission was already sent');
-      const file = await tx.get('submissionFile', r.orgId, fileId);
+      const file = await tx.getForUpdate('submissionFile', r.orgId, fileId);
       if (!file || file.submissionId !== sub.id || file.status !== 'current') throw notFound();
+      const blob = await tx.getForUpdate('blob', r.orgId, file.blobId);
+      if (blob?.status === 'uploading') await tx.update('blob', r.orgId, blob.id, { status: 'deleting' });
       await tx.update('submissionFile', r.orgId, file.id, { status: 'removed' });
       await this.#enqueue(tx, r.orgId, 'delete_blob', file.blobId, this.#now());
       await this.#audit(

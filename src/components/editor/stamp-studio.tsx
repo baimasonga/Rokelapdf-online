@@ -156,6 +156,16 @@ export function StampStudio({ open, current, onClose, onUse }: { open: boolean; 
               Ink: {d.wear < 0.25 ? 'clean' : d.wear < 0.7 ? 'hand-stamped' : 'well used'}
               <input type="range" min={0} max={100} value={Math.round(d.wear * 100)} onChange={(e) => set('wear', Number(e.target.value) / 100)} />
             </label>
+            <label>
+              Rough edges
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round((d.edgeWear ?? 0) * 100)}
+                onChange={(e) => set('edgeWear', Number(e.target.value) / 100)}
+              />
+            </label>
           </div>
         </div>
       </div>

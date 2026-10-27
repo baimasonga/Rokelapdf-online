@@ -172,7 +172,7 @@ export function renderStamp(d: StampDesign, o: { seed: number; date?: Date; numb
   const flat = drawFlat(d, o.date ?? new Date(), o.number ?? d.next);
   const ctx = flat.getContext('2d')!;
   const img = ctx.getImageData(0, 0, flat.width, flat.height);
-  inkify(img.data, flat.width, flat.height, { seed: o.seed, wear: d.wear });
+  inkify(img.data, flat.width, flat.height, { seed: o.seed, wear: d.wear, edgeWear: d.edgeWear });
   ctx.putImageData(img, 0, 0);
   // A hand never stamps perfectly straight.
   const tilt = ((o.tilt ?? (rng(o.seed ^ 0x51ed27)() - 0.5) * 7) * Math.PI) / 180;

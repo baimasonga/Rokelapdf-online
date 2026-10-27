@@ -252,6 +252,37 @@ describe('blank receipt books', () => {
     ...over,
   });
 
+  it('prints numbered basic cash receipts four per landscape A4 sheet', async () => {
+    const bytes = await buildBlankBook(biz, book({ basic: true, count: 5, officeCopy: false }));
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPageCount()).toBe(2);
+    expect([Math.round(pdf.getPage(0).getWidth()), Math.round(pdf.getPage(0).getHeight())]).toEqual([842, 595]);
+    const pages = await textOf(bytes);
+    for (const number of ['0101', '0102', '0103', '0104']) expect(pages[0]).toContain(number);
+    expect(pages[1]).toContain('0105');
+    expect(pages[0]).toContain('Received from:');
+    expect(pages[0]).toContain('Being part/full payment for:');
+    expect(pages[0]).toContain('Paid by / reference:');
+  });
+
+  it('keeps customer and office copies together and preserves the original default', async () => {
+    const pages = await textOf(await buildBlankBook(biz, book({ basic: true, count: 3, officeCopy: true })));
+    expect(pages).toHaveLength(2);
+    expect(pages[0]!.replace(/\s/g, '')).toContain('CUSTOMERCOPY');
+    expect(pages[0]!.replace(/\s/g, '')).toContain('OFFICECOPY');
+    expect(Buffer.from(await buildBlankBook(biz, book())).equals(Buffer.from(await buildBlankBook(biz, book({ basic: false }))))).toBe(true);
+  });
+
+  it('keeps long business details and footer on the compact receipt', async () => {
+    const name = `BUSINESS${'X'.repeat(100)}`;
+    const email = `contact${'x'.repeat(100)}@example.com`;
+    const footer = `THANKYOU${'X'.repeat(100)}`;
+    const pages = await textOf(await buildBlankBook({ ...biz, name, email }, book({ basic: true, count: 1, footer })));
+    expect(pages[0]).toContain(name);
+    expect(pages[0]).toContain(email);
+    expect(pages[0]).toContain(footer);
+  });
+
   it('numbers each page in order, with the letterhead and nothing filled in', async () => {
     const pages = await textOf(await buildBlankBook(biz, book()));
     expect(pages).toHaveLength(3);

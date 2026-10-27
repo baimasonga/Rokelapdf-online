@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { buildPdf } from '@/lib/editor/export';
 import { appendPages, upsertAnnot } from '@/lib/editor/model';
-import { cleanDesign, newStamp, stampDate, stampNumber, TEMPLATES } from '@/lib/stamp/design';
+import { cleanDesign, INKS, newStamp, stampDate, stampNumber, TEMPLATES } from '@/lib/stamp/design';
 import { inkify, rng } from '@/lib/stamp/ink';
 import { png } from './png';
 
@@ -22,6 +22,18 @@ function flat(w = 120, h = 80) {
 const alphas = (px: Uint8ClampedArray) => px.filter((_, i) => i % 4 === 3);
 
 describe('stamp ink', () => {
+  it('adds reproducible rough edges without changing the default impression', () => {
+    const pixels = flat(100, 100);
+    const original = new Uint8ClampedArray(pixels);
+    const explicitDefault = new Uint8ClampedArray(pixels);
+    const rough = new Uint8ClampedArray(pixels);
+    inkify(original, 100, 100, { seed: 12, wear: 0.5 });
+    inkify(explicitDefault, 100, 100, { seed: 12, wear: 0.5, edgeWear: 0 });
+    inkify(rough, 100, 100, { seed: 12, wear: 0.5, edgeWear: 1 });
+    expect(explicitDefault).toEqual(original);
+    expect(rough).not.toEqual(original);
+    for (let i = 3; i < rough.length; i += 4) expect(rough[i]).toBeLessThanOrEqual(pixels[i]!);
+  });
   it('is the same for the same seed and different for another, like separate impressions', () => {
     const a = flat();
     const b = flat();
@@ -66,6 +78,11 @@ describe('stamp ink', () => {
 });
 
 describe('stamp designs', () => {
+  it('offers two extra blue inks and preserves optional edge roughness', () => {
+    expect(INKS.map((ink) => ink.name)).toEqual(expect.arrayContaining(['Blue', 'Navy blue', 'Sky blue']));
+    expect(cleanDesign({ id: 'rough', shape: 'round', edgeWear: 0.8 })?.edgeWear).toBe(0.8);
+    expect(cleanDesign({ id: 'old', shape: 'round' })?.edgeWear).toBeUndefined();
+  });
   it('prints dates and numbers the way office stamps do', () => {
     expect(stampDate(new Date(2026, 9, 6))).toBe('06 OCT 2026');
     expect(stampNumber(124)).toBe('No. 000124');

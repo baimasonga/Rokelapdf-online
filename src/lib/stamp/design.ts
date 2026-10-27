@@ -26,10 +26,14 @@ export interface StampDesign {
   sizeMm: number;
   /** 0 = clean, 1 = heavily hand-stamped. */
   wear: number;
+  /** Optional additional roughness around the edges of the ink. */
+  edgeWear?: number;
 }
 
 export const INKS: Array<{ name: string; hex: string }> = [
   { name: 'Blue', hex: '#2336a8' },
+  { name: 'Navy blue', hex: '#16457a' },
+  { name: 'Sky blue', hex: '#2387bd' },
   { name: 'Red', hex: '#c42a2a' },
   { name: 'Violet', hex: '#5a2a8c' },
   { name: 'Green', hex: '#1d7a3e' },
@@ -165,5 +169,6 @@ export function cleanDesign(x: unknown): StampDesign | undefined {
     next: Math.floor(numOr(o.next, 1, 0, 999999)),
     sizeMm: numOr(o.sizeMm, 45, 20, 120),
     wear: numOr(o.wear, 0.55, 0, 1),
+    ...(typeof o.edgeWear === 'number' && Number.isFinite(o.edgeWear) ? { edgeWear: numOr(o.edgeWear, 0, 0, 1) } : {}),
   };
 }
