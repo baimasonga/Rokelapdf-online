@@ -21,6 +21,7 @@ export type ToolSlug =
   | 'flatten-pdf'
   | 'sign-pdf'
   | 'stamp-pdf'
+  | 'stamp-many-pdfs'
   | 'fill-pdf-form'
   | 'create-fillable-pdf'
   | 'protect-pdf'
@@ -293,6 +294,19 @@ export const TOOLS: ToolDef[] = [
     accept: 'pdf',
     multiple: false,
     editorTool: 'stamp',
+  },
+  {
+    slug: 'stamp-many-pdfs',
+    color: '#9f1f1f',
+    title: 'Stamp many PDFs',
+    short: 'One stamp on a whole pile of PDFs at once.',
+    description:
+      'Stamp many PDFs in one go: choose your company seal or a “RECEIVED” or “APPROVED” stamp, where it goes and on which pages, and download every stamped file as a ZIP. Each page gets a fresh hand-stamped impression; numbered stamps count up per document.',
+    group: 'sign',
+    icon: 'Stamp',
+    accept: 'pdf',
+    multiple: false,
+    batch: true,
   },
   {
     slug: 'fill-pdf-form',

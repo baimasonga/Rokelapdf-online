@@ -466,6 +466,27 @@ async function main() {
       'and the stamp is kept on this device for next time',
     );
 
+    // Stamp many PDFs: the saved stamp, on the first page of each file, every result in one ZIP.
+    await v.goto(`${ORIGIN}/tools/stamp-many-pdfs`);
+    await v.getByTestId('tool-input').setInputFiles([
+      { name: 'a.pdf', mimeType: 'application/pdf', buffer: pdf },
+      { name: 'b.pdf', mimeType: 'application/pdf', buffer: pdf },
+    ]);
+    await v.getByRole('img', { name: /stamp$/ }).waitFor();
+    await v.getByRole('radio', { name: 'Top right' }).click();
+    await v.getByRole('button', { name: /^Stamp many PDFs/ }).click();
+    await v.getByText('2 files are ready').waitFor();
+    const stampedZip = unzipSync(new Uint8Array((await fetchDownload(v.getByRole('button', { name: /Download all/ }))).bytes));
+    let firstOnly = true;
+    for (const bytes of Object.values(stampedZip)) {
+      const d = await getDocument({ data: new Uint8Array(bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` }).promise;
+      for (let p = 1; p <= d.numPages; p++) firstOnly &&= (await (await d.getPage(p)).getOperatorList()).fnArray.includes(OPS.paintImageXObject) === (p === 1);
+    }
+    check(
+      Object.keys(stampedZip).sort().join(',') === 'a-stamped.pdf,b-stamped.pdf' && firstOnly,
+      'stamp many PDFs: the stamp on the first page of each file, all in one ZIP',
+    );
+
     await v.goto(`${ORIGIN}/receipts`);
     await v.getByLabel('Business name').fill('Kamara & Sons Hardware');
     await v.getByLabel('Customer name').fill('Mr. Ibrahim Conteh');

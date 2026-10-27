@@ -51,6 +51,11 @@ import { convertEnabled, convertOnServer } from '@/lib/client/convert';
 import { fmtBytes } from '@/lib/client/format';
 import { FirstPageThumb, PagePicker, toRanges } from './page-picker';
 import { Organizer } from './organizer';
+import { StampStudio } from '@/components/editor/stamp-studio';
+import { PLACES, stampDocument, type BatchStamp } from '@/lib/stamp/batch';
+import type { StampDesign } from '@/lib/stamp/design';
+import { renderStamp } from '@/lib/stamp/render';
+import { loadStamps, upsertStamp } from '@/lib/stamp/store';
 
 // One component runs every single-step tool: choose files, set options, run the operation in this browser and
 // download the result. Nothing is uploaded. Interactive tools (sign, edit…) hand the file to the editor instead.
@@ -172,6 +177,13 @@ function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) =
   const [blankSize, setBlankSize] = useState<'same' | 'A4' | 'Letter'>('same');
   const [other, setOther] = useState<Picked>();
   const [margins, setMargins] = useState({ top: '5', right: '5', bottom: '5', left: '5' });
+  // Stamp many PDFs: the stamp, where it goes, and which pages.
+  const [stamp, setStamp] = useState<StampDesign>();
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [stampAt, setStampAt] = useState<BatchStamp>({ place: 'bottom-right', pages: 'first', marginMm: 15 });
+  /** Documents stamped so far in this run: a numbered stamp gives each document the next number. */
+  const stampedDocs = useRef(0);
+  const stampPreview = useMemo(() => (stamp ? renderStamp(stamp, { seed: 3 }).src : undefined), [stamp]);
   const [wm, setWm] = useState<WatermarkOptions>({ text: 'CONFIDENTIAL', fontSize: 60, opacity: 0.25, color: '#1e3a8a', layout: 'diagonal' });
   const [pn, setPn] = useState<PageNumberOptions>({ position: 'bottom-center', format: 'n', start: 1, fontSize: 11, margin: 28, skipFirst: false });
   const [fields, setFields] = useState<FormFieldInfo[]>();
@@ -256,6 +268,8 @@ function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) =
         return;
       }
       const next = many ? [...files, ...picked] : picked;
+      // Stamp many PDFs starts with the person's last stamp, read once the page runs in the browser.
+      if (slug === 'stamp-many-pdfs') setStamp((st) => st ?? loadStamps()[0]);
       if (next.length > MAX_FILES) throw new Error(`Choose up to ${MAX_FILES} files.`);
       setOutputs([]);
       setFiles(next);
@@ -372,6 +386,15 @@ function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) =
         );
       case 'watermark-pdf':
         return pdf(`${name}-watermarked.pdf`, await addWatermark(b, wm, spec));
+      case 'stamp-many-pdfs': {
+        if (!stamp) throw new Error('Choose a stamp first.');
+        const number = stamp.next + stampedDocs.current++;
+        const date = new Date();
+        return pdf(
+          `${name}-stamped.pdf`,
+          await stampDocument(b, stampAt, () => renderStamp(stamp, { seed: Math.floor(Math.random() * 2 ** 31), date, number })),
+        );
+      }
       case 'page-numbers':
         return pdf(`${name}-numbered.pdf`, await addPageNumbers(b, pn));
       case 'protect-pdf': {
@@ -439,8 +462,15 @@ function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) =
     // Inserting another PDF is merging, whichever tool page it is done from.
     if (slug === 'add-pages' && addKind === 'pdf' && !(await require('merge'))) return;
     setBusy('Working…');
+    stampedDocs.current = 0;
     try {
       const out = await compute();
+      // A numbered stamp used its numbers on these documents: the next use carries on from there.
+      if (slug === 'stamp-many-pdfs' && stamp?.numbered) {
+        const used = { ...stamp, next: stamp.next + stampedDocs.current };
+        upsertStamp(used);
+        setStamp(used);
+      }
       setOutputs(out.map((o) => ({ ...o, url: URL.createObjectURL(o.blob) })));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Try another file.');
@@ -620,6 +650,52 @@ function Runner({ slug, require }: { slug: ToolSlug; require: (f: PaidFeature) =
             ))}
           </div>
           {rangeField('Pages', 'Leave empty to crop every page.')}
+        </>
+      );
+      break;
+    case 'stamp-many-pdfs':
+      ready = !!first && !!stamp;
+      options = (
+        <>
+          <div className="opt batch-stamp">
+            <span>Stamp</span>
+            <div className="batch-stamp-pick">
+              {/* eslint-disable-next-line @next/next/no-img-element -- a local data: URL */}
+              {stampPreview ? <img src={stampPreview} alt={`The ${stamp!.name} stamp`} /> : <span className="muted">No stamp yet</span>}
+              <button type="button" className="ghost" onClick={() => setStudioOpen(true)}>
+                {stamp ? 'Change stamp' : 'Choose or design a stamp'}
+              </button>
+            </div>
+          </div>
+          <Segmented label="Where" value={stampAt.place} onChange={(place) => setStampAt({ ...stampAt, place })} options={PLACES} />
+          <Segmented
+            label="Pages"
+            value={stampAt.pages}
+            onChange={(pages) => setStampAt({ ...stampAt, pages })}
+            options={[
+              ['first', 'First page'],
+              ['last', 'Last page'],
+              ['all', 'Every page'],
+            ]}
+          />
+          <Field label="Distance from the edges (mm)">
+            <input type="number" min={0} max={80} value={stampAt.marginMm} onChange={(e) => setStampAt({ ...stampAt, marginMm: num(e.target.value, 15) })} />
+          </Field>
+          {stamp?.numbered ? (
+            <p className="muted">
+              Numbered stamp: each document gets the next number, starting at {stamp.next}
+              {files.length > 1 ? ` (${stamp.next} to ${stamp.next + files.length - 1})` : ''}.
+            </p>
+          ) : null}
+          <StampStudio
+            open={studioOpen}
+            current={stamp}
+            onClose={() => setStudioOpen(false)}
+            onUse={(d) => {
+              setStamp(d);
+              setStudioOpen(false);
+            }}
+          />
         </>
       );
       break;
