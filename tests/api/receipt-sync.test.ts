@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { makeEnv, type TestEnv } from '../support/env';
 import type { LedgerEntry } from '@/lib/receipts/ledger';
 import { DEFAULT_BUSINESS } from '@/lib/receipts/model';
+import { memoryDocs, toSaved, type DocStore } from '@/lib/receipts/docs';
+import { DEFAULT_PREFS, newDoc } from '@/lib/receipts/store';
 import { applySync, batches, freshState, freshWorldState, syncBusinesses, syncReceipts, type SyncLocal, type SyncPost } from '@/lib/receipts/sync';
 
 // Receipt Maker sync (docs/receipt-sync.md): the website and the app share a ledger, numbering and business profile
@@ -308,5 +310,70 @@ describe('receipt sync', () => {
     const again = await syncBusinesses(r.world, r.state, async (body) => (sent.push(body), device(u.token)(body)), 2000);
     expect(sent.some((b) => (b as { business_id?: string }).business_id === 'bextra')).toBe(true);
     expect(again.state.retry).toEqual(['bextra']);
+  });
+
+  it('carries full documents with their entries, so another device can make them again', async () => {
+    env = await makeEnv();
+    const u = await env.user('docs@example.test', { verified: true });
+    const doc = (number: string, customer: string, lines = 2) =>
+      toSaved(
+        {
+          ...newDoc('invoice', DEFAULT_PREFS),
+          number,
+          date: '2026-10-20',
+          customer,
+          lines: Array.from({ length: lines }, (_, i) => ({ qty: i + 1, item: `Item ${i + 1} ${'x'.repeat(80)}`, rate: 100 + i })),
+          notes: 'Pay to Rokel Bank 0012',
+        },
+        'stamp1',
+        1000,
+      );
+    const phoneDocs: DocStore = memoryDocs();
+    await phoneDocs.put('main', doc('INV-0001', 'Sunrise Ltd'));
+    await phoneDocs.put('bother', doc('INV-0001', 'Port Authority'));
+    const world = {
+      main: { ...empty(), entries: [entry('INV-0001')], business: { ...DEFAULT_BUSINESS, name: 'Shop' }, businessAt: 1 },
+      bother: { ...empty(), entries: [entry('INV-0001', { customer: 'Port Authority' })], business: { ...DEFAULT_BUSINESS, name: 'Transport' }, businessAt: 1 },
+    };
+    const phone = await syncBusinesses(world, freshWorldState('u'), device(u.token), 2000, phoneDocs);
+
+    // A new device receives each business's own document, in full.
+    const webDocs = memoryDocs();
+    await syncBusinesses({}, freshWorldState('u'), device(u.token), 2100, webDocs);
+    const got = await webDocs.get('main', 'invoice inv-0001');
+    expect(got?.customer).toBe('Sunrise Ltd');
+    expect(got?.lines).toHaveLength(2);
+    expect(got?.notes).toBe('Pay to Rokel Bank 0012');
+    expect(got?.stampId).toBe('stamp1');
+    expect((await webDocs.get('bother', 'invoice inv-0001'))?.customer).toBe('Port Authority');
+
+    // An older app cancels the invoice; its entry has no document, and the account keeps the document.
+    await syncReceipts({ ...empty(), entries: [entry('INV-0001', { void: true, updatedAt: 5000 })] }, freshState('u'), device(u.token), 5100);
+    const laterDocs = memoryDocs();
+    const later = await syncBusinesses({}, freshWorldState('u'), device(u.token), 5200, laterDocs);
+    expect(later.world.main!.entries[0]!.void).toBe(true);
+    expect((await laterDocs.get('main', 'invoice inv-0001'))?.customer).toBe('Sunrise Ltd');
+    // Ledger entries themselves never hold the document.
+    expect(later.world.main!.entries[0]).not.toHaveProperty('doc');
+
+    // Many long documents still go in requests under the API's size limit.
+    const many = Array.from({ length: 120 }, (_, i) => `INV-${String(1000 + i)}`);
+    for (const n of many) await phoneDocs.put('main', doc(n, 'C'.repeat(100), 60));
+    const sizes: number[] = [];
+    const measuring: SyncPost = async (body) => {
+      sizes.push(JSON.stringify(body).length);
+      return device(u.token)(body);
+    };
+    await syncBusinesses(
+      { ...phone.world, main: { ...phone.world.main!, entries: many.map((n) => entry(n, { updatedAt: 9000 })) } },
+      phone.state,
+      measuring,
+      9100,
+      phoneDocs,
+    );
+    expect(Math.max(...sizes)).toBeLessThan(64 * 1024);
+    const all = memoryDocs();
+    await syncBusinesses({}, freshWorldState('u'), device(u.token), 9200, all);
+    expect((await all.keys('main')).size).toBe(121);
   });
 });

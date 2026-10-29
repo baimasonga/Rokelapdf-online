@@ -1059,6 +1059,15 @@ button.ghost {
 .rcpt-entry .late {
   color: #a3281f;
 }
+.rcpt .rcpt-search {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #c9d1e0;
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+  font-size: 16px;
+}
 .rcpt-entry {
   display: flex;
   align-items: center;

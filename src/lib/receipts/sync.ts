@@ -1,6 +1,7 @@
 import { LEDGER_MAX, byNewest, cleanEntry, entryKey, type LedgerEntry } from './ledger';
 import type { Business, DocKind } from './model';
 import { cleanBusiness } from './store';
+import { cleanSynced, type DocStore, type SyncedEntry } from './docs';
 
 // Syncing the Receipt Maker through the person's account (docs/receipt-sync.md), shared by the website and the Android
 // app: send what changed here since the last sync, take what changed elsewhere, and merge, business by business. The
@@ -74,8 +75,8 @@ export function mergeEntries(local: LedgerEntry[], incoming: LedgerEntry[]): Led
 
 /** One full sync: send what is waiting here, then take everything new from the account. */
 /** Splits documents into requests of at most PUSH_MAX documents and PUSH_CHARS characters (the first also carries `extra`). */
-export function batches(entries: LedgerEntry[], extra = 0): LedgerEntry[][] {
-  const out: LedgerEntry[][] = [[]];
+export function batches<E extends LedgerEntry>(entries: E[], extra = 0): E[][] {
+  const out: E[][] = [[]];
   let size = 200 + extra;
   for (const e of entries) {
     const len = JSON.stringify(e).length + 1;
@@ -202,16 +203,31 @@ const blank = (): SyncLocal => ({ entries: [], counters: ZERO, business: cleanBu
 
 /**
  * One full sync of every business: send what is waiting here for each one, then take everything new in the account,
- * including businesses set up on another device.
+ * including businesses set up on another device. With `docs`, each entry sent carries its full document when this
+ * device has it, and documents received are stored (when their entry is the newer copy).
  */
-export async function syncBusinesses(world: SyncWorld, state: WorldState, post: SyncPost, now = Date.now()): Promise<{ world: SyncWorld; state: WorldState }> {
+export async function syncBusinesses(
+  world: SyncWorld,
+  state: WorldState,
+  post: SyncPost,
+  now = Date.now(),
+  docs?: DocStore,
+): Promise<{ world: SyncWorld; state: WorldState }> {
   const retry: string[] = [];
   for (const [id, local] of Object.entries(world)) {
     // A business the account turned away last time is sent in full again, in case there is room for it now.
     const again = state.retry?.includes(id) ?? false;
     const since = again ? -1 : state.pushedAt;
     const sent = again ? ZERO : (state.counters[id] ?? ZERO);
-    const waiting = local.entries.filter((e) => (e.updatedAt ?? 0) > since);
+    const changed = local.entries.filter((e) => (e.updatedAt ?? 0) > since);
+    const waiting: SyncedEntry[] = docs
+      ? await Promise.all(
+          changed.map(async (e) => {
+            const doc = await docs.get(id, entryKey(e));
+            return doc ? { ...e, doc } : e;
+          }),
+        )
+      : changed;
     const countersChanged = (Object.keys(ZERO) as DocKind[]).some((k) => local.counters[k] > sent[k]);
     const businessChanged = local.businessAt > since && !!local.business.name.trim();
     const profile = {
@@ -231,14 +247,18 @@ export async function syncBusinesses(world: SyncWorld, state: WorldState, post: 
   // Take everything that changed in the account since this device last looked (including what it just sent).
   let cursor = state.cursor;
   const incoming: Record<string, LedgerEntry[]> = {};
+  const received: Array<[string, SyncedEntry]> = [];
   let answer: Answer;
   do {
     answer = await post({ since: cursor, entries: [], all: true });
     for (const raw of answer.entries) {
       const r = raw as Record<string, unknown>;
       const id = typeof (r.business_id ?? r.businessId) === 'string' ? String(r.business_id ?? r.businessId) : 'main';
-      const e = cleanEntry(raw);
-      if (e) (incoming[id] ??= []).push(e);
+      const e = cleanSynced(raw);
+      if (!e) continue;
+      const { doc, ...entry } = e;
+      (incoming[id] ??= []).push(entry);
+      if (doc) received.push([id, e]);
     }
     cursor = answer.cursor;
   } while (answer.more);
@@ -250,6 +270,14 @@ export async function syncBusinesses(world: SyncWorld, state: WorldState, post: 
     const p = profiles.get(id);
     out[id] = mergeOne(world[id] ?? blank(), incoming[id] ?? [], p?.counters, p?.business, n(p?.businessAt ?? p?.business_at));
     counters[id] = out[id].counters;
+  }
+  // A document is kept when its entry is the copy that won (the same entry, changed no later here), and no newer
+  // copy was saved on this device while the sync was running (the snapshot above predates it).
+  for (const [id, e] of received) {
+    const kept = out[id]?.entries.find((x) => entryKey(x) === entryKey(e));
+    if (!docs || !e.doc || !kept || (kept.updatedAt ?? 0) !== (e.updatedAt ?? 0)) continue;
+    const mine = await docs.get(id, entryKey(e));
+    if (!mine || mine.savedAt <= e.doc.savedAt) await docs.put(id, e.doc);
   }
   // Anything changed from the moment this sync started is sent next time.
   return { world: out, state: { user: state.user, cursor, pushedAt: now - 1, counters, ...(retry.length ? { retry } : {}) } };

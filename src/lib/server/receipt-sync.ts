@@ -2,14 +2,16 @@ import { DomainError, type Clock, type UserPrincipal } from './kernel';
 import type { PgPool } from './db/pg';
 import type { LicenseService } from './licenses';
 import { canUsePaid } from '../licensing';
-import { LEDGER_MAX, cleanEntry, entryKey, type LedgerEntry } from '../receipts/ledger';
+import { LEDGER_MAX, entryKey } from '../receipts/ledger';
+import { cleanSynced, type SyncedEntry } from '../receipts/docs';
 import { cleanBusiness } from '../receipts/store';
 import type { Business, DocKind } from '../receipts/model';
 
 // Receipt Maker sync (docs/receipt-sync.md): a person's businesses, each with its sales ledger, document numbering and
 // profile, kept under their account so the website and the Android app share them. A device sends what changed since
 // it last synced and gets back everything that changed since then; the newer copy of a document wins, numbering only
-// goes up. A device that does not know about businesses works with the first one, 'main', as before.
+// goes up. A device that does not know about businesses works with the first one, 'main', as before. An entry may
+// carry its full document (docs.ts), so a document made on one device can be downloaded again on another.
 
 /** Documents a device may send in one request (keeps each request well under the API's 64 KB body limit). */
 export const SYNC_PUSH_MAX = 200;
@@ -39,8 +41,8 @@ export interface SyncInput {
 export interface SyncAnswer {
   cursor: number;
   more: boolean;
-  /** With `all`, each entry also names its business. */
-  entries: Array<LedgerEntry & { businessId?: string }>;
+  /** Each entry with its full document when one was sent; with `all`, each also names its business. */
+  entries: Array<SyncedEntry & { businessId?: string }>;
   /** The given business's numbering and profile. */
   counters: Counters;
   business: Business | null;
@@ -71,7 +73,7 @@ export class ReceiptSyncService {
     if (input.entries.length > SYNC_PUSH_MAX) throw new DomainError('invalid_request', `send at most ${SYNC_PUSH_MAX} documents at a time`);
     const biz = input.businessId ?? MAIN_BUSINESS;
     if (!BUSINESS_ID.test(biz)) throw new DomainError('invalid_request', 'invalid business id');
-    const entries = input.entries.map(cleanEntry).filter((e): e is LedgerEntry => !!e);
+    const entries = input.entries.map(cleanSynced).filter((e): e is SyncedEntry => !!e);
     const pushing = entries.length > 0 || input.counters !== undefined || input.business !== undefined;
     // Reading your own records always works; changing them is part of the Receipt Maker, a Pro tool.
     if (pushing && !canUsePaid(await this.#licenses.access(p), this.#clock.now())) throw new DomainError('forbidden', 'the Receipt Maker is a Pro tool');
@@ -96,7 +98,11 @@ export class ReceiptSyncService {
           `INSERT INTO receipt_sync_entries (user_id, business_id, doc_key, entry, changed_at, seq)
            SELECT $1, $6, $2, $3::jsonb, $4, nextval('receipt_sync_seq')
            WHERE $5 OR EXISTS (SELECT 1 FROM receipt_sync_entries WHERE user_id = $1 AND business_id = $6 AND doc_key = $2)
-           ON CONFLICT (user_id, business_id, doc_key) DO UPDATE SET entry = EXCLUDED.entry, changed_at = EXCLUDED.changed_at, seq = EXCLUDED.seq
+           ON CONFLICT (user_id, business_id, doc_key) DO UPDATE SET
+             -- An entry sent without its document (an older app cancelling it) keeps the document already held.
+             entry = CASE WHEN EXCLUDED.entry ? 'doc' OR NOT receipt_sync_entries.entry ? 'doc' THEN EXCLUDED.entry
+                          ELSE EXCLUDED.entry || jsonb_build_object('doc', receipt_sync_entries.entry->'doc') END,
+             changed_at = EXCLUDED.changed_at, seq = EXCLUDED.seq
              WHERE receipt_sync_entries.changed_at < EXCLUDED.changed_at
            RETURNING (xmax = 0) AS inserted`,
           [p.userId, key, JSON.stringify(e), at, room > 0, biz],
@@ -155,7 +161,7 @@ export class ReceiptSyncService {
     }));
     const profile = profiles.find((x) => x.id === biz);
     const found = page.flatMap((r) => {
-      const e = cleanEntry(r.entry);
+      const e = cleanSynced(r.entry);
       return e ? [input.all ? { ...e, businessId: r.business_id } : e] : [];
     });
     return {
