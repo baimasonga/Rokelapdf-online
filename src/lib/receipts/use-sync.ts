@@ -5,7 +5,12 @@ import { loadWorldState, saveWorldState, syncBusinesses, type SyncLocal, type Sy
 // app, every business at once: shortly after each change, when the screen opens, and every few minutes while it is
 // open.
 
-export type SyncStatus = { k: 'signed-out' } | { k: 'syncing' } | { k: 'synced'; at: number } | { k: 'error'; message: string };
+export type SyncStatus =
+  | { k: 'signed-out' }
+  | { k: 'syncing' }
+  /** `localOnly`: businesses the account turned away (it holds as many as it can); they stay on this device. */
+  | { k: 'synced'; at: number; localOnly: string[] }
+  | { k: 'error'; message: string };
 
 /** The signed-in person (their id) and a way to call /api/v1/me/receipt-sync as them, or null when signed out. */
 export type SyncSession = () => Promise<{ user: string; post: SyncPost } | null>;
@@ -51,7 +56,7 @@ export function useReceiptSync(o: {
       latest.current.onMerged(r.world);
       // In step with what the screen shows once it applies the result (a newly found business syncs once more).
       inStep.current = `${latest.current.businesses}|${stepKey(r.world[latest.current.open] ?? latest.current.local)}`;
-      setStatus({ k: 'synced', at: Date.now() });
+      setStatus({ k: 'synced', at: Date.now(), localOnly: r.state.retry ?? [] });
     } catch (e) {
       setStatus({ k: 'error', message: (e as Error).message || 'Could not sync.' });
     } finally {

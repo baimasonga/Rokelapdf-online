@@ -882,7 +882,14 @@ export function Receipts(props: {
             onVoid={(e, v) => setLedger((l) => setVoid(l, e, v))}
             paid={props.paid}
             run={run}
-            sync={syncStatus}
+            sync={
+              syncStatus.k === 'synced' && syncStatus.localOnly.includes(openId)
+                ? {
+                    k: 'error',
+                    message: `your account already holds ${BUSINESSES_MAX} businesses (archived ones count too), so this one is kept on this phone only`,
+                  }
+                : syncStatus
+            }
             onSync={() => void syncNow()}
             signIn={props.signIn}
           />

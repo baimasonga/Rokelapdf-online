@@ -174,11 +174,16 @@ export interface WorldState {
   pushedAt: number;
   /** The numbering last sent, per business. */
   counters: Record<string, Counters>;
+  /** Businesses the account turned away (it already holds as many as it can): sent in full again each time. */
+  retry?: string[];
 }
 
 export function freshWorldState(user: string): WorldState {
   return { user, cursor: 0, pushedAt: -1, counters: {} };
 }
+
+/** The account already holds as many businesses as it can (the server's answer to a new one beyond the limit). */
+const isLimit = (e: unknown) => /at most \d+ businesses/i.test((e as Error)?.message ?? '');
 
 /** One business's data after a sync: its documents, numbering and profile merged with the account's. */
 function mergeOne(local: SyncLocal, incoming: LedgerEntry[], counters: Partial<Counters> | undefined, business: unknown, businessAt: number): SyncLocal {
@@ -200,18 +205,28 @@ const blank = (): SyncLocal => ({ entries: [], counters: ZERO, business: cleanBu
  * including businesses set up on another device.
  */
 export async function syncBusinesses(world: SyncWorld, state: WorldState, post: SyncPost, now = Date.now()): Promise<{ world: SyncWorld; state: WorldState }> {
+  const retry: string[] = [];
   for (const [id, local] of Object.entries(world)) {
-    const sent = state.counters[id] ?? ZERO;
-    const waiting = local.entries.filter((e) => (e.updatedAt ?? 0) > state.pushedAt);
+    // A business the account turned away last time is sent in full again, in case there is room for it now.
+    const again = state.retry?.includes(id) ?? false;
+    const since = again ? -1 : state.pushedAt;
+    const sent = again ? ZERO : (state.counters[id] ?? ZERO);
+    const waiting = local.entries.filter((e) => (e.updatedAt ?? 0) > since);
     const countersChanged = (Object.keys(ZERO) as DocKind[]).some((k) => local.counters[k] > sent[k]);
-    const businessChanged = local.businessAt > state.pushedAt && !!local.business.name.trim();
+    const businessChanged = local.businessAt > since && !!local.business.name.trim();
     const profile = {
       ...(countersChanged ? { counters: local.counters } : {}),
       ...(businessChanged ? { business: { data: { ...local.business, logo: undefined }, at: local.businessAt } } : {}),
     };
-    for (const [i, batch] of batches(waiting, JSON.stringify(profile).length + 40).entries())
-      if (batch.length || (i === 0 && (countersChanged || businessChanged)))
-        await post({ since: state.cursor, business_id: id, entries: batch, ...(i === 0 ? profile : {}) });
+    try {
+      for (const [i, batch] of batches(waiting, JSON.stringify(profile).length + 40).entries())
+        if (batch.length || (i === 0 && (countersChanged || businessChanged)))
+          await post({ since: state.cursor, business_id: id, entries: batch, ...(i === 0 ? profile : {}) });
+    } catch (e) {
+      // One business too many must not stop the others syncing: it stays on this device and is tried again later.
+      if (!isLimit(e)) throw e;
+      retry.push(id);
+    }
   }
   // Take everything that changed in the account since this device last looked (including what it just sent).
   let cursor = state.cursor;
@@ -237,7 +252,7 @@ export async function syncBusinesses(world: SyncWorld, state: WorldState, post: 
     counters[id] = out[id].counters;
   }
   // Anything changed from the moment this sync started is sent next time.
-  return { world: out, state: { user: state.user, cursor, pushedAt: now - 1, counters } };
+  return { world: out, state: { user: state.user, cursor, pushedAt: now - 1, counters, ...(retry.length ? { retry } : {}) } };
 }
 
 export function loadWorldState(user: string): WorldState {
@@ -246,7 +261,8 @@ export function loadWorldState(user: string): WorldState {
     if (s && s.user === user && Number.isFinite(s.cursor) && Number.isFinite(s.pushedAt) && s.counters && typeof s.counters === 'object') {
       const counters: Record<string, Counters> = {};
       for (const [id, c] of Object.entries(s.counters)) counters[id] = maxCounters(ZERO, c);
-      return { ...s, counters };
+      const retry = Array.isArray(s.retry) ? s.retry.filter((x): x is string => typeof x === 'string') : [];
+      return { user: s.user, cursor: s.cursor, pushedAt: s.pushedAt, counters, ...(retry.length ? { retry } : {}) };
     }
   } catch {
     /* damaged: start again, which only re-sends */

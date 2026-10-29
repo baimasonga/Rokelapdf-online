@@ -283,4 +283,30 @@ describe('receipt sync', () => {
     expect(all.body.businesses).toHaveLength(10);
     expect(all.body.entries).toEqual([expect.objectContaining({ number: 'INV-1', business_id: 'b3' })]);
   });
+
+  it('keeps syncing the other businesses when the account has no room for one more', async () => {
+    env = await makeEnv();
+    const u = await env.user('full@example.test', { verified: true });
+    const send = (body: unknown) => env.call('POST', PATH, { token: u.token, body });
+    // Another device already filled the account with ten businesses.
+    for (let i = 0; i < 10; i++) await send({ since: 0, business_id: `b${i}`, business: { data: { ...DEFAULT_BUSINESS, name: `Shop ${i}` }, at: 1 } });
+    // This device has one of them with a new invoice, and an eleventh business of its own.
+    const world = {
+      b3: { ...empty(), entries: [entry('INV-0042', { updatedAt: 500 })], business: { ...DEFAULT_BUSINESS, name: 'Shop 3' }, businessAt: 1 },
+      bextra: { ...empty(), entries: [entry('INV-0001')], business: { ...DEFAULT_BUSINESS, name: 'One too many' }, businessAt: 2 },
+    };
+    const r = await syncBusinesses(world, freshWorldState('u'), device(u.token), 1000);
+    expect(r.state.retry).toEqual(['bextra']);
+    // The other business's invoice reached the account, and this device learned of all ten.
+    expect(Object.keys(r.world).filter((id) => id !== 'bextra')).toHaveLength(10);
+    const elsewhere = await syncBusinesses({}, freshWorldState('u'), device(u.token), 1100);
+    expect(elsewhere.world.b3!.entries.map((e) => e.number)).toEqual(['INV-0042']);
+    expect(elsewhere.world.bextra).toBeUndefined();
+    // The eleventh stays on this device with everything in it, and is tried again in full next time.
+    expect(r.world.bextra!.entries.map((e) => e.number)).toEqual(['INV-0001']);
+    const sent: unknown[] = [];
+    const again = await syncBusinesses(r.world, r.state, async (body) => (sent.push(body), device(u.token)(body)), 2000);
+    expect(sent.some((b) => (b as { business_id?: string }).business_id === 'bextra')).toBe(true);
+    expect(again.state.retry).toEqual(['bextra']);
+  });
 });

@@ -501,6 +501,7 @@ async function main() {
 
     await v.goto(`${ORIGIN}/receipts`);
     // A business is set up before anything else.
+    await v.getByRole('button', { name: 'Set up business' }).waitFor();
     check((await v.getByRole('button', { name: 'Download PDF' }).count()) === 0, 'receipts: nothing can be made before a business is set up');
     await v.getByLabel('Business name').fill('Kamara & Sons Hardware');
     await v.getByRole('button', { name: 'Set up business' }).click();

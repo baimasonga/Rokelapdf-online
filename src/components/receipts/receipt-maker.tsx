@@ -433,7 +433,9 @@ export function ReceiptMaker() {
     switchTo(id);
   };
 
-  if (loaded && (!openId || adding)) {
+  // Nothing until this browser's businesses are read, so the form never flashes before "Set up your business".
+  if (!loaded) return <div className="rk" aria-busy="true" />;
+  if (!openId || adding) {
     const first = !businesses.some((b) => !b.business.archived);
     const setD = <K extends keyof Business>(k: K, v: Business[K]) => setDraftBiz((b) => ({ ...b, [k]: v }));
     return (
@@ -530,6 +532,8 @@ export function ReceiptMaker() {
             <select
               value={openId}
               aria-label="Business"
+              // Not while a document is being made: its ledger entry and number belong to the business it was made in.
+              disabled={busy}
               onChange={(e) => {
                 if (e.target.value === '+') {
                   setError(undefined);
@@ -590,7 +594,14 @@ export function ReceiptMaker() {
             biz={biz}
             onPay={recordPayment}
             requirePaid={() => paid.require('receipts')}
-            sync={syncStatus}
+            sync={
+              syncStatus.k === 'synced' && syncStatus.localOnly.includes(openId)
+                ? {
+                    k: 'error',
+                    message: `your account already holds ${BUSINESSES_MAX} businesses (archived ones count too), so this one is kept in this browser only`,
+                  }
+                : syncStatus
+            }
             onSync={() => void syncNow()}
           />
         )}

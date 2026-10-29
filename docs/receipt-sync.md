@@ -66,6 +66,9 @@ account 2 min ago" or "Kept in this browser/phone only. Sign in…").
 - Two devices syncing in the same instant could, in rare cases, see a change one sync later than otherwise.
 - The limit of 10 businesses is checked before a new business's first change is stored; two devices adding a business
   in the same instant could, in rare cases, leave an account with 11.
+- A business the account turns away (it already holds 10, archived ones included, e.g. after two devices each added
+  one offline) does not stop the others syncing: it stays on that device, its ledger says so, and it is sent in full
+  again on every sync in case there is room for it. Businesses are never deleted, so there is no way to make room.
 - A business set up on two devices before either syncs becomes two businesses (each device gives it its own id),
   except the very first business on each device, which is always `main`: those two are the same business, and the
   profile edited last wins.
