@@ -500,7 +500,11 @@ async function main() {
     check(seamed.name === 'contract-seam-stamped.pdf' && strips === seamDoc.numPages && strips === 2, 'seam stamp: a strip of the seal on every page');
 
     await v.goto(`${ORIGIN}/receipts`);
+    // A business is set up before anything else.
+    await v.getByRole('button', { name: 'Set up business' }).waitFor();
+    check((await v.getByRole('button', { name: 'Download PDF' }).count()) === 0, 'receipts: nothing can be made before a business is set up');
     await v.getByLabel('Business name').fill('Kamara & Sons Hardware');
+    await v.getByRole('button', { name: 'Set up business' }).click();
     await v.getByLabel('Customer name').fill('Mr. Ibrahim Conteh');
     await v.getByLabel('Quantity 1').fill('10');
     await v.getByLabel('Item 1', { exact: true }).fill('Cement, 50 kg bag');
@@ -566,6 +570,21 @@ async function main() {
       'and the statement shows the payment and 600.00 due',
     );
     await shot(v, 'receipt-ledger');
+
+    // A second business keeps its own numbering and ledger; the first keeps everything it made.
+    await v.getByLabel('Business', { exact: true }).selectOption('+');
+    await v.getByLabel('Business name').fill('Kamara Transport');
+    await v.getByRole('button', { name: 'Add business' }).click();
+    await v.getByRole('radio', { name: 'Fill in a document' }).click();
+    check((await v.getByLabel('Number', { exact: true }).inputValue()) === '0001', 'businesses: a second business numbers its receipts from 0001');
+    await v.getByRole('radio', { name: 'Sales ledger' }).click();
+    await v.getByText('Make an invoice to start.').waitFor();
+    check(true, 'and starts with an empty ledger');
+    await v.getByLabel('Business', { exact: true }).selectOption({ label: 'Kamara & Sons Hardware' });
+    await v.getByRole('radio', { name: 'Sales ledger' }).click();
+    await v.getByText('Part paid').waitFor();
+    check(true, 'switching back shows the first business with its ledger');
+    await shot(v, 'receipt-businesses');
 
     await v.goto(`${ORIGIN}/tools/create-fillable-pdf`);
     await v.getByTestId('tool-input').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: pdf });

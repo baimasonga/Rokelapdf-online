@@ -422,10 +422,11 @@ async function main() {
     step('Receipts and the sales ledger');
     await page.goto(ORIGIN);
     await page.locator('.tool-grid').getByRole('button', { name: 'Receipts & invoices', exact: true }).click();
-    const bizSheet = page.getByRole('dialog', { name: 'Your business' });
-    await bizSheet.getByLabel('Business name').fill('Kamara & Sons Hardware');
-    await bizSheet.getByLabel('Phone numbers').fill('+232 76 123 456');
-    await bizSheet.getByRole('button', { name: 'Done' }).click();
+    // A business is set up before anything else.
+    check((await page.getByRole('button', { name: 'Save', exact: true }).count()) === 0, 'nothing can be made before a business is set up');
+    await page.getByLabel('Business name').fill('Kamara & Sons Hardware');
+    await page.getByLabel('Phone numbers (optional)').fill('+232 76 123 456');
+    await page.getByRole('button', { name: 'Set up business' }).click();
     await page.getByRole('radio', { name: 'Invoice', exact: true }).click();
     await page.getByLabel('Bill to').fill('Sunrise Construction Ltd');
     await page.getByLabel('Item 1', { exact: true }).fill('Cement, 50 kg bag');
@@ -467,6 +468,22 @@ async function main() {
     const slipBytes = new Uint8Array(readFileSync(await (await rdl).path()));
     const slipWidth = (await PDFDocument.load(slipBytes)).getPage(0).getWidth();
     check(Math.round((slipWidth * 25.4) / 72) === 58, 'a 58 mm till slip is made at the width of the roll');
+
+    // A second business keeps its own numbering and ledger, and syncs as a business of its own.
+    await page.getByLabel('Business', { exact: true }).selectOption('+');
+    await page.getByLabel('Business name').fill('Kamara Transport');
+    await page.getByRole('button', { name: 'Add business' }).click();
+    await page.getByRole('radio', { name: 'Invoice', exact: true }).click();
+    check((await page.getByLabel('Number', { exact: true }).inputValue()) === 'INV-0001', 'a second business numbers its invoices from INV-0001');
+    await page.getByRole('radio', { name: 'Ledger', exact: true }).click();
+    check((await page.getByText(/^Owes /).count()) === 0, 'and has a ledger of its own');
+    const sentSecond = () => synced.some((b) => b.business_id && b.business_id !== 'main' && b.business?.data.name === 'Kamara Transport');
+    for (let i = 0; i < 60 && !sentSecond(); i++) await page.waitForTimeout(250);
+    check(sentSecond(), 'the second business is synced under its own id');
+    await page.getByLabel('Business', { exact: true }).selectOption({ label: 'Kamara & Sons Hardware' });
+    await page.getByText('INV-0001 · NLe 1,550.00').waitFor();
+    check(await page.getByText(/^Owes /).isVisible(), 'switching back shows the first business and its ledger');
+    await page.getByRole('radio', { name: 'New', exact: true }).click();
 
     // The check QR code: registered on (stubbed) rokelapdf.com, printed with its code, the file's digest recorded.
     const checks = [];

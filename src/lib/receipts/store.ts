@@ -1,9 +1,12 @@
 import { DEFAULT_BUSINESS, DEFAULT_FOOTERS, docNumber, type BizDoc, type Business, type Currency, type DocKind, type DocStyle, type PageSize } from './model';
 
-// The business's settings for the Receipt Maker, kept in this browser only: its profile, the last number of each
-// kind of document, its usual items and prices, and how it likes its documents. Nothing is uploaded.
+// Each business's settings for the Receipt Maker, kept on this device: its profile, the last number of each kind of
+// document, its usual items and prices, and how it likes its documents. Signed in, the profile and numbering also sync
+// through the account (sync.ts); the rest stays here.
 
 const KEY = 'rokela.receipts.v1';
+/** Each business keeps its own settings; the first one ('main') keeps the key used before there were several. */
+const keyOf = (business: string) => (business === 'main' ? KEY : `${KEY}:${business}`);
 
 export interface ReceiptPrefs {
   business: Business;
@@ -58,14 +61,15 @@ export function cleanBusiness(raw: unknown): Business {
     color: color(b.color, DEFAULT_BUSINESS.color),
     accent: color(b.accent, DEFAULT_BUSINESS.accent),
     logo: typeof b.logo === 'string' && /^data:image\/(png|jpeg);base64,/.test(b.logo) && b.logo.length < 700_000 ? b.logo : undefined,
+    ...(b.archived === true ? { archived: true } : {}),
   };
 }
 
-/** Reads the saved settings, repairing anything damaged or missing. */
-export function loadPrefs(): ReceiptPrefs {
+/** Reads a business's saved settings, repairing anything damaged or missing. */
+export function loadPrefs(business = 'main'): ReceiptPrefs {
   let raw: Record<string, unknown> = {};
   try {
-    raw = (JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>) ?? {};
+    raw = (JSON.parse(localStorage.getItem(keyOf(business)) ?? '{}') as Record<string, unknown>) ?? {};
   } catch {
     raw = {};
   }
@@ -97,9 +101,9 @@ export function loadPrefs(): ReceiptPrefs {
   };
 }
 
-export function savePrefs(p: ReceiptPrefs): void {
+export function savePrefs(p: ReceiptPrefs, business = 'main'): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(p));
+    localStorage.setItem(keyOf(business), JSON.stringify(p));
   } catch {
     // Private windows and full storage: settings last until the page closes.
   }

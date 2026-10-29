@@ -124,6 +124,7 @@ async function main() {
     check((await p.locator('.thumb-page').count()) === pagesBefore, "and so is the editor's Add PDF (merging)");
     await p.goto(`${ORIGIN}/receipts`);
     await p.getByLabel('Business name').fill('Kamara & Sons Hardware');
+    await p.getByRole('button', { name: 'Set up business' }).click();
     await p.getByLabel('Item 1', { exact: true }).fill('Cement, 50 kg bag');
     await p.getByLabel('Rate 1').fill('155');
     await p.getByRole('button', { name: 'Download PDF' }).click();
@@ -165,7 +166,7 @@ async function main() {
     await p.getByRole('radio', { name: 'Sales ledger' }).click();
     await p.getByText(/Synced with your account/).waitFor({ timeout: 20_000 });
     const syncedRows = (await db.query('SELECT doc_key FROM rokela.receipt_sync_entries')).rows.map((r) => r.doc_key);
-    const profile = (await db.query('SELECT counters, business FROM rokela.receipt_sync_profiles')).rows[0];
+    const profile = (await db.query("SELECT counters, business FROM rokela.receipt_sync_profiles WHERE business_id = 'main'")).rows[0];
     check(
       syncedRows.includes('receipt 0001') && profile?.counters.receipt >= 1 && profile?.business?.name === 'Kamara & Sons Hardware',
       'signed in, the ledger, numbering and business details are kept in the account',

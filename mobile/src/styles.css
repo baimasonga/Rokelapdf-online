@@ -920,6 +920,41 @@ button.ghost {
   height: 46px;
   padding: 4px;
 }
+.rcpt-setup p {
+  margin: 0;
+}
+.rcpt-bizpick {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.rcpt-archived {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rcpt-archived li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rcpt-archived-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff4e5;
+}
+.rcpt-archived-note button {
+  grid-column: 2;
+  justify-self: start;
+}
 .rcpt-two {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
