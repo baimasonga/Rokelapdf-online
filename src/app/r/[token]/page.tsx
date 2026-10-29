@@ -86,8 +86,9 @@ export default function UploadRequestPage() {
   const upload = async (r: any, file: File | undefined) => {
     if (!file || uploading.current || syncNeeded) return;
     const mine = view.k === 'files' ? view.sub.files.filter((f: any) => f.requirement_key === r.key) : [];
-    // A full slot only takes the interrupted upload holding it back, which resumes from where it stopped.
-    if (mine.length >= r.max_files && !mine.some((f: any) => f.status === 'uploading' && f.size === file.size)) {
+    // A full slot only takes the interrupted upload holding it back, which resumes from where it stopped, or a retry,
+    // which may only need to confirm an upload the server finished while its answer was lost.
+    if (mine.length >= r.max_files && file !== retry[r.key] && !mine.some((f: any) => f.status === 'uploading' && f.size === file.size)) {
       notice('Remove the interrupted upload first, or choose the same file again to resume it.', true);
       return;
     }
