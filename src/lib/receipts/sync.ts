@@ -3,8 +3,10 @@ import type { Business, DocKind } from './model';
 import { cleanBusiness } from './store';
 
 // Syncing the Receipt Maker through the person's account (docs/receipt-sync.md), shared by the website and the Android
-// app: send what changed here since the last sync, take what changed elsewhere, and merge. The newer copy of a
-// document wins, numbering only goes up, the newer business profile wins (the logo stays on each device).
+// app: send what changed here since the last sync, take what changed elsewhere, and merge, business by business. The
+// newer copy of a document wins, numbering only goes up, the newer business profile wins (the logo stays on each
+// device). syncBusinesses is what the apps use; syncReceipts is the single-business protocol older app versions still
+// speak, which the server keeps answering for the first business.
 
 const KEY = 'rokela.receipts.sync';
 const PUSH_MAX = 200;
@@ -41,6 +43,8 @@ interface Answer {
   business: unknown;
   business_at?: number;
   businessAt?: number;
+  /** When every business was asked for. */
+  businesses?: Array<{ id: string; counters: Counters; business: unknown; business_at?: number; businessAt?: number }>;
 }
 
 /** POSTs to /api/v1/me/receipt-sync as the signed-in person (each caller adds its own auth). */
@@ -151,6 +155,108 @@ export function loadSyncState(user: string): SyncState {
 export function saveSyncState(s: SyncState): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(s));
+  } catch {
+    /* storage full or unavailable: the next sync sends again, which is harmless */
+  }
+}
+
+// ---- several businesses ---------------------------------------------------------------------------------------
+const WORLD_KEY = 'rokela.receipts.sync2';
+
+/** What each business on this device holds, by business id. */
+export type SyncWorld = Record<string, SyncLocal>;
+
+/** Where this device is in the account's history, for one signed-in person and all their businesses. */
+export interface WorldState {
+  user: string;
+  cursor: number;
+  /** Changes made after this moment (ms) are still to be sent (-1: send everything). */
+  pushedAt: number;
+  /** The numbering last sent, per business. */
+  counters: Record<string, Counters>;
+}
+
+export function freshWorldState(user: string): WorldState {
+  return { user, cursor: 0, pushedAt: -1, counters: {} };
+}
+
+/** One business's data after a sync: its documents, numbering and profile merged with the account's. */
+function mergeOne(local: SyncLocal, incoming: LedgerEntry[], counters: Partial<Counters> | undefined, business: unknown, businessAt: number): SyncLocal {
+  // The account's profile wins when it is newer, or when this device has none yet (whatever its time).
+  const theirs = business && (businessAt > local.businessAt || !local.business.name.trim()) ? cleanBusiness(business) : undefined;
+  return {
+    entries: mergeEntries(local.entries, incoming),
+    counters: maxCounters(local.counters, counters ?? {}),
+    business: theirs ? { ...theirs, logo: local.business.logo } : local.business,
+    businessAt: theirs ? businessAt : local.businessAt,
+  };
+}
+
+/** An empty business, for one that so far exists only in the account. */
+const blank = (): SyncLocal => ({ entries: [], counters: ZERO, business: cleanBusiness({}), businessAt: 0 });
+
+/**
+ * One full sync of every business: send what is waiting here for each one, then take everything new in the account,
+ * including businesses set up on another device.
+ */
+export async function syncBusinesses(world: SyncWorld, state: WorldState, post: SyncPost, now = Date.now()): Promise<{ world: SyncWorld; state: WorldState }> {
+  for (const [id, local] of Object.entries(world)) {
+    const sent = state.counters[id] ?? ZERO;
+    const waiting = local.entries.filter((e) => (e.updatedAt ?? 0) > state.pushedAt);
+    const countersChanged = (Object.keys(ZERO) as DocKind[]).some((k) => local.counters[k] > sent[k]);
+    const businessChanged = local.businessAt > state.pushedAt && !!local.business.name.trim();
+    const profile = {
+      ...(countersChanged ? { counters: local.counters } : {}),
+      ...(businessChanged ? { business: { data: { ...local.business, logo: undefined }, at: local.businessAt } } : {}),
+    };
+    for (const [i, batch] of batches(waiting, JSON.stringify(profile).length + 40).entries())
+      if (batch.length || (i === 0 && (countersChanged || businessChanged)))
+        await post({ since: state.cursor, business_id: id, entries: batch, ...(i === 0 ? profile : {}) });
+  }
+  // Take everything that changed in the account since this device last looked (including what it just sent).
+  let cursor = state.cursor;
+  const incoming: Record<string, LedgerEntry[]> = {};
+  let answer: Answer;
+  do {
+    answer = await post({ since: cursor, entries: [], all: true });
+    for (const raw of answer.entries) {
+      const r = raw as Record<string, unknown>;
+      const id = typeof (r.business_id ?? r.businessId) === 'string' ? String(r.business_id ?? r.businessId) : 'main';
+      const e = cleanEntry(raw);
+      if (e) (incoming[id] ??= []).push(e);
+    }
+    cursor = answer.cursor;
+  } while (answer.more);
+  const profiles = new Map((answer.businesses ?? []).map((b) => [b.id, b]));
+  const ids = new Set([...Object.keys(world), ...profiles.keys(), ...Object.keys(incoming)]);
+  const out: SyncWorld = {};
+  const counters: Record<string, Counters> = {};
+  for (const id of ids) {
+    const p = profiles.get(id);
+    out[id] = mergeOne(world[id] ?? blank(), incoming[id] ?? [], p?.counters, p?.business, n(p?.businessAt ?? p?.business_at));
+    counters[id] = out[id].counters;
+  }
+  // Anything changed from the moment this sync started is sent next time.
+  return { world: out, state: { user: state.user, cursor, pushedAt: now - 1, counters } };
+}
+
+export function loadWorldState(user: string): WorldState {
+  try {
+    const s = JSON.parse(localStorage.getItem(WORLD_KEY) ?? 'null') as WorldState | null;
+    if (s && s.user === user && Number.isFinite(s.cursor) && Number.isFinite(s.pushedAt) && s.counters && typeof s.counters === 'object') {
+      const counters: Record<string, Counters> = {};
+      for (const [id, c] of Object.entries(s.counters)) counters[id] = maxCounters(ZERO, c);
+      return { ...s, counters };
+    }
+  } catch {
+    /* damaged: start again, which only re-sends */
+  }
+  return freshWorldState(user);
+}
+
+export function saveWorldState(s: WorldState): void {
+  try {
+    localStorage.setItem(WORLD_KEY, JSON.stringify(s));
   } catch {
     /* storage full or unavailable: the next sync sends again, which is harmless */
   }

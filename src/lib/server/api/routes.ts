@@ -29,6 +29,8 @@ const receiptParams = z.object({ id: z.string().regex(/^rck_[0-9a-f]{24}$/) }).s
 const syncBody = z
   .object({
     since: z.number().int().nonnegative(),
+    business_id: z.string().max(24).optional(),
+    all: z.boolean().optional(),
     entries: z.array(z.unknown()).max(SYNC_PUSH_MAX).default([]),
     counters: z.record(z.string(), z.unknown()).optional(),
     business: z
@@ -116,10 +118,17 @@ export function buildRouter(): Router {
   r.add('POST', '/api/v1/me/receipt-checks/:id/cancel', 'user', async (x) =>
     rc(x).cancel(me(x), parse(receiptParams, x.params).id, parse(z.object({ reason: z.enum(RECEIPT_CANCEL_REASONS) }).strict(), await x.body()).reason),
   );
-  // Receipt Maker sync (docs/receipt-sync.md): the ledger, numbering and business profile shared by the website and the app.
+  // Receipt Maker sync (docs/receipt-sync.md): each business's ledger, numbering and profile, shared by the website and the app.
   r.add('POST', '/api/v1/me/receipt-sync', 'user', async (x) => {
     const b = parse(syncBody, await x.body());
-    return x.c.receiptSync.sync(me(x), { since: b.since, entries: b.entries, counters: b.counters, business: b.business });
+    return x.c.receiptSync.sync(me(x), {
+      since: b.since,
+      businessId: b.business_id,
+      all: b.all,
+      entries: b.entries,
+      counters: b.counters,
+      business: b.business,
+    });
   });
   r.add('GET', '/api/v1/workspaces/:orgId/subscription', 'user', async (x) => x.c.workspaces.subscription(me(x), org(x)));
   r.add('GET', '/api/v1/workspaces/:orgId/audit', 'user', async (x) => {

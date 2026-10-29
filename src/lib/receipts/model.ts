@@ -26,6 +26,8 @@ export interface Business {
   accent: string;
   /** PNG or JPEG data URL, optional. */
   logo?: string;
+  /** Put away by the person: kept with its documents, but not offered in the list of businesses. */
+  archived?: boolean;
 }
 
 export interface Line {

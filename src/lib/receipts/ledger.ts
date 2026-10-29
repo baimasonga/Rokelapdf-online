@@ -1,6 +1,6 @@
 import { shortDate, totals, type BizDoc, type Currency, type DocKind } from './model';
 
-// The sales ledger: every receipt, invoice and quotation the business makes in the Receipt Maker, kept in this browser.
+// The sales ledger: every receipt, invoice and quotation a business makes in the Receipt Maker, kept on this device.
 // It answers "who owes me what" and produces customer statements. Plain data and arithmetic, tested without a browser.
 //
 // Accounting, kept simple for small businesses:
@@ -10,6 +10,8 @@ import { shortDate, totals, type BizDoc, type Currency, type DocKind } from './m
 // - a quotation (proforma) is listed but never charged.
 
 const KEY = 'rokela.ledger.v1';
+/** Each business has its own ledger; the first one ('main') keeps the key used before there were several. */
+const keyOf = (business: string) => (business === 'main' ? KEY : `${KEY}:${business}`);
 export const LEDGER_MAX = 5000;
 const DAY_MS = 86_400_000;
 
@@ -284,11 +286,11 @@ export const entryKey = (e: Pick<LedgerEntry, 'kind' | 'number'>) => `${e.kind} 
 /** Newest document first, as the ledger lists them. */
 export const byNewest = (a: LedgerEntry, b: LedgerEntry) => b.date.localeCompare(a.date) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
 
-/** Reads the ledger, dropping anything damaged. */
-export function loadLedger(): LedgerEntry[] {
+/** Reads a business's ledger, dropping anything damaged. */
+export function loadLedger(business = 'main'): LedgerEntry[] {
   let raw: unknown;
   try {
-    raw = JSON.parse(localStorage.getItem(KEY) ?? '[]');
+    raw = JSON.parse(localStorage.getItem(keyOf(business)) ?? '[]');
   } catch {
     raw = [];
   }
@@ -299,9 +301,9 @@ export function loadLedger(): LedgerEntry[] {
     .filter((e): e is LedgerEntry => !!e);
 }
 
-export function saveLedger(entries: LedgerEntry[]): void {
+export function saveLedger(entries: LedgerEntry[], business = 'main'): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(entries.slice(0, LEDGER_MAX)));
+    localStorage.setItem(keyOf(business), JSON.stringify(entries.slice(0, LEDGER_MAX)));
   } catch {
     // Private windows and full storage: the ledger lasts until the page closes.
   }

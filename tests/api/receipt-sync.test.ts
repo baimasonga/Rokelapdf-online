@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { makeEnv, type TestEnv } from '../support/env';
 import type { LedgerEntry } from '@/lib/receipts/ledger';
 import { DEFAULT_BUSINESS } from '@/lib/receipts/model';
-import { applySync, batches, freshState, syncReceipts, type SyncLocal, type SyncPost } from '@/lib/receipts/sync';
+import { applySync, batches, freshState, freshWorldState, syncBusinesses, syncReceipts, type SyncLocal, type SyncPost } from '@/lib/receipts/sync';
 
 // Receipt Maker sync (docs/receipt-sync.md): the website and the app share a ledger, numbering and business profile
 // through the account. Two "devices" run the real client sync against the real API.
@@ -187,5 +187,100 @@ describe('receipt sync', () => {
     expect(a.entries.map((e) => `${e.number}${e.void ? ' void' : ''}`).sort()).toEqual(['INV-1 void', 'INV-2']);
     expect(a.counters.invoice).toBe(2);
     expect(a.business.name).toBe('Edited meanwhile');
+  });
+
+  it('keeps several businesses apart, each with its own documents, numbering and profile', async () => {
+    env = await makeEnv();
+    const u = await env.user('two@example.test', { verified: true });
+    const shop: SyncLocal = {
+      entries: [entry('INV-0001', { customer: 'Sunrise Ltd', updatedAt: 1000 })],
+      counters: { receipt: 0, invoice: 1, proforma: 0 },
+      business: { ...DEFAULT_BUSINESS, name: 'Kamara Hardware', logo: 'data:image/png;base64,AAAA' },
+      businessAt: 900,
+    };
+    const transport: SyncLocal = {
+      entries: [entry('INV-0001', { customer: 'Freetown Port', total: 5000, updatedAt: 1100 })],
+      counters: { receipt: 0, invoice: 1, proforma: 0 },
+      business: { ...DEFAULT_BUSINESS, name: 'Kamara Transport' },
+      businessAt: 950,
+    };
+    const phone = await syncBusinesses({ main: shop, btransport: transport }, freshWorldState('u'), device(u.token), 2000);
+    expect(phone.state.cursor).toBeGreaterThan(0);
+
+    // A new device gets both businesses, each with only its own INV-0001 (the same number, kept apart).
+    const web = await syncBusinesses({}, freshWorldState('u'), device(u.token), 2100);
+    expect(Object.keys(web.world).sort()).toEqual(['btransport', 'main']);
+    expect(web.world.main!.business.name).toBe('Kamara Hardware');
+    expect(web.world.main!.business.logo).toBeUndefined();
+    expect(web.world.main!.entries.map((e) => e.customer)).toEqual(['Sunrise Ltd']);
+    expect(web.world.btransport!.business.name).toBe('Kamara Transport');
+    expect(web.world.btransport!.entries.map((e) => `${e.number} ${e.customer} ${e.total}`)).toEqual(['INV-0001 Freetown Port 5000']);
+    expect(web.world.btransport!.counters.invoice).toBe(1);
+
+    // The website archives the transport business and makes INV-0002 there; the phone gets both changes and keeps its logo.
+    const t = web.world.btransport!;
+    const web2 = await syncBusinesses(
+      {
+        ...web.world,
+        btransport: {
+          ...t,
+          entries: [entry('INV-0002', { customer: 'Bo Market', updatedAt: 3000 }), ...t.entries],
+          counters: { ...t.counters, invoice: 2 },
+          business: { ...t.business, archived: true },
+          businessAt: 3000,
+        },
+      },
+      web.state,
+      device(u.token),
+      3100,
+    );
+    expect(web2.world.btransport!.counters.invoice).toBe(2);
+    const phone2 = await syncBusinesses(phone.world, phone.state, device(u.token), 3200);
+    expect(phone2.world.btransport!.business.archived).toBe(true);
+    expect(phone2.world.btransport!.entries.map((e) => e.number).sort()).toEqual(['INV-0001', 'INV-0002']);
+    expect(phone2.world.btransport!.counters.invoice).toBe(2);
+    expect(phone2.world.main!.entries).toHaveLength(1);
+    expect(phone2.world.main!.business.logo).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('shows an older app version only the first business, and keeps what it sends there', async () => {
+    env = await makeEnv();
+    const u = await env.user('old-app@example.test', { verified: true });
+    await syncBusinesses(
+      {
+        main: { ...empty(), entries: [entry('INV-0001')], business: { ...DEFAULT_BUSINESS, name: 'First' }, businessAt: 10 },
+        bsecond: { ...empty(), entries: [entry('INV-0009')], business: { ...DEFAULT_BUSINESS, name: 'Second' }, businessAt: 10 },
+      },
+      freshWorldState('u'),
+      device(u.token),
+      100,
+    );
+    // The single-business protocol (no business id): only the first business, in the old answer's shape.
+    const old = await syncReceipts({ ...empty(), entries: [entry('INV-0002', { updatedAt: 200 })] }, freshState('u'), device(u.token), 300);
+    expect(old.local.business.name).toBe('First');
+    expect(old.local.entries.map((e) => e.number).sort()).toEqual(['INV-0001', 'INV-0002']);
+    const raw = await env.call('POST', PATH, { token: u.token, body: { since: 0 } });
+    expect(raw.body.businesses).toBeUndefined();
+    expect(raw.body.entries.every((e: Record<string, unknown>) => !('business_id' in e))).toBe(true);
+    // What the older app sent is in the first business only.
+    const now = await syncBusinesses({}, freshWorldState('u'), device(u.token), 400);
+    expect(now.world.main!.entries.map((e) => e.number).sort()).toEqual(['INV-0001', 'INV-0002']);
+    expect(now.world.bsecond!.entries.map((e) => e.number)).toEqual(['INV-0009']);
+  });
+
+  it('keeps a person to ten businesses and checks business ids', async () => {
+    env = await makeEnv();
+    const u = await env.user('many@example.test', { verified: true });
+    const send = (body: unknown) => env.call('POST', PATH, { token: u.token, body });
+    for (let i = 0; i < 10; i++)
+      expect((await send({ since: 0, business_id: `b${i}`, business: { data: { ...DEFAULT_BUSINESS, name: `Shop ${i}` }, at: 1 } })).status).toBe(200);
+    const eleventh = await send({ since: 0, business_id: 'b10', business: { data: { ...DEFAULT_BUSINESS, name: 'One too many' }, at: 1 } });
+    expect(eleventh.status).toBe(409);
+    // A business already there can still be changed.
+    expect((await send({ since: 0, business_id: 'b3', entries: [entry('INV-1')] })).status).toBe(200);
+    expect((await send({ since: 0, business_id: 'Not Valid!' })).status).toBe(400);
+    const all = await send({ since: 0, all: true });
+    expect(all.body.businesses).toHaveLength(10);
+    expect(all.body.entries).toEqual([expect.objectContaining({ number: 'INV-1', business_id: 'b3' })]);
   });
 });

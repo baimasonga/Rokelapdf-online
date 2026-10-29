@@ -1,6 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { ArrowLeft, Building2, Cloud, CloudOff, FilePlus2, HandCoins, ImagePlus, Plus, RotateCcw, Save, Share2, Trash2, XCircle } from 'lucide-react';
 import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  Building2,
+  Cloud,
+  CloudOff,
+  FilePlus2,
+  HandCoins,
+  ImagePlus,
+  Plus,
+  RotateCcw,
+  Save,
+  Share2,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
+import {
+  DEFAULT_BUSINESS,
   PAY_METHODS,
   TITLES,
   docNumber,
@@ -16,7 +33,18 @@ import {
   type PayMethod,
 } from '@/lib/receipts/model';
 import { BLANK_BOOK_MAX, buildBizDoc, buildBlankBook, buildStatement, type BlankBook } from '@/lib/receipts/pdf';
-import { afterDoc, isoDate, loadPrefs, logoDataUrl, newDoc, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
+import { DEFAULT_PREFS, afterDoc, isoDate, loadPrefs, logoDataUrl, newDoc, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
+import {
+  BUSINESSES_MAX,
+  addBusiness,
+  loadBusinesses,
+  nextActive,
+  saveBusinesses,
+  storeSynced,
+  summaries,
+  syncWorld,
+  type BusinessList,
+} from '@/lib/receipts/businesses';
 import {
   customers,
   entryFromDoc,
@@ -43,8 +71,9 @@ import { SignaturePad } from './sign';
 import { AppBar, IconButton, Sheet } from './ui';
 
 // Receipts on the phone: cash receipts, invoices and quotations in the same layouts as the website's Receipt Maker
-// (src/lib/receipts), shared straight to WhatsApp or saved, with the sales ledger and customer statements. Everything
-// is made and kept on the phone; making a document is a Pro feature (src/lib/licensing.ts).
+// (src/lib/receipts), shared straight to WhatsApp or saved, with the sales ledger and customer statements. A business
+// is set up first (src/lib/receipts/businesses.ts) and everything made belongs to it; a person can keep several.
+// Everything is made and kept on the phone; making a document is a Pro feature (src/lib/licensing.ts).
 
 const KINDS: Array<[DocKind, string]> = [
   ['receipt', 'Receipt'],
@@ -61,19 +90,29 @@ const SIZES: Array<[PageSize, string]> = [
 const seedOf = (s: string) => [...s].reduce((h, ch) => (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0, 7);
 const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, ' ');
 const STATUS: Record<string, string> = { paid: 'Paid', part: 'Part paid', unpaid: 'Unpaid', overdue: 'Overdue' };
+/** The fields asked for when a business is set up; the rest is filled in under "Your business" later. */
+const NEW_BUSINESS: Business = { ...DEFAULT_BUSINESS, name: '' };
+/** A business's settings archived or restored, as an edit of its profile (so the change syncs). */
+const withArchived = (p: ReceiptPrefs, archived: boolean): ReceiptPrefs => ({
+  ...p,
+  business: { ...p.business, archived: archived || undefined },
+  businessAt: Date.now(),
+});
 
 const DRAFT = 'rokela.receipts.draft';
+/** Each business has its own draft; the first one keeps the key used before there were several. */
+const draftKey = (business: string) => (business === 'main' ? DRAFT : `${DRAFT}:${business}`);
 /** The document being written, kept so it survives signing in, a phone call or the app being closed. */
-function loadDraft(): BizDoc | undefined {
+function loadDraft(business: string): BizDoc | undefined {
   try {
-    const d = JSON.parse(localStorage.getItem(DRAFT) ?? 'null') as Partial<BizDoc> | null;
+    const d = JSON.parse(localStorage.getItem(draftKey(business)) ?? 'null') as Partial<BizDoc> | null;
     if (!d || (d.kind !== 'receipt' && d.kind !== 'invoice' && d.kind !== 'proforma') || !Array.isArray(d.lines)) return undefined;
     const lines = d.lines
       .filter((l) => l && typeof l.item === 'string' && Number.isFinite(l.qty) && Number.isFinite(l.rate))
       .map((l) => ({ qty: l.qty, item: l.item.slice(0, 120), rate: l.rate }))
       .slice(0, 60);
     return {
-      ...newDoc(d.kind, loadPrefs()),
+      ...newDoc(d.kind, loadPrefs(business)),
       ...d,
       lines: lines.length ? lines : [{ qty: 1, item: '', rate: 0 }],
       signature: undefined,
@@ -85,9 +124,9 @@ function loadDraft(): BizDoc | undefined {
     return undefined;
   }
 }
-function saveDraft(doc: BizDoc) {
+function saveDraft(doc: BizDoc, business: string) {
   try {
-    localStorage.setItem(DRAFT, JSON.stringify(doc));
+    localStorage.setItem(draftKey(business), JSON.stringify(doc));
   } catch {
     /* storage full or unavailable: the draft is just not kept */
   }
@@ -107,42 +146,82 @@ export function Receipts(props: {
   backRef: MutableRefObject<(() => boolean) | undefined>;
 }) {
   const { run, setError, setNotice } = props;
-  const [prefs, setPrefs] = useState<ReceiptPrefs>(loadPrefs);
-  const [doc, setDoc] = useState<BizDoc>(() => loadDraft() ?? newDoc('receipt', loadPrefs()));
+  /** The person's businesses on this phone, and the one open (its settings, ledger and draft are what is shown). */
+  const [list, setList] = useState<BusinessList>(() => {
+    const l = loadBusinesses();
+    if (l.ids.length) saveBusinesses(l);
+    return l;
+  });
+  const [openId, setOpenId] = useState(list.active);
+  /** Setting up another business (the first one is always set up before anything else). */
+  const [adding, setAdding] = useState(false);
+  const [draftBiz, setDraftBiz] = useState<Business>(NEW_BUSINESS);
+  const [prefs, setPrefs] = useState<ReceiptPrefs>(() => (openId ? loadPrefs(openId) : DEFAULT_PREFS));
+  const [doc, setDoc] = useState<BizDoc>(() => (openId && loadDraft(openId)) || newDoc('receipt', prefs));
   /** The check QR code needs an account: asks the person to sign in, keeping the draft. */
   const [needSignIn, setNeedSignIn] = useState(false);
   const issued = useRef<Issued>(undefined);
-  const [ledger, setLedger] = useState<LedgerEntry[]>(loadLedger);
+  const [ledger, setLedger] = useState<LedgerEntry[]>(() => (openId ? loadLedger(openId) : []));
   const [tab, setTab] = useState<'new' | 'book' | 'ledger'>('new');
-  const [bizOpen, setBizOpen] = useState(() => !loadPrefs().business.name);
+  const [bizOpen, setBizOpen] = useState(false);
   const [more, setMore] = useState(false);
   const [pad, setPad] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
-  useEffect(() => savePrefs(prefs), [prefs]);
+  useEffect(() => {
+    if (openId) savePrefs(prefs, openId);
+  }, [prefs, openId]);
   const { backRef } = props;
   useEffect(() => {
     backRef.current = () => {
       if (pad) return (setPad(false), true);
       if (needSignIn) return (setNeedSignIn(false), true);
       if (bizOpen) return (setBizOpen(false), true);
+      if (adding && openId) return (setAdding(false), true);
       return false;
     };
     return () => {
       backRef.current = undefined;
     };
-  }, [backRef, pad, bizOpen, needSignIn]);
-  useEffect(() => saveLedger(ledger), [ledger]);
-  useEffect(() => saveDraft(doc), [doc]);
+  }, [backRef, pad, bizOpen, needSignIn, adding, openId]);
+  useEffect(() => {
+    if (openId) saveLedger(ledger, openId);
+  }, [ledger, openId]);
+  useEffect(() => {
+    if (openId) saveDraft(doc, openId);
+  }, [doc, openId]);
+
+  /** Shows a business: its settings, ledger and draft ('' for none). */
+  const openBusiness = (id: string, known?: ReceiptPrefs) => {
+    const p = id ? (known ?? loadPrefs(id)) : DEFAULT_PREFS;
+    setOpenId(id);
+    setPrefs(p);
+    setLedger(id ? loadLedger(id) : []);
+    setDoc((id && loadDraft(id)) || newDoc('receipt', p));
+    issued.current = undefined;
+  };
+  const switchTo = (id: string) => {
+    const next = { ...list, active: id };
+    saveBusinesses(next);
+    setList(next);
+    openBusiness(id);
+  };
+  /** Every business on this phone, with the open one's name as it is being typed. */
+  const businesses = useMemo(() => summaries(list), [list]).map((b) => (b.id === openId ? { ...b, business: prefs.business } : b));
+  const archived = businesses.filter((b) => b.business.archived);
 
   const biz = prefs.business;
   const setBiz = <K extends keyof Business>(k: K, v: Business[K]) => setPrefs((p) => ({ ...p, business: { ...p.business, [k]: v }, businessAt: Date.now() }));
 
-  // Sync with the person's account (docs/receipt-sync.md): the same ledger, numbering and business details as on the
-  // website. The logo stays on each device.
+  // Sync with the person's account (docs/receipt-sync.md): the same businesses, each with its ledger, numbering and
+  // details, as on the website. Logos stay on each device.
+  const local = { entries: ledger, counters: prefs.counters, business: prefs.business, businessAt: prefs.businessAt ?? 0 };
   const { status: syncStatus, syncNow } = useReceiptSync({
     ready: true,
-    local: { entries: ledger, counters: prefs.counters, business: prefs.business, businessAt: prefs.businessAt ?? 0 },
+    open: openId,
+    local,
+    businesses: list.ids.join(','),
+    world: () => syncWorld(list, openId, local),
     session: async () => {
       let s;
       try {
@@ -167,7 +246,16 @@ export function Receipts(props: {
         },
       };
     },
-    onMerged: (m) => {
+    onMerged: (w) => {
+      // Businesses not on screen are stored; one set up on another device is added (and opened if there was none).
+      const nextList = storeSynced(list, openId, w);
+      setList(nextList);
+      const m = w[openId];
+      if (!openId) {
+        if (nextList.active) openBusiness(nextList.active);
+        return;
+      }
+      if (!m) return;
       const before = prefs.counters;
       // Applied to what is here now: anything changed while the sync ran is newer, so it is kept and sent next time.
       setLedger((l) => mergeEntries(l, m.entries));
@@ -228,6 +316,7 @@ export function Receipts(props: {
 
   const problem = (): string | undefined => {
     if (!biz.name.trim()) return 'Add your business name first.';
+    if (biz.archived) return 'This business is archived. Restore it first.';
     if (!doc.lines.some((l) => l.item.trim() && l.qty > 0)) return 'Add at least one item.';
     if (doc.kind !== 'receipt' && !doc.customer.trim()) return `Add who the ${doc.kind === 'invoice' ? 'invoice' : 'quotation'} is for.`;
     return undefined;
@@ -321,6 +410,96 @@ export function Receipts(props: {
     window.scrollTo({ top: 0 });
   };
 
+  /** Sets up the business in the form and opens it. */
+  const create = () => {
+    try {
+      const r = addBusiness(list, draftBiz);
+      setList(r.list);
+      openBusiness(r.id, r.prefs);
+      setAdding(false);
+      setDraftBiz(NEW_BUSINESS);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  /** Puts the open business away (its documents are kept) and moves to another one, or to setting one up. */
+  const archive = () => {
+    if (!window.confirm(`Archive ${biz.name || 'this business'}? Its documents and ledger are kept, and you can restore it at any time.`)) return;
+    savePrefs(withArchived(prefs, true), openId);
+    setBizOpen(false);
+    switchTo(nextActive(list, openId));
+  };
+  const restore = (id: string) => {
+    if (id === openId) return setPrefs((p) => withArchived(p, false));
+    savePrefs(withArchived(loadPrefs(id), false), id);
+    switchTo(id);
+  };
+
+  if (!openId || adding) {
+    const first = !businesses.some((b) => !b.business.archived);
+    const setD = <K extends keyof Business>(k: K, v: Business[K]) => setDraftBiz((b) => ({ ...b, [k]: v }));
+    return (
+      <>
+        <AppBar
+          left={<IconButton icon={ArrowLeft} label="Back" onClick={adding && openId ? () => setAdding(false) : props.onBack} />}
+          title={first ? 'Set up your business' : 'Add a business'}
+          subtitle="Receipts, invoices and quotations"
+        />
+        <main className="rcpt">
+          <section className="card rcpt-setup">
+            <p className="muted">
+              Every receipt, invoice and quotation is made in the name of a business: its name, address and phone numbers are printed on each one, and it keeps
+              its own numbering and ledger. You can add your logo and colours afterwards.
+            </p>
+            {first && syncStatus.k === 'syncing' ? <p className="muted">Looking in your account for businesses you have already set up…</p> : null}
+            <form
+              className="form-fields rcpt-biz"
+              onSubmit={(e) => {
+                e.preventDefault();
+                create();
+              }}
+            >
+              <label>
+                Business name
+                <input value={draftBiz.name} maxLength={80} required onChange={(e) => setD('name', e.target.value)} placeholder="e.g. Kamara & Sons Hardware" />
+              </label>
+              <label>
+                What you sell (optional)
+                <input value={draftBiz.tagline} maxLength={120} onChange={(e) => setD('tagline', e.target.value)} />
+              </label>
+              <label>
+                Address (optional)
+                <input value={draftBiz.address} maxLength={160} onChange={(e) => setD('address', e.target.value)} />
+              </label>
+              <label>
+                Phone numbers (optional)
+                <input value={draftBiz.phones} maxLength={80} inputMode="tel" onChange={(e) => setD('phones', e.target.value)} />
+              </label>
+              <button className="primary pill" type="submit" disabled={!draftBiz.name.trim()}>
+                <Plus size={18} aria-hidden="true" /> {first ? 'Set up business' : 'Add business'}
+              </button>
+            </form>
+          </section>
+          {!adding && archived.length ? (
+            <section className="card">
+              <h2>Archived businesses</h2>
+              <ul className="rcpt-archived">
+                {archived.map((b) => (
+                  <li key={b.id}>
+                    <span>{b.business.name || 'Unnamed business'}</span>
+                    <button className="ghost pill" onClick={() => restore(b.id)}>
+                      <ArchiveRestore size={18} aria-hidden="true" /> Restore
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </main>
+      </>
+    );
+  }
+
   return (
     <>
       <AppBar
@@ -330,6 +509,48 @@ export function Receipts(props: {
         right={<IconButton icon={Building2} label="Your business" onClick={() => setBizOpen(true)} />}
       />
       <main className="rcpt">
+        <label className="rcpt-bizpick">
+          Business
+          <select
+            value={openId}
+            aria-label="Business"
+            onChange={(e) => {
+              if (e.target.value === '+') setAdding(true);
+              else switchTo(e.target.value);
+            }}
+          >
+            {businesses
+              .filter((b) => !b.business.archived || b.id === openId)
+              .map((b) => (
+                <option key={b.id} value={b.id}>
+                  {(b.business.name || 'Unnamed business') + (b.business.archived ? ' (archived)' : '')}
+                </option>
+              ))}
+            {archived.some((b) => b.id !== openId) ? (
+              <optgroup label="Archived">
+                {archived
+                  .filter((b) => b.id !== openId)
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.business.name || 'Unnamed business'}
+                    </option>
+                  ))}
+              </optgroup>
+            ) : null}
+            <option value="+" disabled={list.ids.length >= BUSINESSES_MAX}>
+              {list.ids.length >= BUSINESSES_MAX ? `+ Add a business (at most ${BUSINESSES_MAX})` : '+ Add a business'}
+            </option>
+          </select>
+        </label>
+        {biz.archived ? (
+          <div className="rcpt-archived-note" role="status">
+            <Archive size={18} aria-hidden="true" />
+            <span>{biz.name || 'This business'} is archived: its documents and ledger are kept, but nothing new can be made.</span>
+            <button className="ghost pill" onClick={() => restore(openId)}>
+              <ArchiveRestore size={18} aria-hidden="true" /> Restore
+            </button>
+          </div>
+        ) : null}
         <div className="seg" role="radiogroup" aria-label="Receipts">
           <button role="radio" aria-checked={tab === 'new'} className={tab === 'new' ? 'on' : ''} onClick={() => setTab('new')}>
             New
@@ -737,6 +958,11 @@ export function Receipts(props: {
             <button className="primary pill" onClick={() => setBizOpen(false)}>
               Done
             </button>
+            {!biz.archived ? (
+              <button className="ghost pill" onClick={archive}>
+                <Archive size={18} aria-hidden="true" /> Archive this business
+              </button>
+            ) : null}
           </div>
         </Sheet>
       ) : null}
@@ -830,6 +1056,7 @@ function BookTab(props: {
       props.onNoBusiness();
       return props.setError('Add your business name first.');
     }
+    if (prefs.business.archived) return props.setError('This business is archived. Restore it first.');
     props.paid(
       () =>
         void props.run('Making the book…', async () => {

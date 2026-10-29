@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { loadSyncState, saveSyncState, syncReceipts, type SyncLocal, type SyncPost } from './sync';
+import { loadWorldState, saveWorldState, syncBusinesses, type SyncLocal, type SyncPost, type SyncWorld } from './sync';
 
 // Keeps the Receipt Maker in sync with the person's account (docs/receipt-sync.md), on the website and in the Android
-// app: shortly after each change, when the screen opens, and every few minutes while it is open.
+// app, every business at once: shortly after each change, when the screen opens, and every few minutes while it is
+// open.
 
 export type SyncStatus = { k: 'signed-out' } | { k: 'syncing' } | { k: 'synced'; at: number } | { k: 'error'; message: string };
 
@@ -17,10 +18,16 @@ const EVERY_MS = 3 * 60_000;
 export function useReceiptSync(o: {
   /** False until the device's own data has been read. */
   ready: boolean;
+  /** The business open on screen ('' for none), and what it holds: changes to it start a sync shortly after. */
+  open: string;
   local: SyncLocal;
+  /** The businesses on this device ("main,b12…"): adding one starts a sync too. */
+  businesses: string;
+  /** Everything every business on this device holds, read when a sync starts. */
+  world: () => SyncWorld;
   session: SyncSession;
-  /** Applies merged data from the account. */
-  onMerged: (merged: SyncLocal) => void;
+  /** Applies merged data from the account, for every business. */
+  onMerged: (merged: SyncWorld) => void;
 }) {
   const [status, setStatus] = useState<SyncStatus>({ k: 'signed-out' });
   const running = useRef(false);
@@ -30,7 +37,7 @@ export function useReceiptSync(o: {
   useEffect(() => {
     latest.current = o;
   });
-  const key = stepKey(o.local);
+  const key = `${o.businesses}|${stepKey(o.local)}`;
 
   const syncNow = useCallback(async () => {
     if (running.current) return;
@@ -39,10 +46,11 @@ export function useReceiptSync(o: {
       const s = await latest.current.session();
       if (!s) return setStatus({ k: 'signed-out' });
       setStatus({ k: 'syncing' });
-      const r = await syncReceipts(latest.current.local, loadSyncState(s.user), s.post);
-      saveSyncState(r.state);
-      latest.current.onMerged(r.local);
-      inStep.current = stepKey(r.local);
+      const r = await syncBusinesses(latest.current.world(), loadWorldState(s.user), s.post);
+      saveWorldState(r.state);
+      latest.current.onMerged(r.world);
+      // In step with what the screen shows once it applies the result (a newly found business syncs once more).
+      inStep.current = `${latest.current.businesses}|${stepKey(r.world[latest.current.open] ?? latest.current.local)}`;
       setStatus({ k: 'synced', at: Date.now() });
     } catch (e) {
       setStatus({ k: 'error', message: (e as Error).message || 'Could not sync.' });
