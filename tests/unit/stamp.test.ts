@@ -32,7 +32,41 @@ describe('stamp ink', () => {
     inkify(rough, 100, 100, { seed: 12, wear: 0.5, edgeWear: 1 });
     expect(explicitDefault).toEqual(original);
     expect(rough).not.toEqual(original);
-    for (let i = 3; i < rough.length; i += 4) expect(rough[i]).toBeLessThanOrEqual(pixels[i]!);
+  });
+
+  it('splashes ink just past the lines when the edges are rough, in the ink colour', () => {
+    // A 600 px wide stamp (the scale the ink is tuned for) with plenty of paper around the square.
+    const w = 600;
+    const h = 400;
+    const m = 100;
+    const design = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (x < m || x >= w - m || y < m || y >= h - m) continue;
+        design.set([35, 54, 168, 255], i);
+      }
+    const rough = new Uint8ClampedArray(design);
+    const again = new Uint8ClampedArray(design);
+    const clean = new Uint8ClampedArray(design);
+    inkify(rough, w, h, { seed: 5, wear: 0.5, edgeWear: 1 });
+    inkify(again, w, h, { seed: 5, wear: 0.5, edgeWear: 1 });
+    inkify(clean, w, h, { seed: 5, wear: 0.5, edgeWear: 0 });
+    expect(rough).toEqual(again);
+    const splashed: Array<[number, number]> = [];
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (design[i + 3] || !rough[i + 3]) continue;
+        splashed.push([x, y]);
+        expect([rough[i], rough[i + 1], rough[i + 2]]).toEqual([35, 54, 168]);
+      }
+    expect(splashed.length).toBeGreaterThan(20);
+    // Close to the lines, never out in the open paper.
+    const gap = ([x, y]: [number, number]) => Math.max(m - x, x - (w - m - 1), m - y, y - (h - m - 1), 0);
+    expect(Math.max(...splashed.map(gap))).toBeLessThan(25);
+    const paper = alphas(design);
+    expect(alphas(clean).filter((v, i) => v > 0 && paper[i] === 0)).toHaveLength(0);
   });
   it('is the same for the same seed and different for another, like separate impressions', () => {
     const a = flat();
