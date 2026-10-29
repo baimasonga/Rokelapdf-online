@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cleanSaved, cleanSynced, copyAsNew, docKey, memoryDocs, toSaved } from '@/lib/receipts/docs';
+import { freshWorldState, syncBusinesses } from '@/lib/receipts/sync';
+import { DEFAULT_BUSINESS } from '@/lib/receipts/model';
 import { DEFAULT_PREFS, newDoc } from '@/lib/receipts/store';
 import type { BizDoc } from '@/lib/receipts/model';
 
@@ -88,5 +90,47 @@ describe('saved documents', () => {
     expect(await store.get('main', docKey(doc))).toEqual(doc);
     expect(await store.get('bother', docKey(doc))).toBeUndefined();
     expect([...(await store.keys('main'))]).toEqual(['invoice inv-0007']);
+  });
+
+  it('keeps the full payment reference the editors accept', () => {
+    const ref = 'R'.repeat(100);
+    expect(cleanSaved({ ...toSaved(invoice(), undefined), payRef: ref })?.payRef).toBe(ref);
+  });
+
+  it('never replaces a document saved here while a sync was running with the account’s older copy', async () => {
+    const store = memoryDocs();
+    const older = toSaved({ ...invoice(), notes: 'From the account' }, undefined, 100);
+    const entry = {
+      kind: 'invoice',
+      number: 'INV-0007',
+      date: '2026-10-20',
+      due: '',
+      customer: 'Sunrise',
+      currency: 'NLe',
+      total: 2000,
+      paidAtIssue: 0,
+      updatedAt: 100,
+    } as const;
+    const world = {
+      main: { entries: [{ ...entry }], counters: { receipt: 0, invoice: 7, proforma: 0 }, business: { ...DEFAULT_BUSINESS, name: 'Shop' }, businessAt: 1 },
+    };
+    // The answer carries the account's copy; while the request is out, the person saves the invoice again here.
+    const post = async (body: unknown) => {
+      if ((body as { all?: boolean }).all) await store.put('main', toSaved({ ...invoice(), notes: 'Saved meanwhile' }, undefined, 300));
+      return { cursor: 1, more: false, entries: [{ ...entry, doc: older }], counters: { receipt: 0, invoice: 7, proforma: 0 }, business: null };
+    };
+    await syncBusinesses(world, { ...freshWorldState('u'), pushedAt: 1000 }, post as never, 2000, store);
+    expect((await store.get('main', 'invoice inv-0007'))?.notes).toBe('Saved meanwhile');
+    // With nothing newer here, the account's copy is taken.
+    const fresh = memoryDocs();
+    const quiet = async () => ({
+      cursor: 1,
+      more: false,
+      entries: [{ ...entry, doc: older }],
+      counters: { receipt: 0, invoice: 7, proforma: 0 },
+      business: null,
+    });
+    await syncBusinesses(world, { ...freshWorldState('u'), pushedAt: 1000 }, quiet as never, 2000, fresh);
+    expect((await fresh.get('main', 'invoice inv-0007'))?.notes).toBe('From the account');
   });
 });

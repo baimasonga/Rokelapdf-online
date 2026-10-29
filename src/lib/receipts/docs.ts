@@ -68,7 +68,7 @@ export function cleanSaved(raw: unknown): SavedDoc | undefined {
     gst: r.gst === true,
     paid: amount(r.paid),
     method,
-    payRef: str(pick('payRef', 'pay_ref'), 80),
+    payRef: str(pick('payRef', 'pay_ref'), 100),
     notes: str(r.notes, 500),
     footer: str(r.footer, 200),
     counterfoil: r.counterfoil !== false,

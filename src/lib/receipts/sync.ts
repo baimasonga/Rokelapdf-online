@@ -271,10 +271,13 @@ export async function syncBusinesses(
     out[id] = mergeOne(world[id] ?? blank(), incoming[id] ?? [], p?.counters, p?.business, n(p?.businessAt ?? p?.business_at));
     counters[id] = out[id].counters;
   }
-  // A document is kept when its entry is the copy that won (the same entry, changed no later here).
+  // A document is kept when its entry is the copy that won (the same entry, changed no later here), and no newer
+  // copy was saved on this device while the sync was running (the snapshot above predates it).
   for (const [id, e] of received) {
     const kept = out[id]?.entries.find((x) => entryKey(x) === entryKey(e));
-    if (docs && e.doc && kept && (kept.updatedAt ?? 0) === (e.updatedAt ?? 0)) await docs.put(id, e.doc);
+    if (!docs || !e.doc || !kept || (kept.updatedAt ?? 0) !== (e.updatedAt ?? 0)) continue;
+    const mine = await docs.get(id, entryKey(e));
+    if (!mine || mine.savedAt <= e.doc.savedAt) await docs.put(id, e.doc);
   }
   // Anything changed from the moment this sync started is sent next time.
   return { world: out, state: { user: state.user, cursor, pushedAt: now - 1, counters, ...(retry.length ? { retry } : {}) } };
