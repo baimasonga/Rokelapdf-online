@@ -868,7 +868,17 @@ export class SharingService {
     const b = await this.#d.store.get('blob', orgId, uploadId);
     if (!b || b.targetType === 'submission_file') throw notFound();
     await this.#requireManager(p, orgId, b.createdBy);
+    // A finished upload whose document or file was since removed cannot be resumed: the client starts again.
+    if (b.status !== 'uploading' && !(await this.#uploadTargetLive(b))) throw notFound();
     return b;
+  }
+
+  async #uploadTargetLive(b: BlobRow) {
+    const s = this.#d.store;
+    if (b.targetType === 'draft') return (await s.get('document', b.orgId, b.targetId))?.status === 'active';
+    if (b.targetType !== 'transfer_file' && b.targetType !== 'transfer_replace') return true;
+    const f = await s.get('transferFile', b.orgId, b.targetId);
+    return f?.status === 'current' && (await s.get('transfer', b.orgId, f.transferId))?.status === 'active';
   }
 
   async signUploadParts(p: UserPrincipal, orgId: string, uploadId: string, partNumbers: number[]) {

@@ -283,6 +283,14 @@ describe('blank receipt books', () => {
     expect(pages[0]).toContain(footer);
   });
 
+  it('cuts a footer too long for one line on the compact receipt instead of overprinting it', async () => {
+    const footer = Array.from({ length: 400 }, (_, i) => `word${i}`).join(' ');
+    const pages = await textOf(await buildBlankBook(biz, book({ basic: true, count: 1, footer })));
+    expect(pages[0]).toContain('word0 ');
+    expect(pages[0]).toContain('…');
+    expect(pages[0]).not.toContain('word399');
+  });
+
   it('numbers each page in order, with the letterhead and nothing filled in', async () => {
     const pages = await textOf(await buildBlankBook(biz, book()));
     expect(pages).toHaveLength(3);
