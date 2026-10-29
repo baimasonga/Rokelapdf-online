@@ -469,6 +469,24 @@ async function main() {
     const slipWidth = (await PDFDocument.load(slipBytes)).getPage(0).getWidth();
     check(Math.round((slipWidth * 25.4) / 72) === 58, 'a 58 mm till slip is made at the width of the roll');
 
+    // Saved documents: share an invoice again from the ledger, find it, and copy it into a new one.
+    await page.getByRole('radio', { name: 'Ledger', exact: true }).click();
+    rdl = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Share INV-0001 again' }).click();
+    const again = await textOf(new Uint8Array(readFileSync(await (await rdl).path())));
+    check(again.text.includes('INV-0001') && again.text.includes('Cement, 50 kg bag'), 'a saved invoice is shared again from the ledger, in full');
+    await page.getByLabel('Search documents').fill('nobody');
+    await page.getByText('Nothing matches.').waitFor();
+    await page.getByLabel('Search documents').fill('INV-0001');
+    await page.getByRole('button', { name: 'Copy INV-0001 into a new document' }).click();
+    check(
+      (await page.getByLabel('Number', { exact: true }).inputValue()) === 'INV-0002' &&
+        (await page.getByLabel('Bill to').inputValue()) === 'Sunrise Construction Ltd',
+      'and copied into a new invoice with the next number',
+    );
+    // Back to a receipt, as the steps below expect.
+    await page.getByRole('radio', { name: 'Receipt', exact: true }).click();
+
     // A second business keeps its own numbering and ledger, and syncs as a business of its own.
     await page.getByLabel('Business', { exact: true }).selectOption('+');
     await page.getByLabel('Business name').fill('Kamara Transport');

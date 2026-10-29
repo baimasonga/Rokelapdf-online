@@ -6,6 +6,7 @@ import {
   Building2,
   Cloud,
   CloudOff,
+  Copy,
   FilePlus2,
   HandCoins,
   ImagePlus,
@@ -48,6 +49,7 @@ import {
 import {
   customers,
   entryFromDoc,
+  entryKey,
   invoiceState,
   ledgerCsv,
   loadLedger,
@@ -60,6 +62,9 @@ import {
   type LedgerEntry,
 } from '@/lib/receipts/ledger';
 import { TEMPLATES, newStamp } from '@/lib/stamp/design';
+import { loadStamps } from '@/lib/stamp/store';
+import { copyAsNew, deviceDocs, docKey, toSaved } from '@/lib/receipts/docs';
+import { makeAgain } from '@/lib/receipts/again';
 import { renderStamp } from '@/lib/stamp/render';
 import { PDF_MIME, saveFile, shareFile } from './native';
 import { SITE, currentSession } from './account';
@@ -162,6 +167,8 @@ export function Receipts(props: {
   const [needSignIn, setNeedSignIn] = useState(false);
   const issued = useRef<Issued>(undefined);
   const [ledger, setLedger] = useState<LedgerEntry[]>(() => (openId ? loadLedger(openId) : []));
+  /** Which of the open business's documents are kept in full (docs.ts), so they can be shared again or copied. */
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<'new' | 'book' | 'ledger'>('new');
   const [bizOpen, setBizOpen] = useState(false);
   const [more, setMore] = useState(false);
@@ -186,6 +193,17 @@ export function Receipts(props: {
   }, [backRef, pad, bizOpen, needSignIn, adding, openId]);
   useEffect(() => {
     if (openId) saveLedger(ledger, openId);
+  }, [ledger, openId]);
+  // The ledger changes when a document is made or synced from another device: its saved documents may have too.
+  useEffect(() => {
+    if (!openId) return;
+    let live = true;
+    void deviceDocs()
+      .keys(openId)
+      .then((k) => live && setSavedKeys(k));
+    return () => {
+      live = false;
+    };
   }, [ledger, openId]);
   useEffect(() => {
     if (openId) saveDraft(doc, openId);
@@ -339,6 +357,9 @@ export function Receipts(props: {
           // share sheet (it rejects) or the Save-to dialog (it returns false) leaves the ledger as it was.
           if (how === 'share') await shareFile(name, bytes, PDF_MIME);
           else if (!(await saveFile(name, bytes, PDF_MIME))) return;
+          // Kept in full, with its check code if it has one, before the ledger entry that syncs it is recorded.
+          const check = prefs.check && issued.current ? { url: issued.current.check.url, code: issued.current.check.code } : undefined;
+          await deviceDocs().put(openId, toSaved({ ...doc, check }, undefined));
           setLedger((l) => upsert(l, entryFromDoc(doc)));
           setPrefs((p) => afterDoc(p, doc));
           if (how === 'save') setNotice(`Saved ${name}.`);
@@ -398,6 +419,25 @@ export function Receipts(props: {
       style: d.style,
       currency: d.currency,
     }));
+  /** Shares a saved document again, with the business's details and signature as they are now. */
+  const shareAgain = (e: LedgerEntry) =>
+    props.paid(
+      () =>
+        void run('Making the PDF…', async () => {
+          const saved = await deviceDocs().get(openId, docKey(e));
+          if (!saved) return;
+          const out = await makeAgain(biz, saved, { signature: prefs.signature, stamps: loadStamps(), paidStamp: prefs.paidStamp });
+          await shareFile(fileName(out.name), out.bytes, PDF_MIME);
+        }),
+    );
+  /** A new document with the same customer, items and terms as a saved one, and the next number. */
+  const copyDoc = async (e: LedgerEntry) => {
+    const saved = await deviceDocs().get(openId, docKey(e));
+    if (!saved) return;
+    setDoc(copyAsNew(saved, prefs));
+    setTab('new');
+    window.scrollTo({ top: 0 });
+  };
   const recordPayment = (inv: LedgerEntry, balance: number) => {
     setDoc({
       ...newDoc('receipt', prefs),
@@ -880,6 +920,9 @@ export function Receipts(props: {
             currency={prefs.currency}
             onPay={recordPayment}
             onVoid={(e, v) => setLedger((l) => setVoid(l, e, v))}
+            saved={savedKeys}
+            onAgain={shareAgain}
+            onCopy={(e) => void copyDoc(e)}
             paid={props.paid}
             run={run}
             sync={
@@ -1194,6 +1237,10 @@ function Ledger(props: {
   currency: 'NLe' | 'USD';
   onPay: (inv: LedgerEntry, balance: number) => void;
   onVoid: (e: LedgerEntry, value: boolean) => void;
+  /** Keys of the documents kept in full, which can be shared again or copied. */
+  saved: Set<string>;
+  onAgain: (e: LedgerEntry) => void;
+  onCopy: (e: LedgerEntry) => void;
   paid: (go: () => void) => void;
   run: (label: string, fn: () => Promise<void>) => Promise<void>;
   sync: SyncStatus;
@@ -1206,6 +1253,9 @@ function Ledger(props: {
   const today = isoDate(now);
   const from = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
   const [shown, setShown] = useState(50);
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const found = needle ? entries.filter((e) => `${e.number} ${e.customer} ${shortDate(e.date)} ${e.date}`.toLowerCase().includes(needle)) : entries;
   const sum = useMemo(() => summary(entries, currency, from, today, today), [entries, currency, from, today]);
   const people = useMemo(() => customers(entries, currency, today), [entries, currency, today]);
 
@@ -1278,7 +1328,16 @@ function Ledger(props: {
 
       <section className="card">
         <h2>Documents</h2>
-        {entries.slice(0, shown).map((e) => {
+        <input
+          type="search"
+          className="rcpt-search"
+          placeholder="Customer, number or date"
+          aria-label="Search documents"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        {needle && !found.length ? <p className="muted">Nothing matches.</p> : null}
+        {found.slice(0, shown).map((e) => {
           const inv = e.kind === 'invoice' && !e.void ? invoiceState(entries, e, today) : undefined;
           const status = e.void
             ? 'Cancelled'
@@ -1300,6 +1359,12 @@ function Ledger(props: {
                   {e.customer ? ` · ${e.customer}` : ''} · {status}
                 </span>
               </div>
+              {props.saved.has(entryKey(e)) ? (
+                <>
+                  <IconButton icon={Share2} label={`Share ${e.number} again`} onClick={() => props.onAgain(e)} />
+                  <IconButton icon={Copy} label={`Copy ${e.number} into a new document`} onClick={() => props.onCopy(e)} />
+                </>
+              ) : null}
               {inv && inv.balance > 0 ? (
                 <button className="ghost pill small" onClick={() => props.onPay(e, inv.balance)}>
                   Record payment
@@ -1315,7 +1380,7 @@ function Ledger(props: {
             </div>
           );
         })}
-        {entries.length > shown ? (
+        {found.length > shown ? (
           <button className="link" onClick={() => setShown((n) => n + 50)}>
             Show more
           </button>

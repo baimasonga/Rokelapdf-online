@@ -15,6 +15,20 @@ On the device each business keeps its own settings (`rokela.receipts.v1:<id>`), 
 in the app, its draft. The first business has the id `main` and keeps the keys used before there were several, so
 whatever a device already held becomes its first business without being copied or changed.
 
+## Saved documents
+
+Every receipt, invoice and quotation made is kept **in full** (`src/lib/receipts/docs.ts`): its customer, items,
+charges, payment, notes and footer, with the Stamp Studio stamp it carried (by id) and its check QR code, if any. The
+pictures are not kept; making it again adds the business's signature, stamp and PAID stamp as they are then
+(`src/lib/receipts/again.ts`). On the device documents are kept in IndexedDB (`rokela-receipts`, per business), as
+thousands of them would not fit in localStorage.
+
+In the sales ledger's Documents list, found by customer, number or date, a document kept in full can be **downloaded
+again** (shared again in the app) or **copied** into a new one with the next number and today's date. Documents made
+before this existed have only their ledger entry, so they offer neither. A copy made again prints the same check QR
+code; the check's recorded file fingerprint is the first file's, so the check page shows the facts but not "Exact
+match" for the new copy.
+
 ## What it does
 
 When a person is signed in, the Receipt Maker on the website and in the Android app share, through their account, for
@@ -34,6 +48,8 @@ account 2 min ago" or "Kept in this browser/phone only. Sign in…").
   number, with the client's change time) and `receipt_sync_profiles` (numbering and business profile). Every change
   takes the next value of one sequence (`receipt_sync_seq`), so a device asks only for what changed since its cursor.
   Migration `0012` adds `business_id` to both (part of their keys); everything synced before belongs to `main`.
+- **Documents** travel with their ledger entry: an entry sent with a `doc` (the full document) is stored with it and
+  comes back with it. An entry sent without one (an older app cancelling a document) keeps the document already held.
 - **API**: `POST /api/v1/me/receipt-sync` with `since` (the device's cursor), up to 200 changed `entries`, and
   optionally `counters` and `business: { data, at }`, all for the business named by `business_id` (`main` when
   absent). With `all: true` the answer holds every business's changed documents, each with its `business_id`, and

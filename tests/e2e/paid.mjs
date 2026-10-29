@@ -171,6 +171,8 @@ async function main() {
       syncedRows.includes('receipt 0001') && profile?.counters.receipt >= 1 && profile?.business?.name === 'Kamara & Sons Hardware',
       'signed in, the ledger, numbering and business details are kept in the account',
     );
+    const kept = (await db.query("SELECT entry->'doc' AS doc FROM rokela.receipt_sync_entries WHERE doc_key = 'receipt 0001'")).rows[0]?.doc;
+    check(kept?.lines?.[0]?.item === 'Cement, 50 kg bag', 'and so is the full document, for downloading again on another device');
 
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
     console.log('\nPaid tools end-to-end test passed.');

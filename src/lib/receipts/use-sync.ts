@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadWorldState, saveWorldState, syncBusinesses, type SyncLocal, type SyncPost, type SyncWorld } from './sync';
+import { deviceDocs } from './docs';
 
 // Keeps the Receipt Maker in sync with the person's account (docs/receipt-sync.md), on the website and in the Android
 // app, every business at once: shortly after each change, when the screen opens, and every few minutes while it is
@@ -51,7 +52,7 @@ export function useReceiptSync(o: {
       const s = await latest.current.session();
       if (!s) return setStatus({ k: 'signed-out' });
       setStatus({ k: 'syncing' });
-      const r = await syncBusinesses(latest.current.world(), loadWorldState(s.user), s.post);
+      const r = await syncBusinesses(latest.current.world(), loadWorldState(s.user), s.post, Date.now(), deviceDocs());
       saveWorldState(r.state);
       latest.current.onMerged(r.world);
       // In step with what the screen shows once it applies the result (a newly found business syncs once more).

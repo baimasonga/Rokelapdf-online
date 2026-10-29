@@ -571,6 +571,28 @@ async function main() {
     );
     await shot(v, 'receipt-ledger');
 
+    // Saved documents: an invoice made here can be downloaded again or copied into a new one.
+    const invRow = v.locator('tbody tr').filter({ has: v.getByRole('cell', { name: 'INV-0001', exact: true }) });
+    const again = await fetchDownload(invRow.getByRole('button', { name: 'Download' }));
+    const againDoc = await getDocument({ data: new Uint8Array(again.bytes), standardFontDataUrl: `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/` })
+      .promise;
+    const againText = (await (await againDoc.getPage(1)).getTextContent()).items.map((x) => x.str).join(' ');
+    check(
+      again.name.includes('INV-0001') && againText.includes('Roofing sheets') && againText.includes('Sunrise Construction Ltd'),
+      'documents: an invoice is downloaded again from the ledger, in full',
+    );
+    await v.getByLabel('Search documents').fill('Sunrise');
+    check((await v.locator('tbody tr').filter({ hasText: 'INV-0001' }).count()) >= 1, 'and found by customer');
+    await v.getByLabel('Search documents').fill('');
+    await invRow.getByRole('button', { name: 'Copy' }).click();
+    check(
+      (await v.getByLabel('Number', { exact: true }).inputValue()) === 'INV-0002' &&
+        (await v.getByLabel('Customer name').inputValue()) === 'Sunrise Construction Ltd' &&
+        (await v.getByLabel('Item 1', { exact: true }).inputValue()) === 'Roofing sheets',
+      'and copied into a new invoice with the next number',
+    );
+    await v.getByRole('radio', { name: 'Sales ledger' }).click();
+
     // A second business keeps its own numbering and ledger; the first keeps everything it made.
     await v.getByLabel('Business', { exact: true }).selectOption('+');
     await v.getByLabel('Business name').fill('Kamara Transport');

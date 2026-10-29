@@ -57,6 +57,8 @@ import { BLANK_BOOK_MAX, buildBizDoc, buildBlankBook, type BlankBook } from '@/l
 import { DEFAULT_PREFS, afterDoc, isoDate, loadPrefs, logoDataUrl, newDoc, numberOf, savePrefs, type ReceiptPrefs } from '@/lib/receipts/store';
 import { entryFromDoc, loadLedger, openInvoices, saveLedger, setVoid, upsert, type LedgerEntry } from '@/lib/receipts/ledger';
 import { LedgerView } from './ledger-view';
+import { copyAsNew, deviceDocs, docKey, toSaved } from '@/lib/receipts/docs';
+import { makeAgain } from '@/lib/receipts/again';
 import { TEMPLATES, newStamp } from '@/lib/stamp/design';
 import { renderStamp } from '@/lib/stamp/render';
 import { loadStamps } from '@/lib/stamp/store';
@@ -111,6 +113,8 @@ export function ReceiptMaker() {
   const [mode, setMode] = useState<'doc' | 'book' | 'ledger'>('doc');
   /** Every document downloaded or shared here (sales ledger), newest first. */
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  /** Which of the open business's documents are kept in full (docs.ts), so they can be made again or copied. */
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [book, setBook] = useState<BlankBook>({
     kind: 'receipt',
     size: 'A5',
@@ -162,6 +166,17 @@ export function ReceiptMaker() {
   }, []);
   useEffect(() => {
     if (loaded && openId) saveLedger(ledger, openId);
+  }, [ledger, loaded, openId]);
+  // The ledger changes when a document is made or synced from another device: its saved documents may have too.
+  useEffect(() => {
+    if (!loaded || !openId) return;
+    let live = true;
+    void deviceDocs()
+      .keys(openId)
+      .then((k) => live && setSavedKeys(k));
+    return () => {
+      live = false;
+    };
   }, [ledger, loaded, openId]);
   useEffect(() => {
     if (loaded && openId) savePrefs(prefs, openId);
@@ -298,6 +313,9 @@ export function ReceiptMaker() {
     try {
       const bytes = prefs.check ? await withCheck() : await buildBizDoc(biz, full);
       if (!bytes) return undefined;
+      // Kept in full, with its check code if it has one, before the ledger entry that syncs it is recorded.
+      const check = prefs.check && issued.current ? { url: issued.current.check.url, code: issued.current.check.code } : undefined;
+      await deviceDocs().put(openId, toSaved({ ...doc, check }, stampDesign?.id));
       setLedger((l) => upsert(l, entryFromDoc(doc)));
       setPrefs((p) => afterDoc(p, doc));
       return { bytes, name: `${TITLES[doc.kind].modern} ${doc.number}${doc.customer ? ` - ${doc.customer}` : ''}.pdf`.replace(/[\\/:*?"<>|]+/g, ' ') };
@@ -398,6 +416,24 @@ export function ReceiptMaker() {
     setMode('doc');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  /** Downloads a saved document again, with the business's details, signature and stamps as they are now. */
+  async function downloadAgain(e: LedgerEntry) {
+    const saved = await deviceDocs().get(openId, docKey(e));
+    if (!saved || !(await paid.require('receipts'))) return;
+    const out = await makeAgain(biz, saved, { signature: prefs.signature, stamps, paidStamp: prefs.paidStamp });
+    const url = URL.createObjectURL(new Blob([out.bytes as BlobPart], { type: 'application/pdf' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: out.name });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
+  /** A new document with the same customer, items and terms as a saved one, and the next number. */
+  async function copyDoc(e: LedgerEntry) {
+    const saved = await deviceDocs().get(openId, docKey(e));
+    if (!saved) return;
+    setDoc(copyAsNew(saved, prefs));
+    setMode('doc');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   const todayIso = iso(new Date());
   const payable = doc.kind === 'receipt' ? openInvoices(ledger, todayIso, doc.customer.trim() ? doc.customer : undefined) : [];
 
@@ -593,6 +629,9 @@ export function ReceiptMaker() {
             setVoid={(e, v) => setLedger((l) => setVoid(l, e, v))}
             biz={biz}
             onPay={recordPayment}
+            saved={savedKeys}
+            onAgain={downloadAgain}
+            onCopy={(e) => void copyDoc(e)}
             requirePaid={() => paid.require('receipts')}
             sync={
               syncStatus.k === 'synced' && syncStatus.localOnly.includes(openId)
