@@ -1,5 +1,5 @@
 import { PT_PER_MM, stampDate, stampNumber, type StampDesign } from './design';
-import { inkify, rng } from './ink';
+import { inkify, rng, type Box } from './ink';
 
 // Draws a stamp design on a canvas, gives it real ink (ink.ts) and a small hand tilt, and returns it as a PNG with a
 // transparent background. Each call is a fresh impression: pass a new seed every time the stamp is used.
@@ -61,19 +61,27 @@ function arcText(ctx: Ctx, text: string, cx: number, cy: number, r: number, wher
 }
 
 /** The lines in the middle of a stamp: the design's own words, then the date and the number when switched on. */
-function centreLines(d: StampDesign, date: Date, number: number): Array<{ text: string; weight: number; scale: number; spacing: number }> {
-  const out: Array<{ text: string; weight: number; scale: number; spacing: number }> = [];
+type Line = { text: string; weight: number; scale: number; spacing: number; isNumber?: boolean };
+function centreLines(d: StampDesign, date: Date, number: number): Line[] {
+  const out: Line[] = [];
   for (const line of d.middle
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean))
     out.push({ text: line, weight: 800, scale: 1, spacing: 2 });
   if (d.date) out.push({ text: stampDate(date), weight: 800, scale: 0.9, spacing: 4 });
-  if (d.numbered) out.push({ text: stampNumber(number), weight: 700, scale: 0.7, spacing: 2 });
+  if (d.numbered) out.push({ text: stampNumber(number), weight: 700, scale: 0.7, spacing: 2, isNumber: true });
   return out;
 }
 
-function drawRound(ctx: Ctx, d: StampDesign, date: Date, number: number) {
+/** Notes where a line of text was drawn, centred on `cx`, if it is the stamp number: ink splashes stay off it. */
+function keepClear(ctx: Ctx, l: { text: string; isNumber?: boolean }, cx: number, top: number, height: number, clear: Box[]) {
+  if (!l.isNumber) return;
+  const w = ctx.measureText(l.text).width;
+  clear.push({ x: cx - w / 2, y: top, w, h: height });
+}
+
+function drawRound(ctx: Ctx, d: StampDesign, date: Date, number: number, clear: Box[]) {
   const S = 640;
   const c = S / 2;
   ctx.lineWidth = 16;
@@ -107,6 +115,7 @@ function drawRound(ctx: Ctx, d: StampDesign, date: Date, number: number) {
     const px = sizes[i]!;
     setFont(ctx, l.weight, px, l.spacing * (px / 60));
     ctx.fillText(l.text, c, y + (px * 1.15) / 2);
+    keepClear(ctx, l, c, y, px * 1.15, clear);
     y += px * 1.15;
   });
 }
@@ -125,21 +134,21 @@ function drawBoxed(ctx: Ctx, oval: boolean, W: number, H: number) {
 }
 
 function boxedLines(d: StampDesign, date: Date, number: number) {
-  const lines: Array<{ text: string; weight: number; px: number; spacing: number }> = [];
+  const lines: Array<{ text: string; weight: number; px: number; spacing: number; isNumber?: boolean }> = [];
   if (d.top) lines.push({ text: d.top.toUpperCase(), weight: 900, px: 130, spacing: 10 });
-  for (const l of centreLines(d, date, number)) lines.push({ text: l.text, weight: l.weight, px: 64 * l.scale, spacing: l.spacing * 2 });
+  for (const l of centreLines(d, date, number)) lines.push({ text: l.text, weight: l.weight, px: 64 * l.scale, spacing: l.spacing * 2, isNumber: l.isNumber });
   if (d.bottom) lines.push({ text: d.bottom.toUpperCase(), weight: 700, px: 40, spacing: 4 });
   return lines;
 }
 
 /** Draws the design flat (no ink effect) in its ink colour; returns the canvas. */
-export function drawFlat(d: StampDesign, date: Date, number: number): HTMLCanvasElement {
+export function drawFlat(d: StampDesign, date: Date, number: number, clear: Box[] = []): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   if (d.shape === 'round') {
     canvas.width = canvas.height = 640;
     ctx.fillStyle = ctx.strokeStyle = d.ink;
-    drawRound(ctx, d, date, number);
+    drawRound(ctx, d, date, number, clear);
     return canvas;
   }
   const oval = d.shape === 'oval';
@@ -162,6 +171,7 @@ export function drawFlat(d: StampDesign, date: Date, number: number): HTMLCanvas
     const px = sizes[i]!;
     setFont(ctx, l.weight, px, l.spacing * (px / l.px));
     ctx.fillText(l.text, W / 2, y + (px * 1.18) / 2);
+    keepClear(ctx, l, W / 2, y, px * 1.18, clear);
     y += px * 1.18;
   });
   return canvas;
@@ -169,10 +179,11 @@ export function drawFlat(d: StampDesign, date: Date, number: number): HTMLCanvas
 
 /** One impression of the stamp: inked, tilted a little, as a PNG data URL. */
 export function renderStamp(d: StampDesign, o: { seed: number; date?: Date; number?: number; tilt?: number }): Impression {
-  const flat = drawFlat(d, o.date ?? new Date(), o.number ?? d.next);
+  const clear: Box[] = [];
+  const flat = drawFlat(d, o.date ?? new Date(), o.number ?? d.next, clear);
   const ctx = flat.getContext('2d')!;
   const img = ctx.getImageData(0, 0, flat.width, flat.height);
-  inkify(img.data, flat.width, flat.height, { seed: o.seed, wear: d.wear, edgeWear: d.edgeWear });
+  inkify(img.data, flat.width, flat.height, { seed: o.seed, wear: d.wear, edgeWear: d.edgeWear, clear });
   ctx.putImageData(img, 0, 0);
   // A hand never stamps perfectly straight.
   const tilt = ((o.tilt ?? (rng(o.seed ^ 0x51ed27)() - 0.5) * 7) * Math.PI) / 180;

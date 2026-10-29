@@ -34,12 +34,22 @@ export function valueNoise(seed: number): (x: number, y: number) => number {
   };
 }
 
+/** A rectangle on the flat stamp, in pixels. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface InkOptions {
   seed: number;
   /** 0 = clean and even, 1 = heavily hand-stamped. */
   wear: number;
   /** 0 = clean lines, 1 = rough, broken lines with ink splashed past them. */
   edgeWear?: number;
+  /** Areas ink splashes stay off, such as the stamp number, so it stays easy to read. */
+  clear?: Box[];
 }
 
 /**
@@ -93,11 +103,14 @@ export function inkify(rgba: Uint8ClampedArray, width: number, height: number, o
       rgba[i * 4 + 3] = Math.round(a * Math.min(1, Math.max(0.12, k)));
     }
   }
-  if (edgeWear > 0) splash(rgba, src, width, height, scale, edgeWear, rng(o.seed ^ 0x27d4eb2f));
+  if (edgeWear > 0) splash(rgba, src, width, height, scale, edgeWear, o.clear ?? [], rng(o.seed ^ 0x27d4eb2f));
 }
 
 /** Specks and small blots thrown just past the edges of the lines, now and then with a few droplets beyond them. */
-function splash(rgba: Uint8ClampedArray, src: Uint8ClampedArray, width: number, height: number, scale: number, amount: number, r: () => number) {
+function splash(rgba: Uint8ClampedArray, src: Uint8ClampedArray, width: number, height: number, scale: number, amount: number, clear: Box[], r: () => number) {
+  // A little room around each clear area, so a splash never touches what is inside it.
+  const pad = 4 * scale;
+  const kept = (x: number, y: number) => clear.some((b) => x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad);
   const inked = (x: number, y: number) => x >= 0 && y >= 0 && x < width && y < height && src[y * width + x]! > 0;
   const step = Math.max(1, Math.round(2 * scale));
   const dirs = [
@@ -113,7 +126,7 @@ function splash(rgba: Uint8ClampedArray, src: Uint8ClampedArray, width: number, 
         if (t <= 0) continue;
         const a = Math.round(255 * strength * Math.min(1, t * 3));
         const i = y * width + x;
-        if (a <= rgba[i * 4 + 3]!) continue;
+        if (a <= rgba[i * 4 + 3]! || kept(x + 0.5, y + 0.5)) continue;
         if (!src[i]) for (let c = 0; c < 3; c++) rgba[i * 4 + c] = rgba[from * 4 + c]!;
         rgba[i * 4 + 3] = a;
       }
@@ -125,7 +138,7 @@ function splash(rgba: Uint8ClampedArray, src: Uint8ClampedArray, width: number, 
     for (let attempt = 0; attempt < 60; attempt++) {
       const x = Math.floor(r() * width);
       const y = Math.floor(r() * height);
-      if (!inked(x, y)) continue;
+      if (!inked(x, y) || kept(x, y)) continue;
       const open = dirs.filter(([dx, dy]) => !inked(x + dx * step, y + dy * step));
       if (!open.length) continue;
       const [dx, dy] = open[Math.floor(r() * open.length)]!;
