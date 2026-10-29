@@ -617,6 +617,14 @@ describe('acceptance: file sharing and short links', () => {
       body: { type: 'transfer_file', id: detail.body.files[0].id },
     });
     expect((await fetchSigned(env, dl.body.url)).body.equals(bytes)).toBe(true);
+    // A lost completion response is safe to repeat: it reports the finished upload rather than starting another.
+    const again = await env.call('POST', `${P}/uploads/${id}/complete`, { token: owner.token, body: {} });
+    expect(again.body.status).toBe('available');
+    // Once the file is removed, the remembered upload no longer resumes, so choosing the file again uploads it anew.
+    const removed = await env.call('POST', `${P}/transfers/${tr.body.id}/files/${detail.body.files[0].id}/remove`, { token: owner.token, body: {} });
+    expect(removed.status).toBe(200);
+    expect((await env.call('GET', `${P}/uploads/${id}`, { token: owner.token })).status).toBe(404);
+    expect((await env.call('POST', `${P}/uploads/${id}/complete`, { token: owner.token, body: {} })).status).toBe(404);
   });
 
   it('9: removes expired temporary files according to the retention policy, keeping referenced objects', async () => {

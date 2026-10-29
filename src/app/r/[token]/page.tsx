@@ -85,6 +85,13 @@ export default function UploadRequestPage() {
 
   const upload = async (r: any, file: File | undefined) => {
     if (!file || uploading.current || syncNeeded) return;
+    const mine = view.k === 'files' ? view.sub.files.filter((f: any) => f.requirement_key === r.key) : [];
+    // A full slot only takes the interrupted upload holding it back, which resumes from where it stopped, or a retry,
+    // which may only need to confirm an upload the server finished while its answer was lost.
+    if (mine.length >= r.max_files && file !== retry[r.key] && !mine.some((f: any) => f.status === 'uploading' && f.size === file.size)) {
+      notice('Remove the interrupted upload first, or choose the same file again to resume it.', true);
+      return;
+    }
     uploading.current = true;
     setBusy(true);
     setRetry((x) => ({ ...x, [r.key]: undefined }));
@@ -174,14 +181,16 @@ export default function UploadRequestPage() {
             {info.requirements.map((r: any, i: number) => {
               const mine = view.sub.files.filter((f: any) => f.requirement_key === r.key);
               const done = mine.some((f: any) => f.status === 'available');
+              // An interrupted upload keeps its slot, but the same file can be chosen again to resume it.
+              const canAdd = mine.length < r.max_files || mine.some((f: any) => f.status === 'uploading');
               return (
                 <li
                   key={r.key}
                   className={`req${done ? ' done' : ''}`}
-                  onDragOver={(e) => !busy && !syncNeeded && mine.length < r.max_files && e.preventDefault()}
+                  onDragOver={(e) => !busy && !syncNeeded && canAdd && e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (mine.length < r.max_files) void upload(r, e.dataTransfer.files[0]);
+                    if (!busy && !syncNeeded && canAdd) void upload(r, e.dataTransfer.files[0]);
                   }}
                 >
                   <span className="req-mark" aria-hidden="true">
@@ -242,7 +251,7 @@ export default function UploadRequestPage() {
                       </div>
                     )}
                   </div>
-                  {mine.length < r.max_files && (
+                  {canAdd && (
                     <label className="button file-button req-pick">
                       <Upload size={16} aria-hidden="true" /> {done ? 'Add another' : 'Choose file'}
                       <input

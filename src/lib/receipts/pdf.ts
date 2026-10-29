@@ -911,6 +911,14 @@ export async function buildBlankBook(biz: Business, o: BlankBook): Promise<Uint8
           size = Math.max(1, size - 0.5);
           lines = cv.wrap(value, width, size, font);
         }
+        // Still too long at the smallest size: keep the lines that fit and end the last one with an ellipsis.
+        if (lines.length > maxLines) lines = [...lines.slice(0, maxLines - 1), `${lines[maxLines - 1]}…`];
+        lines = lines.map((line) => {
+          if (cv.width(line, size, font) <= width) return line;
+          let cut = line.replace(/…$/, '');
+          while (cut && cv.width(`${cut}…`, size, font) > width) cut = cut.slice(0, -1);
+          return `${cut}…`;
+        });
         return { size, lines };
       };
       const name = fit(biz.name || 'Your business name', headerWidth, f.bold, 13, 2);
