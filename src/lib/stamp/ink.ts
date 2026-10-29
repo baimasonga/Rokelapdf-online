@@ -48,7 +48,7 @@ export interface InkOptions {
   wear: number;
   /** 0 = clean lines, 1 = rough, broken lines with ink splashed past them. */
   edgeWear?: number;
-  /** Areas ink splashes stay off, such as the stamp number, so it stays easy to read. */
+  /** Areas the rough edges leave alone (no extra roughness, gaps or splashes), such as the stamp number, so it stays easy to read. */
   clear?: Box[];
 }
 
@@ -80,12 +80,14 @@ export function inkify(rgba: Uint8ClampedArray, width: number, height: number, o
   const cx = width / 2;
   const cy = height / 2;
   const half = Math.max(width, height) / 2;
+  const clear = o.clear ?? [];
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
       if (!src[i]) continue;
+      const rough = clear.some((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) ? 0 : edgeWear;
       // Rough edges: read the shape from a slightly displaced point (this only ever eats into the edge).
-      const d = (1.6 * wear + 4 * edgeWear) * scale;
+      const d = (1.6 * wear + 4 * rough) * scale;
       const ax = x + (edge(x / (5 * scale), y / (5 * scale)) - 0.5) * 2 * d;
       const ay = y + (edge((x + 97) / (5 * scale), (y + 31) / (5 * scale)) - 0.5) * 2 * d;
       const a = Math.min(alphaAt(ax, ay), src[i]!);
@@ -99,11 +101,11 @@ export function inkify(rgba: Uint8ClampedArray, width: number, height: number, o
       let k = 1 - wear * 0.55 * (1 - big) - press * (0.5 + 0.5 * side) * wear * 1.4;
       k *= 1 - wear * 0.35 * (1 - fine);
       // Small gaps where the rubber missed the paper.
-      if (fine < 0.12 * wear + 0.18 * edgeWear && big < 0.55) k *= 0.15;
+      if (fine < 0.12 * wear + 0.18 * rough && big < 0.55) k *= 0.15;
       rgba[i * 4 + 3] = Math.round(a * Math.min(1, Math.max(0.12, k)));
     }
   }
-  if (edgeWear > 0) splash(rgba, src, width, height, scale, edgeWear, o.clear ?? [], rng(o.seed ^ 0x27d4eb2f));
+  if (edgeWear > 0) splash(rgba, src, width, height, scale, edgeWear, clear, rng(o.seed ^ 0x27d4eb2f));
 }
 
 /** Specks and small blots thrown just past the edges of the lines, now and then with a few droplets beyond them. */

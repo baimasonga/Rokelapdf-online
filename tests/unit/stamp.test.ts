@@ -68,7 +68,7 @@ describe('stamp ink', () => {
     const paper = alphas(design);
     expect(alphas(clean).filter((v, i) => v > 0 && paper[i] === 0)).toHaveLength(0);
 
-    // An area kept clear (the stamp number) gets no splashes, on the paper or on its worn ink.
+    // An area kept clear (the stamp number) prints as if the edges were not rough: no extra roughness, gaps or splashes.
     const box = { x: 380, y: 140, w: 180, h: 120 };
     const kept = new Uint8ClampedArray(design);
     inkify(kept, w, h, { seed: 5, wear: 0.5, edgeWear: 1, clear: [box] });
@@ -77,16 +77,14 @@ describe('stamp ink', () => {
       const y = Math.floor(i / w);
       return x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
     };
-    // The same impression with splashes kept off the whole stamp: only the lines' own rough edges and gaps.
-    const bare = new Uint8ClampedArray(design);
-    inkify(bare, w, h, { seed: 5, wear: 0.5, edgeWear: 1, clear: [{ x: 0, y: 0, w, h }] });
     const keptA = alphas(kept);
-    const bareA = alphas(bare);
-    expect(splashed.some(([x, y]) => inBox(y * w + x))).toBe(true);
+    const cleanA = alphas(clean);
+    const roughA = alphas(rough);
+    expect(roughA.some((v, i) => inBox(i) && v !== cleanA[i])).toBe(true);
     keptA.forEach((v, i) => {
-      if (inBox(i)) expect(v).toBe(bareA[i]);
+      if (inBox(i)) expect(v).toBe(cleanA[i]);
     });
-    expect(keptA.some((v, i) => !inBox(i) && v > bareA[i]!)).toBe(true);
+    expect(keptA.some((v, i) => !inBox(i) && v !== cleanA[i])).toBe(true);
   });
   it('is the same for the same seed and different for another, like separate impressions', () => {
     const a = flat();
