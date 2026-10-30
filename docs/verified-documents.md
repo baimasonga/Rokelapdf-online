@@ -1,6 +1,7 @@
 # Verified documents (QR verification)
 
-Status: phase 1 implemented (24 October 2026). Later phases are outlined, not built.
+Status: phase 1 implemented (24 October 2026). University fee clearance implemented as receipt processing (30 October 2026; see
+[receipt-processing.md](receipt-processing.md)). Procurement bid opening is outlined, not built.
 
 ## Purpose
 
@@ -59,9 +60,9 @@ revocation_reason. App role privileges: SELECT, INSERT, UPDATE (no DELETE: recor
 
 ## Later phases (not built)
 
-### University fee clearance
+### University fee clearance (built)
 
-Students submit a bank receipt photo and structured fields (student ID, bank, transaction reference, amount,
+Implemented as described in [receipt-processing.md](receipt-processing.md). The original outline: students submit a bank receipt photo and structured fields (student ID, bank, transaction reference, amount,
 date) through an upload-request style form; duplicate references are refused. Finance reviews a queue, then
 uploads the bank's statement export (CSV/Excel) for automatic matching by reference, amount and date. Each
 cleared student receives a fee clearance certificate issued through phase 1, which registry, exams, hostel and

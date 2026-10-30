@@ -197,7 +197,9 @@ export const decisionBody = z
   .strict();
 export const shortCodeParams = z.object({ code: z.string().regex(/^[A-Za-z0-9-]{3,64}$/) }).strict();
 export const confidentialParams = z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{16}$/) }).strict();
-export const submissionStartBody = z.object({ grant, name: str(200), email: email.optional() }).strict();
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const feePaymentBody = z.object({ payer_id: str(60).optional(), bank: str(100), reference: str(60), amount: str(20), paid_on: isoDay }).strict();
+export const submissionStartBody = z.object({ grant, name: str(200), email: email.optional(), payment: feePaymentBody.optional() }).strict();
 export const submissionUploadBody = z.object({ requirement_key: z.string().regex(/^[a-z0-9_-]{1,40}$/), name: str(255), size }).strict();
 export const submissionUploadParams = z.object({ token: urlToken, uploadId: id }).strict();
 export const abuseBody = z
@@ -245,3 +247,45 @@ export const verificationBody = z
 export const verificationIssueBody = z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
 export const verificationRevokeBody = z.object({ reason: z.enum(['issued_in_error', 'superseded', 'payment_reversed', 'fraud_suspected', 'other']) }).strict();
 export const verificationCodeParams = z.object({ code: z.string().min(20).max(40) }).strict();
+
+// Fee clearance (docs/receipt-processing.md).
+export const feeDeskBody = z
+  .object({
+    title: str(200),
+    instructions: z.string().max(4000).optional(),
+    deadline: date,
+    banks: z.array(str(100)).min(1).max(20),
+    currency: z.enum(['NLe', 'USD']),
+    payer_id_label: str(40).nullable().optional(),
+    certificate_title: str(80).optional(),
+    amount_due: z.string().max(20).optional(),
+    date_tolerance_days: z.number().int().min(0).max(31).optional(),
+    password: password.optional(),
+    notify: z.boolean().optional(),
+    retention_days: z.number().int().min(1).max(3650).nullable().optional(),
+  })
+  .strict();
+export const feeStatementBody = z
+  .object({
+    bank: str(100),
+    file_name: str(200),
+    file_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    lines: z
+      .array(
+        z
+          .object({
+            date: isoDay,
+            amount: z.number().int().min(1).max(1e13),
+            reference: z.string().max(120),
+            description: z.string().max(140),
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();
+export const feeApproveBody = z.object({ note: z.string().min(3).max(500) }).strict();
+export const feeRejectBody = z
+  .object({ reason: z.enum(['not_on_statement', 'amount_differs', 'duplicate', 'unreadable_receipt', 'other']), message: z.string().max(500).optional() })
+  .strict();
+export const feeIssueBody = z.object({ claim_ids: z.array(id).min(1).max(50) }).strict();

@@ -95,6 +95,8 @@ export const TABLE_PRIVILEGES: Record<string, Priv[]> = {
   share_brands: RIU,
   abuse_reports: RIU,
   verified_documents: RIU, // evidence: never deleted (a trigger also refuses DELETE)
+  fee_desks: RIU, // financial records: never deleted (triggers also refuse DELETE)
+  fee_claims: RIU,
   share_usage: RIU,
   share_attempts: ALL,
 };

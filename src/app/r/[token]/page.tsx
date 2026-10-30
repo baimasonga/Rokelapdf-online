@@ -3,9 +3,10 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, CheckCircle2, Clock, FileInput, RotateCw, Trash2, Upload } from 'lucide-react';
 import { PasswordPrompt, PublicFrame, SenderBrand } from '@/components/public';
-import { Button, Form, Muted, Panel, Progress, useNotice } from '@/components/ui';
+import { Button, CopyField, Form, Muted, Panel, Progress, useNotice, type FieldSpec } from '@/components/ui';
 import { ApiError, api, enc } from '@/lib/client/api';
 import { fmtBytes } from '@/lib/client/format';
+import { formatAmount } from '@/lib/fees/match';
 import { fileKey, uploadFile, type UploadProgress } from '@/lib/client/uploader';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -20,6 +21,25 @@ const STATES: Record<string, string> = {
 type View =
   { k: 'loading' } | { k: 'password'; wrong: boolean } | { k: 'gone'; title: string; text: string } | { k: 'start' } | { k: 'files'; sub: any } | { k: 'sent' };
 
+function feeFields(desk: { payer_id_label: string | null; banks: string[]; currency: string; amount_due: number | null }): FieldSpec[] {
+  // Students paying fees by default: their name must match the student record.
+  const student = desk.payer_id_label === 'Student ID';
+  return [
+    { name: 'name', label: student ? 'Full name, as on your student record' : 'Full name', autoComplete: 'name' },
+    ...(desk.payer_id_label ? [{ name: 'payer_id', label: desk.payer_id_label }] : []),
+    { name: 'bank', label: 'Bank you paid into', type: 'select', options: desk.banks.map((b) => [b, b]) },
+    { name: 'reference', label: 'Transaction reference on the receipt', placeholder: 'FT26281ABC12' },
+    {
+      name: 'amount',
+      label: `Amount paid (${desk.currency})`,
+      placeholder: desk.amount_due ? (desk.amount_due / 100).toFixed(2) : '1500.00',
+      ...(desk.amount_due ? { hint: `The amount due is ${formatAmount(desk.amount_due, desk.currency)}.` } : {}),
+    },
+    { name: 'paid_on', label: 'Date of payment', type: 'date' },
+    { name: 'email', label: 'Your email', type: 'email', optional: true, autoComplete: 'email' },
+  ];
+}
+
 export default function UploadRequestPage() {
   const { token } = useParams<{ token: string }>();
   const base = `/api/v1/public/upload-requests/${enc(token)}`;
@@ -32,6 +52,8 @@ export default function UploadRequestPage() {
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState<Record<string, File | undefined>>({});
   const [syncNeeded, setSyncNeeded] = useState(false);
+  // Receipt desks (docs/receipt-processing.md): the payer's private link to follow their claim.
+  const [feeStatusUrl, setFeeStatusUrl] = useState('');
   const h = useCallback((s = secret) => ({ 'x-submission-secret': s }), [secret]);
 
   const open = useCallback(
@@ -55,6 +77,8 @@ export default function UploadRequestPage() {
 
   const refresh = async (s = secret) => {
     const sub = await api(`${base}/submission`, { auth: false, headers: h(s) });
+    // Also recovers the payer's status link when the answer to sending was lost.
+    if (sub.fee_status_url) setFeeStatusUrl(sub.fee_status_url);
     setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
     setSyncNeeded(false);
   };
@@ -68,6 +92,7 @@ export default function UploadRequestPage() {
       try {
         const sub = await api(`${base}/submission`, { auth: false, headers: h() });
         if (active && !uploading.current) {
+          if (sub.fee_status_url) setFeeStatusUrl(sub.fee_status_url);
           setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
           setSyncNeeded(false);
         }
@@ -157,15 +182,34 @@ export default function UploadRequestPage() {
         <>
           {intro}
           <section className="share-ack req-start">
-            <h2>Who is sending these files?</h2>
+            <h2>{info.fee_desk ? 'Your payment' : 'Who is sending these files?'}</h2>
+            {info.fee_desk && (
+              <p className="muted">
+                Enter the details exactly as they are printed on your bank receipt. {info.fee_desk.institution} checks every payment against its bank statement.
+              </p>
+            )}
             <Form
-              fields={[
-                { name: 'name', label: 'Your name', autoComplete: 'name' },
-                { name: 'email', label: 'Your email', type: 'email', optional: true, autoComplete: 'email' },
-              ]}
-              submit="Start"
+              fields={
+                info.fee_desk
+                  ? feeFields(info.fee_desk)
+                  : [
+                      { name: 'name', label: 'Your name', autoComplete: 'name' },
+                      { name: 'email', label: 'Your email', type: 'email', optional: true, autoComplete: 'email' },
+                    ]
+              }
+              submit={info.fee_desk ? 'Continue to the receipt' : 'Start'}
               onSubmit={async (v) => {
-                const r = await api(`${base}/submissions`, { auth: false, body: { grant: info.grant, name: v.name, ...(v.email ? { email: v.email } : {}) } });
+                const payment = info.fee_desk && {
+                  ...(v.payer_id ? { payer_id: v.payer_id } : {}),
+                  bank: v.bank,
+                  reference: v.reference,
+                  amount: v.amount,
+                  paid_on: v.paid_on,
+                };
+                const r = await api(`${base}/submissions`, {
+                  auth: false,
+                  body: { grant: info.grant, name: v.name, ...(v.email ? { email: v.email } : {}), ...(payment ? { payment } : {}) },
+                });
                 setSecret(r.submission_secret);
                 await refresh(r.submission_secret);
               }}
@@ -281,9 +325,12 @@ export default function UploadRequestPage() {
                 uploading.current = true;
                 setBusy(true);
                 try {
-                  await api(`${base}/submission/submit`, { auth: false, body: {}, headers: h() });
+                  const sent = await api(`${base}/submission/submit`, { auth: false, body: {}, headers: h() });
+                  if (sent.fee_status_url) setFeeStatusUrl(sent.fee_status_url);
                   await refresh();
                 } catch (e) {
+                  // Sent already (the answer to an earlier attempt was lost): show what was sent, with the status link.
+                  if ((e as ApiError).code === 'conflict' && /already sent/.test((e as Error).message)) return void (await refresh());
                   const missing = (e as ApiError).details?.missing as string[] | undefined;
                   if (missing) throw new Error(`Still needed: ${missing.map((k) => info.requirements.find((r: any) => r.key === k)?.label ?? k).join(', ')}`);
                   throw e;
@@ -305,8 +352,23 @@ export default function UploadRequestPage() {
           <span className="done-check" aria-hidden="true">
             <CheckCircle2 size={44} />
           </span>
-          <h1>Files sent</h1>
-          <p className="muted">Thank you. Your submission was received and the requester was notified. Files become available after security checks finish.</p>
+          <h1>{feeStatusUrl ? 'Payment details sent' : 'Files sent'}</h1>
+          {feeStatusUrl ? (
+            <>
+              <p>
+                {info.fee_desk.institution} will check your payment against its bank statement. Keep this private link: it shows when your payment is confirmed,
+                and you download your {info.fee_desk.certificate_title.toLowerCase()} from it. Anyone with the link can see your claim.
+              </p>
+              <CopyField value={feeStatusUrl} label="Your payment status" />
+              <p>
+                <a href={feeStatusUrl}>Open my payment status</a>
+              </p>
+            </>
+          ) : (
+            <p className="muted">
+              Thank you. Your submission was received and the requester was notified. Files become available after security checks finish.
+            </p>
+          )}
         </section>
       )}
     </PublicFrame>

@@ -14,6 +14,7 @@ export type Tab =
   | 'members'
   | 'signatures'
   | 'verified'
+  | 'fees'
   | 'settings'
   | 'activity'
   | 'abuse'

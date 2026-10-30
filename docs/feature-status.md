@@ -1,5 +1,21 @@
 # Feature status and configuration
 
+## Receipt processing — 30 October 2026
+
+Team workspaces with upload requests and verified documents can open receipt desks for anyone who pays them at the
+bank. Desks are set up for students by default (Student ID, fee clearance certificate); customers, members, tenants
+or other payers get their own ID label and certificate title. Payers claim a bank payment (name, optional ID, bank,
+reference, amount, date and a receipt photo) and get a private status link. Finance reads the bank's CSV or .xlsx
+statement on their own device, sends only credit lines for matching by reference, exact amount and date, confirms
+or rejects the rest by hand, and issues verified certificates (server-built PDFs with a QR code) that payers download
+and anyone can scan. One live claim per bank payment, one statement line per claim. Claims are financial records
+that are never deleted. Design, data and limits: [receipt-processing.md](receipt-processing.md).
+
+Verification: 5 API tests (full flow, a non-student desk, duplicate references, manual confirm/reject, fee-due refusal, gating, tenant
+and role visibility, database guards; also as the least-privilege app role), 9 unit tests (amounts, references,
+matching rules, CSV/XLSX/date parsing, certificate determinism with a golden digest, QR decode), and a browser
+smoke step (student claim, statement match, certificate download, exact-match check, no statement upload).
+
 ## Verified documents (QR) — 24 October 2026
 
 Team workspaces with `share_verified_documents` (on by default while `TRIAL_MODE=true`) can issue PDFs with a

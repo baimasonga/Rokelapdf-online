@@ -445,6 +445,47 @@ export function buildRouter(): Router {
     sh(x).revokeVerification(me(x), ids(x).orgId, ids(x).id, parse(s.verificationRevokeBody, await x.body())),
   );
 
+  // ---- fee clearance (docs/receipt-processing.md) ------------------------------------------------------------
+  r.add('GET', `${P}/fee-desks`, 'user', async (x) => ({ items: await sh(x).listFeeDesks(me(x), org(x)) }));
+  r.add('POST', `${P}/fee-desks`, 'user', async (x) => {
+    const b = parse(s.feeDeskBody, await x.body());
+    return created(
+      await sh(x).createFeeDesk(me(x), org(x), {
+        title: b.title,
+        instructions: b.instructions,
+        deadline: new Date(b.deadline),
+        banks: b.banks,
+        currency: b.currency,
+        payerIdLabel: b.payer_id_label,
+        certificateTitle: b.certificate_title,
+        amountDue: b.amount_due,
+        dateToleranceDays: b.date_tolerance_days,
+        password: b.password,
+        notify: b.notify,
+        retentionDays: b.retention_days,
+      }),
+    );
+  });
+  r.add('GET', `${P}/fee-desks/:id`, 'user', async (x) => sh(x).getFeeDesk(me(x), ids(x).orgId, ids(x).id));
+  r.add('POST', `${P}/fee-desks/:id/statements`, 'user', async (x) => {
+    const b = parse(s.feeStatementBody, await x.body());
+    return sh(x).importFeeStatement(me(x), ids(x).orgId, ids(x).id, { bank: b.bank, fileName: b.file_name, fileSha256: b.file_sha256, lines: b.lines });
+  });
+  r.add('POST', `${P}/fee-desks/:id/certificates`, 'user', async (x) =>
+    sh(x).issueFeeCertificates(me(x), ids(x).orgId, ids(x).id, { claimIds: parse(s.feeIssueBody, await x.body()).claim_ids }),
+  );
+  r.add('POST', `${P}/fee-claims/:id/approve`, 'user', async (x) =>
+    sh(x).approveFeeClaim(me(x), ids(x).orgId, ids(x).id, parse(s.feeApproveBody, await x.body())),
+  );
+  r.add('POST', `${P}/fee-claims/:id/reject`, 'user', async (x) =>
+    sh(x).rejectFeeClaim(me(x), ids(x).orgId, ids(x).id, parse(s.feeRejectBody, await x.body())),
+  );
+  const pdfResponse = (out: { bytes: Uint8Array; name: string }) =>
+    new Response(out.bytes as BodyInit, {
+      headers: { 'content-type': 'application/pdf', 'content-disposition': attachment(out.name), 'content-length': String(out.bytes.byteLength) },
+    });
+  r.add('GET', `${P}/fee-claims/:id/certificate`, 'user', async (x) => pdfResponse(await sh(x).feeCertificate(me(x), ids(x).orgId, ids(x).id)));
+
   // ---- public: shares, short-link unlock, upload requests, abuse ----------------------------------------
   const tok = (x: Ctx) => parse(s.shareTokenParams, x.params).token;
   const secret = (x: Ctx) => {
@@ -481,11 +522,18 @@ export function buildRouter(): Router {
     const { code } = parse(s.shortCodeParams, x.params);
     return sh(x).unlockShortLink(x.req.headers.get('host') ?? undefined, code, parse(s.shortUnlockBody, await x.body()), await x.publicCtx());
   });
+  // A payer's own claim, through the private status link they received (the secret travels in a header).
+  const claimSecret = (x: Ctx) => (x.req.headers.get('x-claim-secret') ?? '').slice(0, 100);
+  r.add('GET', '/api/v1/public/fee-claims/status', 'public', async (x) => sh(x).feeClaimStatus(claimSecret(x)));
+  r.add('GET', '/api/v1/public/fee-claims/certificate', 'public', async (x) => pdfResponse(await sh(x).feeClaimCertificate(claimSecret(x))));
   const R = '/api/v1/public/upload-requests/:token';
   r.add('POST', `${R}/open`, 'public', async (x) => sh(x).openUploadRequest(tok(x), parse(s.openBody, await x.body()), await x.publicCtx()));
-  r.add('POST', `${R}/submissions`, 'public', async (x) =>
-    created(await sh(x).startSubmission(tok(x), parse(s.submissionStartBody, await x.body()), await x.publicCtx())),
-  );
+  r.add('POST', `${R}/submissions`, 'public', async (x) => {
+    const b = parse(s.submissionStartBody, await x.body());
+    const p = b.payment;
+    const payment = p && { payerId: p.payer_id, bank: p.bank, reference: p.reference, amount: p.amount, paidOn: p.paid_on };
+    return created(await sh(x).startSubmission(tok(x), { grant: b.grant, name: b.name, email: b.email, payment }, await x.publicCtx()));
+  });
   r.add('GET', `${R}/submission`, 'public', async (x) => sh(x).submissionStatus(tok(x), secret(x)));
   r.add('POST', `${R}/submission/submit`, 'public', async (x) => {
     parse(s.emptyBody, await x.body());

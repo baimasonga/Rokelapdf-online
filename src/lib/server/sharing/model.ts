@@ -1,3 +1,4 @@
+import type { FeeCertificateFacts } from '../../fees/certificate';
 import { AuditBuffer, type AuditEventInput, type AuditLog, type AuditWriter } from '../kernel';
 import type { LinkStatus, SharePermission } from './policy';
 
@@ -345,6 +346,88 @@ export interface VerifiedDocumentRow {
   revocationReason: 'issued_in_error' | 'superseded' | 'payment_reversed' | 'fraud_suspected' | 'other' | null;
 }
 
+/** A receipt processing desk: an upload request for bank payment claims (docs/receipt-processing.md). Never deleted. */
+export interface FeeDeskRow {
+  id: string;
+  orgId: string;
+  requestId: string;
+  /** What is being cleared, printed on certificates (the request title when created). */
+  title: string;
+  /** Workspace name when the desk was created, printed on certificates. */
+  institution: string;
+  /** What payers identify themselves with ("Student ID", "Member ID"); null asks only for a name. */
+  payerIdLabel: string | null;
+  /** Heading printed on certificates ("Fee clearance certificate", "Payment confirmation"). */
+  certificateTitle: string;
+  /** Banks payers can choose from; a statement is imported for one of them. */
+  banks: string[];
+  currency: 'NLe' | 'USD';
+  /** Minor units (cents). A certificate is refused for a smaller payment. */
+  amountDue: number | null;
+  /** How many days a statement's date may differ from the date the payer declared. */
+  dateToleranceDays: number;
+  createdBy: string;
+  createdAt: Date;
+}
+
+export const FEE_REJECTION_REASONS = ['not_on_statement', 'amount_differs', 'duplicate', 'unreadable_receipt', 'other'] as const;
+
+/** The statement line that confirmed a payment (the rest of the statement is never stored). */
+export interface FeeStatementLine {
+  reference: string;
+  description: string;
+  amount: number;
+  date: string;
+  fileName: string;
+  fileSha256: string;
+  /** The payer's ID appears in the line's reference or description. */
+  payerIdFound: boolean;
+}
+
+/** A payer's declared bank payment on a receipt desk. Never deleted; the declared payment is frozen once submitted. */
+export interface FeeClaimRow {
+  id: string;
+  orgId: string;
+  deskId: string;
+  submissionId: string;
+  /** Null when the desk asks only for a name. */
+  payerId: string | null;
+  payerName: string;
+  bank: string;
+  reference: string;
+  /** Upper-case letters and digits of the reference, for matching. */
+  referenceKey: string;
+  /** `bank|referenceKey` while submitted, matched or cleared: one live claim per payment. */
+  activeKey: string | null;
+  /** Minor units (cents). */
+  amount: number;
+  /** YYYY-MM-DD, as declared. */
+  paidOn: string;
+  status: 'draft' | 'submitted' | 'matched' | 'cleared' | 'rejected';
+  /** Hash of the payer's status link secret, set on submission. */
+  statusSecretHash: string | null;
+  matchMethod: 'statement' | 'manual' | null;
+  matchNote: string | null;
+  statementLine: FeeStatementLine | null;
+  /** Fingerprint of the statement line, so one line confirms one payment. */
+  statementLineKey: string | null;
+  /** Why the latest statement did not confirm this payment (reference found, amount or date different). */
+  matchIssue: string | null;
+  matchedAt: Date | null;
+  matchedBy: string | null;
+  rejectionReason: (typeof FEE_REJECTION_REASONS)[number] | null;
+  rejectionMessage: string | null;
+  rejectedAt: Date | null;
+  rejectedBy: string | null;
+  verifiedDocumentId: string | null;
+  certificate: FeeCertificateFacts | null;
+  clearedAt: Date | null;
+  clearedBy: string | null;
+  createdAt: Date;
+  submittedAt: Date | null;
+  updatedAt: Date;
+}
+
 export interface BrandRow {
   id: string; // = orgId
   orgId: string;
@@ -392,6 +475,8 @@ export interface Rows {
   brand: BrandRow;
   abuse: AbuseRow;
   verifiedDocument: VerifiedDocumentRow;
+  feeDesk: FeeDeskRow;
+  feeClaim: FeeClaimRow;
 }
 export type Kind = keyof Rows;
 export const KINDS = [
@@ -416,6 +501,8 @@ export const KINDS = [
   'brand',
   'abuse',
   'verifiedDocument',
+  'feeDesk',
+  'feeClaim',
 ] as const satisfies readonly Kind[];
 
 /** Global unique lookups (public paths resolve a secret's hash to its row; the row then names its tenant). */
@@ -426,6 +513,8 @@ export const UNIQUE_LOOKUPS = {
   shortLink: ['lookupKey'],
   abuse: [],
   verifiedDocument: ['code'],
+  feeDesk: ['requestId'],
+  feeClaim: ['submissionId', 'statusSecretHash'],
 } as const satisfies Partial<Record<Kind, readonly string[]>>;
 export type UniqueKind = keyof typeof UNIQUE_LOOKUPS;
 export type UniqueField<K extends UniqueKind> = (typeof UNIQUE_LOOKUPS)[K][number];
@@ -437,6 +526,8 @@ export const UNIQUE_TOGETHER: Partial<Record<Kind, readonly string[][]>> = {
   submission: [['secretHash']],
   shortLink: [['lookupKey']],
   verifiedDocument: [['code']],
+  feeDesk: [['requestId']],
+  feeClaim: [['submissionId'], ['statusSecretHash'], ['verifiedDocumentId'], ['orgId', 'activeKey'], ['orgId', 'statementLineKey']],
   domain: [['orgId', 'hostname']],
   version: [['documentId', 'number']],
   review: [['versionId', 'reviewerUserId']],
@@ -452,7 +543,8 @@ export const UNIQUE_WHEN: Partial<Record<Kind, ReadonlyArray<{ cols: readonly st
 
 /** True when two rows of `kind` may not coexist. */
 function collides(kind: Kind, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-  if ((UNIQUE_TOGETHER[kind] ?? []).some((cols) => cols.every((c) => a[c] === b[c]))) return true;
+  // As in SQL, a null never collides.
+  if ((UNIQUE_TOGETHER[kind] ?? []).some((cols) => cols.every((c) => a[c] !== null && a[c] !== undefined && a[c] === b[c]))) return true;
   return (UNIQUE_WHEN[kind] ?? []).some((u) => Object.entries(u.when).every(([k, v]) => a[k] === v && b[k] === v) && u.cols.every((c) => a[c] === b[c]));
 }
 

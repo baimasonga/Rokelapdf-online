@@ -1109,6 +1109,80 @@ async function main() {
     check((await vp.getByText(/^\s*Exact match/).count()) === 0, 'a genuine copy of a revoked document is shown as a warning, not a match');
     await checker.close();
 
+    step('Receipt processing: student claim, statement match, certificate');
+    await p.getByRole('button', { name: 'Receipt processing', exact: true }).click();
+    check((await p.getByLabel('Who pays').inputValue()) === 'students', 'receipt desks are set up for students by default');
+    await p.getByLabel('What is being paid for').fill('2026/27 first semester tuition');
+    await p.getByLabel('Banks payers pay into').fill('Rokel Commercial Bank, Sierra Leone Commercial Bank');
+    await p.getByLabel(/^Amount due/).fill('1500');
+    await p.getByRole('button', { name: 'Open receipt desk' }).click();
+    await p.getByRole('heading', { name: '2026/27 first semester tuition', exact: true }).waitFor();
+    const deskUrl = await p.getByLabel('Link for payers', { exact: true }).inputValue();
+    const studentCtx = await browser.newContext({ acceptDownloads: true });
+    const st = await studentCtx.newPage();
+    watch(st, 'student');
+    await st.goto(deskUrl);
+    await st.getByLabel('Full name, as on your student record').fill('Aminata Kamara');
+    await st.getByLabel('Student ID').fill('FBC/2024/123');
+    await st.getByLabel('Bank you paid into').selectOption('Sierra Leone Commercial Bank');
+    await st.getByLabel('Transaction reference on the receipt').fill('SL-778899-01');
+    await st.getByLabel(/^Amount paid/).fill('1,500.00');
+    const paidOn = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    await st.getByLabel('Date of payment').fill(paidOn);
+    await st.getByRole('button', { name: 'Continue to the receipt' }).click();
+    await st
+      .getByLabel('Upload Photo or scan of your bank receipt')
+      .setInputFiles({ name: 'receipt.pdf', mimeType: 'application/pdf', buffer: await fixturePdf() });
+    await st.getByText(/receipt\.pdf · .* · Ready/).waitFor({ timeout: 30_000 });
+    await st.getByRole('button', { name: 'Send files' }).click();
+    await st.getByRole('heading', { name: 'Payment details sent' }).waitFor();
+    const statusUrl = await st.getByLabel('Your payment status', { exact: true }).inputValue();
+    check(/\/fees\/status#fcs_/.test(statusUrl), 'the student gets a private status link');
+    await st.goto(statusUrl);
+    await st.getByText('Waiting for the bank statement').waitFor();
+    await shot(st, 'fee-status-waiting');
+
+    await p.reload();
+    await p.getByText('Aminata Kamara').waitFor();
+    const statementCsv = [
+      'Sierra Leone Commercial Bank - Statement of account',
+      '',
+      'Value Date,Narration,Reference,Debit,Credit,Balance',
+      `${paidOn.split('-').reverse().join('/')},"TUITION FBC/2024/123",SL77889901,,"1,500.00","9,000.00"`,
+      `${paidOn.split('-').reverse().join('/')},CHARGES,CHG1,10.00,,"8,990.00"`,
+    ].join('\n');
+    const statementUploads = [];
+    p.on('request', (rq) => rq.method() !== 'GET' && statementUploads.push(rq.postData() ?? ''));
+    await p.getByLabel('Statement file').setInputFiles({ name: 'slcb-statement.csv', mimeType: 'text/csv', buffer: Buffer.from(statementCsv) });
+    await p.getByText(/1 credit line found/).waitFor();
+    check((await p.locator('#st-bank').inputValue()) === 'Sierra Leone Commercial Bank', 'the statement is recognised as the SLCB statement');
+    await p.getByRole('button', { name: 'Match payments' }).click();
+    await p.getByText(/1 payment confirmed/).waitFor();
+    check(!statementUploads.some((b) => b.includes('CHARGES') || b.includes('9,000.00')), 'only credit lines leave the device, not the statement file');
+    await shot(p, 'fee-desk-matched');
+    p.once('dialog', (d) => d.accept());
+    await p.getByRole('button', { name: 'Issue 1 certificate' }).click();
+    await p.getByText('1 certificate issued.').waitFor();
+    await p.getByLabel('Show').selectOption('cleared');
+    const officeCopy = await fetchDownload(p.getByRole('button', { name: 'Certificate', exact: true }));
+
+    await st.reload();
+    await st.getByText('Cleared').waitFor();
+    const certificate = await fetchDownload(st.getByRole('button', { name: 'Download certificate' }));
+    check(certificate.bytes.equals(officeCopy.bytes), 'the student and the finance office download the same certificate');
+    const certText = (await textOf(certificate.bytes)).join(' ');
+    check(
+      ['FEE CLEARANCE CERTIFICATE', 'Aminata Kamara', 'FBC/2024/123', 'NLe 1,500.00'].every((x) => certText.includes(x)),
+      'the certificate names the student and payment',
+    );
+    await shot(st, 'fee-status-cleared');
+    await st.getByRole('link', { name: 'Check page' }).click();
+    await st.getByText('Valid document').waitFor();
+    await st.getByLabel('PDF to check').setInputFiles({ name: 'cert.pdf', mimeType: 'application/pdf', buffer: certificate.bytes });
+    await st.getByText(/Exact match/).waitFor();
+    ok('the certificate checks as an exact match on its verification page');
+    await studentCtx.close();
+
     step('Operator abuse review');
     const report = await r.request.post(`${ORIGIN}/api/v1/public/abuse-reports`, {
       data: { reference: campaignUrl, category: 'other', details: 'Browser workflow review' },
