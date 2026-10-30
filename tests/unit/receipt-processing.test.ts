@@ -37,12 +37,12 @@ describe('fee amounts and references', () => {
 });
 
 describe('statement matching', () => {
-  const claim = (id: string, ref: string, amount = 150_000, paidOn = '2026-10-01', studentId = 'FBC/2024/123') => ({
+  const claim = (id: string, ref: string, amount = 150_000, paidOn = '2026-10-01', payerId = 'FBC/2024/123') => ({
     id,
     referenceKey: referenceKey(ref),
     amount,
     paidOn,
-    studentId,
+    payerId,
   });
   const line = (reference: string, amount = 150_000, date = '2026-10-02', description = '') => ({ reference, amount, date, description });
 
@@ -53,7 +53,7 @@ describe('statement matching', () => {
       3,
       'NLe',
     );
-    expect(r.matches).toEqual([{ claimId: 'a', line: 0, studentIdFound: false }]);
+    expect(r.matches).toEqual([{ claimId: 'a', line: 0, payerIdFound: false }]);
     expect(r.issues).toEqual([
       { claimId: 'b', issue: 'The reference is on the statement for NLe 1,400.00, not NLe 1,500.00.' },
       { claimId: 'c', issue: 'The reference is on the statement dated 2026-10-20, 19 days from the declared 2026-10-01.' },
@@ -64,9 +64,9 @@ describe('statement matching', () => {
     const lines = [line('', 150_000, '2026-10-01', 'TRF FT26281ABC12 / FBC2024123 TUITION'), line('FT0001'), line('FT0001', 150_000, '2026-10-03')];
     const r = matchStatement([claim('a', 'FT26281ABC12'), claim('b', 'FT0001'), claim('c', 'FT0001')], lines, 3, 'NLe');
     expect(r.matches).toEqual([
-      { claimId: 'a', line: 0, studentIdFound: true },
-      { claimId: 'b', line: 1, studentIdFound: false },
-      { claimId: 'c', line: 2, studentIdFound: false },
+      { claimId: 'a', line: 0, payerIdFound: true },
+      { claimId: 'b', line: 1, payerIdFound: false },
+      { claimId: 'c', line: 2, payerIdFound: false },
     ]);
     // Short references must match the reference column exactly; debits and used lines are ignored.
     expect(matchStatement([claim('x', 'AB12')], [line('', 150_000, '2026-10-01', 'XAB12Y')], 3, 'NLe').matches).toEqual([]);
@@ -137,9 +137,11 @@ describe('statement files', () => {
 describe('fee clearance certificate', () => {
   const facts: FeeCertificateFacts = {
     institution: 'University of Example',
+    certificateTitle: 'Fee clearance certificate',
     title: '2026/27 first semester tuition',
-    studentName: 'Aminata Kamara',
-    studentId: 'FBC/2024/123',
+    payerName: 'Aminata Kamara',
+    payerIdLabel: 'Student ID',
+    payerId: 'FBC/2024/123',
     amount: 'NLe 1,500.00',
     paidOn: '2026-10-01',
     bank: 'Rokel Commercial Bank',
@@ -156,12 +158,12 @@ describe('fee clearance certificate', () => {
     expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
     // Certificates already issued are rebuilt for download and must still match their registered digest. If this
     // changes, every issued certificate stops downloading: change the layout only with a migration plan.
-    expect(createHash('sha256').update(a).digest('hex')).toBe('7ec76e15dd4c6e5bae2bcf6ad07a5abaf7552aa88dcc417573b481543dcdf811');
-    expect(Buffer.from(await buildFeeCertificate({ ...facts, studentName: 'Someone Else' })).equals(Buffer.from(a))).toBe(false);
+    expect(createHash('sha256').update(a).digest('hex')).toBe('e642fee58217d26dc0730185a3977f5ea324e6677fd23621a22cdb2b0933191a');
+    expect(Buffer.from(await buildFeeCertificate({ ...facts, payerName: 'Someone Else' })).equals(Buffer.from(a))).toBe(false);
   });
 
   it('prints the facts and a QR code for the verification page', async () => {
-    const doc = await getDocument({ data: await buildFeeCertificate({ ...facts, studentName: 'Łukasz Ñúñez Ɛfua 李' }) }).promise;
+    const doc = await getDocument({ data: await buildFeeCertificate({ ...facts, payerName: 'Łukasz Ñúñez Ɛfua 李' }) }).promise;
     const page = await doc.getPage(1);
     const text = (await page.getTextContent()).items.map((t) => ('str' in t ? t.str : '')).join(' ');
     for (const s of ['University of Example', 'FEE CLEARANCE CERTIFICATE', 'Lukasz Ñúñez Efua ?', 'FBC/2024/123', 'NLe 1,500.00', 'FT26281ABC12', facts.code])

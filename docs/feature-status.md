@@ -1,15 +1,17 @@
 # Feature status and configuration
 
-## Receipt processing (university fee clearance) — 30 October 2026
+## Receipt processing — 30 October 2026
 
-Team workspaces with upload requests and verified documents can open fee desks. Students claim a bank payment
-(student ID, bank, reference, amount, date and a receipt photo) and get a private status link. Finance reads the
-bank's CSV or .xlsx statement on their own device, sends only credit lines for matching by reference, exact amount
-and date, confirms or rejects the rest by hand, and issues verified clearance certificates (server-built PDFs with a
-QR code) that students download and any office can scan. One live claim per bank payment, one statement line per
-claim. Claims are financial records that are never deleted. Design, data and limits: [receipt-processing.md](receipt-processing.md).
+Team workspaces with upload requests and verified documents can open receipt desks for anyone who pays them at the
+bank. Desks are set up for students by default (Student ID, fee clearance certificate); customers, members, tenants
+or other payers get their own ID label and certificate title. Payers claim a bank payment (name, optional ID, bank,
+reference, amount, date and a receipt photo) and get a private status link. Finance reads the bank's CSV or .xlsx
+statement on their own device, sends only credit lines for matching by reference, exact amount and date, confirms
+or rejects the rest by hand, and issues verified certificates (server-built PDFs with a QR code) that payers download
+and anyone can scan. One live claim per bank payment, one statement line per claim. Claims are financial records
+that are never deleted. Design, data and limits: [receipt-processing.md](receipt-processing.md).
 
-Verification: 4 API tests (full flow, duplicate references, manual confirm/reject, fee-due refusal, gating, tenant
+Verification: 5 API tests (full flow, a non-student desk, duplicate references, manual confirm/reject, fee-due refusal, gating, tenant
 and role visibility, database guards; also as the least-privilege app role), 9 unit tests (amounts, references,
 matching rules, CSV/XLSX/date parsing, certificate determinism with a golden digest, QR decode), and a browser
 smoke step (student claim, statement match, certificate download, exact-match check, no statement upload).

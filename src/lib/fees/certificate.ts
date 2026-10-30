@@ -1,16 +1,22 @@
-// Fee clearance certificate, issued by receipt processing (docs/receipt-processing.md). Built on the server from the facts recorded at clearance, so the
-// same facts always give the same bytes: the verification record holds this file's SHA-256, and the student's and
-// finance's downloads are rebuilt rather than stored. Changing this layout changes every certificate's bytes; the
-// golden digest in tests/unit/fee-certificate.test.ts makes that a deliberate decision.
+// Payment certificate issued by receipt processing (docs/receipt-processing.md): a fee clearance certificate for
+// students by default, or a payment confirmation for customers, members or tenants. Built on the server from the facts
+// recorded at clearance, so the same facts always give the same bytes: the verification record holds this file's
+// SHA-256, and the payer's and finance's downloads are rebuilt rather than stored. Changing this layout changes every
+// certificate's bytes; the golden digest in tests/unit/receipt-processing.test.ts makes that a deliberate decision.
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import { encodeQr } from '../qr';
 
 /** What a certificate prints, recorded when the claim is cleared. */
 export interface FeeCertificateFacts {
   institution: string;
+  /** Heading, for example "Fee clearance certificate" or "Payment confirmation". */
+  certificateTitle: string;
+  /** What was paid for, for example "2026/27 first semester tuition". */
   title: string;
-  studentName: string;
-  studentId: string;
+  payerName: string;
+  /** Label and value of the payer's ID ("Student ID"), or null when the desk asks only for a name. */
+  payerIdLabel: string | null;
+  payerId: string | null;
   amount: string;
   paidOn: string;
   bank: string;
@@ -88,10 +94,10 @@ export async function buildFeeCertificate(f: FeeCertificateFacts): Promise<Uint8
   doc.setCreationDate(at);
   doc.setModificationDate(at);
   doc.setProducer('Rokela PDF');
-  doc.setCreator('Rokela PDF fee clearance');
+  doc.setCreator('Rokela PDF receipt processing');
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  doc.setTitle(printable(regular, `Fee clearance certificate — ${f.studentName}`));
+  doc.setTitle(printable(regular, `${f.certificateTitle} — ${f.payerName}`));
   const page: PDFPage = doc.addPage([A4.w, A4.h]);
   const left = 64;
   const width = A4.w - left * 2;
@@ -104,7 +110,7 @@ export async function buildFeeCertificate(f: FeeCertificateFacts): Promise<Uint8
     y -= 26;
   }
   y -= 8;
-  draw('FEE CLEARANCE CERTIFICATE', left, y, 13, bold, INK);
+  draw(f.certificateTitle.toUpperCase(), left, y, 13, bold, INK);
   y -= 22;
   for (const line of wrap(regular, printable(regular, f.title), 12, width)) {
     draw(line, left, y, 12, regular, MUTED);
@@ -114,8 +120,8 @@ export async function buildFeeCertificate(f: FeeCertificateFacts): Promise<Uint8
   page.drawLine({ start: { x: left, y }, end: { x: A4.w - left, y }, thickness: 0.8, color: rgb(0.8, 0.82, 0.86) });
   y -= 30;
 
-  const statement = `This certifies that the student named below has paid the fees stated, and that the payment was ${
-    f.confirmedBy === 'statement' ? "confirmed against the institution's bank statement" : 'confirmed by the finance office'
+  const statement = `This certifies that the person named below paid the amount stated, and that the payment was ${
+    f.confirmedBy === 'statement' ? "confirmed against the issuer's bank statement" : 'confirmed by the finance office'
   }.`;
   for (const line of wrap(regular, printable(regular, statement), 11, width)) {
     draw(line, left, y, 11);
@@ -124,8 +130,8 @@ export async function buildFeeCertificate(f: FeeCertificateFacts): Promise<Uint8
   y -= 18;
 
   const rows: Array<[string, string]> = [
-    ['Student name', f.studentName],
-    ['Student ID', f.studentId],
+    ['Name', f.payerName],
+    ...(f.payerIdLabel && f.payerId ? [[f.payerIdLabel, f.payerId] as [string, string]] : []),
     ['Amount paid', f.amount],
     ['Payment date', f.paidOn],
     ['Bank', f.bank],

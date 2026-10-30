@@ -4,9 +4,10 @@ import { BadgeCheck, CircleX, Clock, Download } from 'lucide-react';
 import { PublicFrame } from '@/components/public';
 import { Button, Details, Muted, Panel } from '@/components/ui';
 import { ApiError, api, apiBlob } from '@/lib/client/api';
+import { certificateFileName } from '@/lib/fees/match';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// The private status link a student receives after claiming a fee payment (docs/receipt-processing.md). The secret is in
+// The private status link a payer (a student, by default) receives after claiming a payment (docs/receipt-processing.md). The secret is in
 // the URL fragment, which browsers never send to the server; this page sends it in a header.
 
 type View = { k: 'loading' } | { k: 'missing' } | { k: 'error' } | { k: 'ok'; v: any };
@@ -16,7 +17,7 @@ const STEPS: Record<string, { title: string; text: string }> = {
     title: 'Waiting for the bank statement',
     text: 'The finance office has your claim and will confirm the payment when it appears on the bank statement. This usually takes a few working days.',
   },
-  matched: { title: 'Payment confirmed', text: 'Your payment was confirmed. Your clearance certificate will be issued soon.' },
+  matched: { title: 'Payment confirmed', text: 'Your payment was confirmed. Your certificate will be issued soon.' },
 };
 
 export default function FeeStatusPage() {
@@ -62,11 +63,11 @@ export default function FeeStatusPage() {
           <span className="verify-status">
             {v.status === 'cleared' && cert?.status === 'active' ? (
               <>
-                <BadgeCheck aria-hidden /> Cleared
+                <BadgeCheck aria-hidden /> {v.payer_id_label === 'Student ID' ? 'Cleared' : 'Payment confirmed'}
               </>
             ) : v.status === 'rejected' || cert?.status === 'revoked' ? (
               <>
-                <CircleX aria-hidden /> {v.status === 'rejected' ? 'Not cleared' : 'Certificate revoked'}
+                <CircleX aria-hidden /> {v.status === 'rejected' ? 'Payment not confirmed' : 'Certificate revoked'}
               </>
             ) : (
               <>
@@ -84,10 +85,10 @@ export default function FeeStatusPage() {
             <p>If you did pay, contact the finance office with your original bank receipt. You can send a new claim through the same page.</p>
           </div>
         )}
-        {cert?.status === 'revoked' && <p role="alert">The finance office revoked your clearance certificate. Contact them for details.</p>}
+        {cert?.status === 'revoked' && <p role="alert">The issuer revoked your certificate. Contact them for details.</p>}
         {cert && cert.status === 'active' && (
           <>
-            <p>Your fee clearance certificate is ready. Print it or show it on your phone: staff scan its QR code to confirm it.</p>
+            <p>Your {v.certificate_title.toLowerCase()} is ready. Print it or show it on your phone: anyone can scan its QR code to confirm it.</p>
             <div className="actions">
               <Button
                 kind="primary"
@@ -96,7 +97,7 @@ export default function FeeStatusPage() {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = `fee-clearance-${v.student_id.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`;
+                  a.download = certificateFileName(v.certificate_title, v.payer_id ?? v.payer_name);
                   a.click();
                   setTimeout(() => URL.revokeObjectURL(url), 30_000);
                 }}
@@ -111,7 +112,7 @@ export default function FeeStatusPage() {
           items={[
             ['Institution', v.institution],
             ['For', v.title],
-            ['Student', `${v.student_name} (${v.student_id})`],
+            ['Paid by', v.payer_id ? `${v.payer_name} (${v.payer_id_label} ${v.payer_id})` : v.payer_name],
             ['Payment', `${v.amount} on ${v.paid_on}`],
             ['Bank', `${v.bank}, reference ${v.reference}`],
             ['Sent', new Date(v.submitted_at).toLocaleString()],

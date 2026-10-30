@@ -1,13 +1,17 @@
-# Receipt processing (university fee clearance)
+# Receipt processing
 
 Status: implemented (30 October 2026). Builds on [verified documents](verified-documents.md) (phase 1) and upload
 requests.
 
 ## Purpose
 
+Receipt processing is for anyone who is paid at the bank and has to check receipts: universities and schools
+(the default, set up for students and fee clearance), businesses with customers paying invoices, associations
+collecting dues, landlords collecting rent, and event organizers. Students are the main case, described here.
+
 Students pay fees at a bank and bring the receipt to the finance office, which checks it against the bank's
 records before registry, exams, hostel and library staff will serve them. Queues form, receipts are photocopied
-and re-checked at every office, and forged or reused receipts are hard to spot. With a fee desk, students claim
+and re-checked at every office, and forged or reused receipts are hard to spot. With a receipt desk, students claim
 their payment online, finance matches every claim against the bank statement in one step, and each cleared
 student gets a certificate with a QR code that any office can scan to confirm.
 
@@ -18,10 +22,22 @@ a finance officer confirms the payment by hand and records how.
 ## Flow
 
 1. **Open a desk.** In a team workspace with upload requests and verified documents, a finance officer opens
-   **Receipt processing** and creates a desk: what is being cleared ("2026/27 first semester tuition"), the banks students
-   pay into, the currency, an optional fee due, how long claims are accepted, and how many days a statement date may
+   **Receipt processing** and creates a desk. **Who pays** sets what payers identify themselves with and what the
+   certificate is called:
+
+   | Who pays                       | Payers give                                 | Certificate                     |
+   | ------------------------------ | ------------------------------------------- | ------------------------------- |
+   | Students paying fees (default) | Name and Student ID                         | Fee clearance certificate       |
+   | Customers paying invoices      | Name and customer or invoice number         | Payment confirmation            |
+   | Members paying dues            | Name and Member ID                          | Membership payment confirmation |
+   | Tenants paying rent            | Name and unit or tenancy number             | Rent payment confirmation       |
+   | Someone else                   | Name, and an ID the officer names (or none) | A title the officer chooses     |
+
+   The desk also sets what is being paid for ("2026/27 first semester tuition"), the banks payers pay into, the
+   currency, an optional amount due, how long claims are accepted, and how many days a statement date may
    differ from the receipt date (default 3). The desk is an upload request underneath, so its link, password,
    deadline, file checks, retention and notifications work as for any upload request.
+
 2. **Students claim.** The desk link asks for the student's full name, student ID, bank, the transaction
    reference on the receipt, the amount and the payment date, then a photo or scan of the receipt (JPG, PNG, WebP,
    HEIC or PDF). On sending, the student gets a **private status link** (`/fees/status#…`; the secret is in the URL
@@ -44,10 +60,12 @@ a finance officer confirms the payment by hand and records how.
    confirmed claim with a reason and an optional message to the student. Rejection is final and frees the bank
    reference, and any statement line, for the person who really paid.
 5. **Issue certificates.** **Issue certificates** clears every confirmed claim, 50 per request. A claim below the
-   fee due is skipped. For each, the server builds an A4 PDF (institution, what was cleared, student name and ID,
-   amount, payment date, bank and reference, date cleared, and a QR code for `/v/<code>`) and registers it as an
-   active [verified document](verified-documents.md), with the student name, student ID, amount, payment date
-   and how the payment was confirmed as published details.
+   amount due is skipped. For each, the server builds an A4 PDF headed with the desk's certificate title
+   (institution, what was paid for, the payer's name and, if the desk asks for one, their ID, amount, payment date,
+   bank and reference, date cleared, and a QR code for `/v/<code>`) and registers it as an active
+   [verified document](verified-documents.md), with the name, ID, amount, payment date and how the payment was
+   confirmed as published details. The download is named after the title and the ID (or name), for example
+   `fee-clearance-certificate-FBC-2024-123.pdf`.
 6. **Students download; offices scan.** The student's status page shows the progress, the rejection reason, or a
    **Download certificate** button. Anyone scanning the QR code sees the verification page; **Check your copy**
    confirms a PDF is the issued one. Revoking the verified document (for example, payment reversed) shows on both
@@ -58,9 +76,9 @@ a finance officer confirms the payment by hand and records how.
 Migration `0013` adds two tables. Both are financial records: never deleted (triggers refuse DELETE; the app role
 has SELECT, INSERT and UPDATE only).
 
-- `fee_desks`: id, org_id, request_id (the upload request), title, institution (workspace name snapshot), banks,
-  currency, amount_due (minor units), date_tolerance_days, created_by, created_at.
-- `fee_claims`: the declared payment (student ID and name, bank, reference and its normalized key, amount in minor
+- `fee_desks`: id, org_id, request_id (the upload request), title, institution (workspace name snapshot),
+  payer_id_label ("Student ID" by default; null asks only for a name), certificate_title, banks, currency, amount_due (minor units), date_tolerance_days, created_by, created_at.
+- `fee_claims`: the declared payment (payer name and optional ID, bank, reference and its normalized key, amount in minor
   units, payment date), status (`draft` → `submitted` → `matched` → `cleared`, or `rejected`), `active_key` (bank +
   reference while live, unique per workspace), the status-link secret hash, the match (method, note, statement
   line and its fingerprint, unique per desk), the latest match issue, rejection reason and message, and the

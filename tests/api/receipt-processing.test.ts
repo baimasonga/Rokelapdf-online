@@ -52,8 +52,8 @@ async function student(R: string, name: string, payment: Record<string, string>,
   return { start, h, submit, secret };
 }
 
-const pay = (o: Partial<Record<'student_id' | 'bank' | 'reference' | 'amount' | 'paid_on', string>> = {}) => ({
-  student_id: 'FBC/2024/123',
+const pay = (o: Partial<Record<'payer_id' | 'bank' | 'reference' | 'amount' | 'paid_on', string>> = {}) => ({
+  payer_id: 'FBC/2024/123',
   bank: BANKS[0]!,
   reference: 'FT26281ABC12',
   amount: '1,500.00',
@@ -79,7 +79,14 @@ describe('receipt processing', () => {
     const R = `/api/v1/public/upload-requests/${tokenOf(d.created.body.request.url)}`;
 
     const opened = await env.call('POST', `${R}/open`, { body: {} });
-    expect(opened.body.fee_desk).toEqual({ institution: 'University of Example', banks: BANKS, currency: 'NLe', amount_due: 150_000 });
+    expect(opened.body.fee_desk).toEqual({
+      institution: 'University of Example',
+      payer_id_label: 'Student ID',
+      certificate_title: 'Fee clearance certificate',
+      banks: BANKS,
+      currency: 'NLe',
+      amount_due: 150_000,
+    });
     expect(opened.body.requirements).toEqual([expect.objectContaining({ key: 'receipt', required: true })]);
     // A fee desk needs the payment; a plain request refuses one.
     expect((await env.call('POST', `${R}/submissions`, { body: { grant: opened.body.grant, name: 'No payment' } })).status).toBe(400);
@@ -97,13 +104,13 @@ describe('receipt processing', () => {
     const a = await student(R, 'Aminata Kamara', pay());
     expect(a.submit!.status).toBe(200);
     expect(a.submit!.body.fee_status_url).toMatch(new RegExp(`^${env.c.config.publicOrigin}/fees/status#fcs_[A-Za-z0-9_-]{43}$`));
-    expect((await status(a.secret!)).body).toMatchObject({ status: 'submitted', amount: 'NLe 1,500.00', student_id: 'FBC/2024/123', certificate: null });
+    expect((await status(a.secret!)).body).toMatchObject({ status: 'submitted', amount: 'NLe 1,500.00', payer_id: 'FBC/2024/123', certificate: null });
     // The same bank payment, written differently, cannot be claimed again.
-    const copy = await student(R, 'Someone Else', pay({ student_id: 'FBC/2024/999', reference: 'ft-26281 abc12' }));
+    const copy = await student(R, 'Someone Else', pay({ payer_id: 'FBC/2024/999', reference: 'ft-26281 abc12' }));
     expect(copy.start.status).toBe(409);
     expect(copy.start.body.message).toMatch(/already been submitted/);
-    const b = await student(R, 'Ibrahim Sesay', pay({ student_id: 'FBC/2024/456', reference: 'FT26281XYZ99', amount: '1500' }));
-    const c = await student(R, 'Fatmata Conteh', pay({ student_id: 'FBC/2024/789', bank: BANKS[1]!, reference: 'SL778899', amount: '1500' }));
+    const b = await student(R, 'Ibrahim Sesay', pay({ payer_id: 'FBC/2024/456', reference: 'FT26281XYZ99', amount: '1500' }));
+    const c = await student(R, 'Fatmata Conteh', pay({ payer_id: 'FBC/2024/789', bank: BANKS[1]!, reference: 'SL778899', amount: '1500' }));
     expect(c.submit!.status).toBe(200);
 
     const view = await env.call('GET', `${d.P}/fee-desks/${deskId}`, { token: d.owner.token });
@@ -123,8 +130,8 @@ describe('receipt processing', () => {
     expect((await env.call('POST', `${d.P}/fee-desks/${deskId}/statements`, { token: d.member.token, body: statement })).status).toBe(403);
     const imported = await env.call('POST', `${d.P}/fee-desks/${deskId}/statements`, { token: d.owner.token, body: statement });
     expect(imported.status).toBe(200);
-    const claimOf = (name: string) => view.body.claims.find((x: { student_name: string }) => x.student_name === name);
-    expect(imported.body).toMatchObject({ lines: 3, matched: [{ claim_id: claimOf('Aminata Kamara').id, student_id_found: true }], still_open: 1 });
+    const claimOf = (name: string) => view.body.claims.find((x: { payer_name: string }) => x.payer_name === name);
+    expect(imported.body).toMatchObject({ lines: 3, matched: [{ claim_id: claimOf('Aminata Kamara').id, payer_id_found: true }], still_open: 1 });
     expect(imported.body.issues).toEqual([{ claim_id: claimOf('Ibrahim Sesay').id, issue: expect.stringMatching(/NLe 1,400.00, not NLe 1,500.00/) }]);
     // Importing the same statement again confirms nothing twice.
     const again = await env.call('POST', `${d.P}/fee-desks/${deskId}/statements`, { token: d.owner.token, body: statement });
@@ -141,11 +148,11 @@ describe('receipt processing', () => {
 
     const pub = await env.call('GET', `/api/v1/public/verifications/${code}`);
     expect(pub.body).toMatchObject({
-      title: 'Fee clearance — 2026/27 first semester tuition',
+      title: 'Fee clearance certificate — 2026/27 first semester tuition',
       issuer: { name: 'University of Example' },
       status: 'active',
       details: [
-        { label: 'Student name', value: 'Aminata Kamara' },
+        { label: 'Name', value: 'Aminata Kamara' },
         { label: 'Student ID', value: 'FBC/2024/123' },
         { label: 'Amount paid', value: 'NLe 1,500.00' },
         { label: 'Payment date', value: '2026-02-20' },
@@ -161,10 +168,10 @@ describe('receipt processing', () => {
     expect(mine.headers.get('content-length')).toBe(String(bytes.byteLength));
     const theirs = await env.call('GET', `${d.P}/fee-claims/${claimOf('Aminata Kamara').id}/certificate`, { token: d.owner.token });
     expect(theirs.status).toBe(200);
-    expect(theirs.headers.get('content-disposition')).toMatch(/fee-clearance-FBC-2024-123\.pdf/);
+    expect(theirs.headers.get('content-disposition')).toMatch(/fee-clearance-certificate-FBC-2024-123\.pdf/);
     expect((await status(a.secret!)).body).toMatchObject({ status: 'cleared', certificate: { code, status: 'active' } });
     // Someone else's status link, or none, reveals nothing.
-    expect((await status(c.secret!)).body.student_name).toBe('Fatmata Conteh');
+    expect((await status(c.secret!)).body.payer_name).toBe('Fatmata Conteh');
     expect((await status(`fcs_${'A'.repeat(43)}`)).status).toBe(404);
     expect((await env.call('GET', '/api/v1/public/fee-claims/certificate', { headers: { 'x-claim-secret': b.secret! } })).status).toBe(404);
 
@@ -190,7 +197,7 @@ describe('receipt processing', () => {
     const d = await desk();
     const deskId = d.created.body.id as string;
     const R = `/api/v1/public/upload-requests/${tokenOf(d.created.body.request.url)}`;
-    const impostor = await student(R, 'Impostor', pay({ student_id: 'XXX/1' }));
+    const impostor = await student(R, 'Impostor', pay({ payer_id: 'XXX/1' }));
     const id = (await env.call('GET', `${d.P}/fee-desks/${deskId}`, { token: d.owner.token })).body.claims[0].id as string;
     const real = await student(R, 'Aminata Kamara', pay());
     expect(real.start.status).toBe(409);
@@ -211,13 +218,43 @@ describe('receipt processing', () => {
     const retry = await student(R, 'Aminata Kamara', pay({ amount: '1000' }));
     expect(retry.submit!.status).toBe(200);
     const claims = (await env.call('GET', `${d.P}/fee-desks/${deskId}`, { token: d.owner.token })).body.claims;
-    const realId = claims.find((x: { student_name: string }) => x.student_name === 'Aminata Kamara').id;
+    const realId = claims.find((x: { payer_name: string }) => x.payer_name === 'Aminata Kamara').id;
     const approved = await env.call('POST', `${d.P}/fee-claims/${realId}/approve`, { token: d.owner.token, body: { note: 'Seen in the bank portal' } });
     expect(approved.body).toMatchObject({ status: 'matched', match_method: 'manual', match_note: 'Seen in the bank portal' });
     // Less than the fee due: no certificate.
     const certs = await env.call('POST', `${d.P}/fee-desks/${deskId}/certificates`, { token: d.owner.token, body: { claim_ids: [realId] } });
     expect(certs.body).toEqual({ issued: [], skipped: [{ claim_id: realId, reason: 'NLe 1,000.00 is less than the NLe 1,500.00 due' }] });
     expect((await env.audit(d.orgId, 'fee.claim.approved'))[0]!.reason).toBe('Seen in the bank portal');
+  });
+
+  it('serves any payers: a desk can ask only for a name and issue its own kind of certificate', async () => {
+    env = await sharingEnv();
+    const d = await desk(BUSINESS, {
+      title: 'Conference registration',
+      payer_id_label: null,
+      certificate_title: 'Payment confirmation',
+      amount_due: undefined,
+    });
+    expect(d.created.body).toMatchObject({ payer_id_label: null, certificate_title: 'Payment confirmation', amount_due: null });
+    expect(d.created.body.request.instructions).toMatch(/^Enter the details printed on your bank receipt.*payment confirmation is issued\.$/);
+    const R = `/api/v1/public/upload-requests/${tokenOf(d.created.body.request.url)}`;
+    // An ID sent anyway is not kept: the desk asks only for a name.
+    const p = await student(R, 'Mariama Bangura', pay({ payer_id: 'ignored', amount: '250' }));
+    expect(p.submit!.status).toBe(200);
+    const claim = (await env.call('GET', `${d.P}/fee-desks/${d.created.body.id}`, { token: d.owner.token })).body.claims[0];
+    expect(claim).toMatchObject({ payer_name: 'Mariama Bangura', payer_id: null });
+    await env.call('POST', `${d.P}/fee-desks/${d.created.body.id}/statements`, {
+      token: d.owner.token,
+      body: { bank: BANKS[0], file_name: 's.csv', file_sha256: 'c'.repeat(64), lines: [line({ amount: 25_000, description: 'REGISTRATION' })] },
+    });
+    const certs = await env.call('POST', `${d.P}/fee-desks/${d.created.body.id}/certificates`, { token: d.owner.token, body: { claim_ids: [claim.id] } });
+    expect(certs.body.issued).toHaveLength(1);
+    const pub = await env.call('GET', `/api/v1/public/verifications/${certs.body.issued[0].code}`);
+    expect(pub.body.title).toBe('Payment confirmation — Conference registration');
+    expect(pub.body.details.map((x: { label: string }) => x.label)).toEqual(['Name', 'Amount paid', 'Payment date', 'Payment confirmed']);
+    const pdfRes = await env.call('GET', '/api/v1/public/fee-claims/certificate', { headers: { 'x-claim-secret': p.secret! } });
+    expect(pdfRes.headers.get('content-disposition')).toMatch(/payment-confirmation-Mariama-Bangura\.pdf/);
+    expect((await status(p.secret!)).body).toMatchObject({ payer_id_label: null, payer_id: null, certificate_title: 'Payment confirmation' });
   });
 
   it('runs only from a team workspace that can issue verified documents', async () => {

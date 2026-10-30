@@ -2,7 +2,17 @@ import type { Mailer } from '../mail';
 import { inviteEmailHtml, shareEmailHtml } from '../share-email';
 import { createHash, randomBytes } from 'node:crypto';
 import { buildFeeCertificate, type FeeCertificateFacts } from '../../fees/certificate';
-import { FEE_CURRENCIES, STATEMENT_BATCH, formatAmount, isIsoDate, matchStatement, parseAmount, referenceKey, type StatementLine } from '../../fees/match';
+import {
+  FEE_CURRENCIES,
+  STATEMENT_BATCH,
+  certificateFileName,
+  formatAmount,
+  isIsoDate,
+  matchStatement,
+  parseAmount,
+  referenceKey,
+  type StatementLine,
+} from '../../fees/match';
 import { newId } from '../kernel';
 import { DomainError, type Clock, type UserPrincipal } from '../kernel';
 import type {
@@ -185,7 +195,7 @@ const FEE_REASON_TEXT: Record<(typeof FEE_REJECTION_REASONS)[number], string> = 
 };
 
 export interface FeePaymentInput {
-  studentId: string;
+  payerId?: string | undefined;
   bank: string;
   reference: string;
   amount: string;
@@ -2701,15 +2711,15 @@ export class SharingService {
     await this.#d.store.transaction(async (tx) => {
       await tx.insert('submission', sub);
       if (desk && payment) {
-        // Refused early so the student need not upload first; the unique live key decides at submission.
+        // Refused early so the payer need not upload first; the unique live key decides at submission.
         if ((await tx.list('feeClaim', r.orgId, { activeKey: payment.activeKey }, { limit: 1 })).length) throw duplicatePayment();
         await tx.insert('feeClaim', {
           id: newId('fcl'),
           orgId: r.orgId,
           deskId: desk.id,
           submissionId: sub.id,
-          studentId: payment.studentId,
-          studentName: name,
+          payerId: payment.payerId,
+          payerName: name,
           bank: payment.bank,
           reference: payment.reference,
           referenceKey: payment.referenceKey,
@@ -3294,13 +3304,15 @@ export class SharingService {
   }
 
   // =============================================================================================
-  // Fee clearance (docs/receipt-processing.md)
+  // Receipt processing (docs/receipt-processing.md)
   // =============================================================================================
 
-  /** Validates a student's declared payment against the desk. */
+  /** Validates a payer's declared payment against the desk. */
   #feePayment(desk: FeeDeskRow, input: FeePaymentInput, now: Date) {
-    const studentId = text(input.studentId, 60, 'student ID');
-    if (!studentId) throw invalid('student ID is required');
+    // The desk decides whether payers give an ID ("Student ID", "Member ID") or only a name.
+    const label = desk.payerIdLabel ?? 'ID';
+    const payerId = desk.payerIdLabel ? text(input.payerId, 60, label) : null;
+    if (desk.payerIdLabel && !payerId) throw invalid(`${label} is required`);
     const bank = desk.banks.find((b) => b === input.bank);
     if (!bank) throw invalid('choose one of the listed banks');
     const reference = text(input.reference, 60, 'bank reference');
@@ -3311,10 +3323,10 @@ export class SharingService {
     const paidOn = String(input.paidOn ?? '');
     if (!isIsoDate(paidOn)) throw invalid('enter the payment date');
     if (paidOn > now.toISOString().slice(0, 10)) throw invalid('the payment date cannot be in the future');
-    return { studentId, bank, reference, referenceKey: key, amount, paidOn, activeKey: `${bank}|${key}` };
+    return { payerId, bank, reference, referenceKey: key, amount, paidOn, activeKey: `${bank}|${key}` };
   }
 
-  /** On submission, a fee claim becomes live and its student gets a private status link. */
+  /** On submission, a claim becomes live and its payer gets a private status link. */
   async #submitFeeClaim(tx: SharingTx, orgId: string, submissionId: string, now: Date): Promise<string | undefined> {
     const claim = await tx.findUnique('feeClaim', 'submissionId', submissionId);
     if (!claim) return undefined;
@@ -3334,7 +3346,16 @@ export class SharingService {
 
   async #publicFeeDesk(requestId: string) {
     const d = await this.#d.store.findUnique('feeDesk', 'requestId', requestId);
-    return d ? { institution: d.institution, banks: d.banks, currency: d.currency, amountDue: d.amountDue } : null;
+    return d
+      ? {
+          institution: d.institution,
+          payerIdLabel: d.payerIdLabel,
+          certificateTitle: d.certificateTitle,
+          banks: d.banks,
+          currency: d.currency,
+          amountDue: d.amountDue,
+        }
+      : null;
   }
 
   #feeDeskView(d: FeeDeskRow, r: UploadRequestRow, now: Date, claims?: FeeClaimRow[]) {
@@ -3344,6 +3365,8 @@ export class SharingService {
       id: d.id,
       title: d.title,
       institution: d.institution,
+      payerIdLabel: d.payerIdLabel,
+      certificateTitle: d.certificateTitle,
       banks: d.banks,
       currency: d.currency,
       amountDue: d.amountDue,
@@ -3363,7 +3386,9 @@ export class SharingService {
     return { d, r };
   }
 
-  /** A fee desk: an upload request for bank payment claims, from a team workspace that can issue verified documents. */
+  /**
+   * A receipt desk: an upload request for bank payment claims, set up for students paying fees by default or for any
+   * payers (customers, members, tenants) through the ID label and certificate title, from a team workspace that can issue verified documents. */
   async createFeeDesk(
     p: UserPrincipal,
     orgId: string,
@@ -3373,6 +3398,8 @@ export class SharingService {
       deadline: Date;
       banks: string[];
       currency: string;
+      payerIdLabel?: string | null | undefined;
+      certificateTitle?: string | undefined;
       amountDue?: string | undefined;
       dateToleranceDays?: number | undefined;
       password?: string | undefined;
@@ -3381,7 +3408,11 @@ export class SharingService {
     },
   ) {
     const banks = [...new Set(input.banks.map((b) => text(b, 100, 'bank name')).filter((b): b is string => !!b))];
-    if (!banks.length || banks.length > 20) throw invalid('list 1–20 banks students can pay into');
+    if (!banks.length || banks.length > 20) throw invalid('list 1–20 banks payers can pay into');
+    // Students paying fees unless the desk says otherwise (null: payers give only a name).
+    const payerIdLabel = input.payerIdLabel === null ? null : (text(input.payerIdLabel ?? 'Student ID', 40, 'ID label') ?? null);
+    const certificateTitle = text(input.certificateTitle ?? 'Fee clearance certificate', 80, 'certificate title');
+    if (!certificateTitle) throw invalid('certificate title is required');
     if (banks.some((b) => b.includes('|'))) throw invalid('bank names cannot contain "|"');
     if (!(FEE_CURRENCIES as readonly string[]).includes(input.currency)) throw invalid('unknown currency');
     const amountDue = input.amountDue ? parseAmount(input.amountDue) : null;
@@ -3390,10 +3421,10 @@ export class SharingService {
     if (!Number.isInteger(tolerance) || tolerance < 0 || tolerance > 31) throw invalid('the date tolerance must be 0–31 days');
     await this.#d.authorize(p, orgId, 'share:create');
     const limits = await this.limits(orgId);
-    if (!limits.verifiedDocuments) throw new DomainError('forbidden', 'fee clearance needs verified documents in this plan');
+    if (!limits.verifiedDocuments) throw new DomainError('forbidden', 'receipt processing needs verified documents in this plan');
     const org = await this.#d.organization?.(orgId);
     if (!org) throw notFound();
-    if (org.kind !== 'team') throw new DomainError('forbidden', 'fee clearance runs from a team workspace');
+    if (org.kind !== 'team') throw new DomainError('forbidden', 'receipt processing runs from a team workspace');
     const fileBytes = Math.min(limits.maxFileBytes, 15 * 1024 * 1024);
     let desk: FeeDeskRow | undefined;
     const request = await this.#createUploadRequest(
@@ -3403,7 +3434,7 @@ export class SharingService {
         title: input.title,
         instructions:
           input.instructions ??
-          'Enter your student ID and the details printed on your bank receipt, then upload a clear photo or scan of the receipt. The finance office checks every payment against the bank statement before issuing your clearance certificate.',
+          `Enter ${payerIdLabel ? `your ${payerIdLabel} and ` : ''}the details printed on your bank receipt, then upload a clear photo or scan of the receipt. Every payment is checked against the bank statement before your ${certificateTitle.toLowerCase()} is issued.`,
         requirements: [{ key: 'receipt', label: 'Photo or scan of your bank receipt', accept: FEE_RECEIPT_TYPES, required: true, maxFiles: 2 }],
         deadline: input.deadline,
         maxFileBytes: fileBytes,
@@ -3419,6 +3450,8 @@ export class SharingService {
           requestId: r.id,
           title: r.title,
           institution: org.name,
+          payerIdLabel,
+          certificateTitle,
           banks,
           currency: input.currency as FeeDeskRow['currency'],
           amountDue,
@@ -3456,8 +3489,8 @@ export class SharingService {
     return {
       id: c.id,
       submissionId: c.submissionId,
-      studentId: c.studentId,
-      studentName: c.studentName,
+      payerId: c.payerId,
+      payerName: c.payerName,
       bank: c.bank,
       reference: c.reference,
       amount: c.amount,
@@ -3554,7 +3587,7 @@ export class SharingService {
         await tx.update('feeClaim', orgId, m.claimId, {
           status: 'matched',
           matchMethod: 'statement',
-          statementLine: { ...l, fileName, fileSha256, studentIdFound: m.studentIdFound },
+          statementLine: { ...l, fileName, fileSha256, payerIdFound: m.payerIdFound },
           statementLineKey: keys[m.line]!,
           matchIssue: null,
           matchedAt: now,
@@ -3574,7 +3607,7 @@ export class SharingService {
       );
       return {
         lines: lines.length,
-        matched: result.matches.map((m) => ({ claimId: m.claimId, studentIdFound: m.studentIdFound })),
+        matched: result.matches.map((m) => ({ claimId: m.claimId, payerIdFound: m.payerIdFound })),
         issues: result.issues,
         stillOpen: open.length - result.matches.length,
       };
@@ -3653,9 +3686,11 @@ export class SharingService {
         const code = verificationCode();
         const facts: FeeCertificateFacts = {
           institution: d.institution,
+          certificateTitle: d.certificateTitle,
           title: d.title,
-          studentName: c.studentName,
-          studentId: c.studentId,
+          payerName: c.payerName,
+          payerIdLabel: c.payerId ? d.payerIdLabel : null,
+          payerId: c.payerId,
           amount: formatAmount(c.amount, d.currency),
           paidOn: c.paidOn,
           bank: c.bank,
@@ -3672,10 +3707,10 @@ export class SharingService {
           id: newId('vdoc'),
           orgId,
           code,
-          title: `Fee clearance — ${d.title}`.slice(0, 200),
+          title: `${d.certificateTitle} — ${d.title}`.slice(0, 200),
           details: [
-            { label: 'Student name', value: c.studentName },
-            { label: 'Student ID', value: c.studentId },
+            { label: 'Name', value: c.payerName },
+            ...(facts.payerIdLabel && c.payerId ? [{ label: facts.payerIdLabel, value: c.payerId }] : []),
             { label: 'Amount paid', value: facts.amount },
             { label: 'Payment date', value: c.paidOn },
             { label: 'Payment confirmed', value: facts.confirmedBy === 'statement' ? 'Against the bank statement' : 'By the finance office' },
@@ -3714,7 +3749,7 @@ export class SharingService {
     const bytes = await buildFeeCertificate(c.certificate);
     if (!v || createHash('sha256').update(bytes).digest('hex') !== v.sha256)
       throw new DomainError('conflict', 'this certificate can no longer be reproduced exactly; contact Rokela PDF support');
-    return { bytes, name: `fee-clearance-${c.studentId.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`, revoked: v.status === 'revoked' };
+    return { bytes, name: certificateFileName(c.certificate.certificateTitle, c.payerId ?? c.payerName), revoked: v.status === 'revoked' };
   }
 
   async feeCertificate(p: UserPrincipal, orgId: string, id: string) {
@@ -3733,7 +3768,7 @@ export class SharingService {
     return c;
   }
 
-  /** The student's own claim, through the private link they received on submission. */
+  /** The payer's own claim, through the private link they received on submission. */
   async feeClaimStatus(secret: string) {
     const c = await this.#claimBySecret(secret);
     const d = (await this.#d.store.get('feeDesk', c.orgId, c.deskId))!;
@@ -3741,8 +3776,10 @@ export class SharingService {
     return {
       institution: d.institution,
       title: d.title,
-      studentName: c.studentName,
-      studentId: c.studentId,
+      certificateTitle: d.certificateTitle,
+      payerName: c.payerName,
+      payerIdLabel: d.payerIdLabel,
+      payerId: c.payerId,
       bank: c.bank,
       reference: c.reference,
       amount: formatAmount(c.amount, d.currency),

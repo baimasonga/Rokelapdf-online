@@ -1111,12 +1111,13 @@ async function main() {
 
     step('Receipt processing: student claim, statement match, certificate');
     await p.getByRole('button', { name: 'Receipt processing', exact: true }).click();
-    await p.getByLabel('What is being cleared').fill('2026/27 first semester tuition');
-    await p.getByLabel('Banks students pay into').fill('Rokel Commercial Bank, Sierra Leone Commercial Bank');
-    await p.getByLabel(/^Fee due/).fill('1500');
-    await p.getByRole('button', { name: 'Open fee desk' }).click();
+    check((await p.getByLabel('Who pays').inputValue()) === 'students', 'receipt desks are set up for students by default');
+    await p.getByLabel('What is being paid for').fill('2026/27 first semester tuition');
+    await p.getByLabel('Banks payers pay into').fill('Rokel Commercial Bank, Sierra Leone Commercial Bank');
+    await p.getByLabel(/^Amount due/).fill('1500');
+    await p.getByRole('button', { name: 'Open receipt desk' }).click();
     await p.getByRole('heading', { name: '2026/27 first semester tuition', exact: true }).waitFor();
-    const deskUrl = await p.getByLabel('Link for students', { exact: true }).inputValue();
+    const deskUrl = await p.getByLabel('Link for payers', { exact: true }).inputValue();
     const studentCtx = await browser.newContext({ acceptDownloads: true });
     const st = await studentCtx.newPage();
     watch(st, 'student');
@@ -1135,7 +1136,7 @@ async function main() {
     await st.getByText(/receipt\.pdf · .* · Ready/).waitFor({ timeout: 30_000 });
     await st.getByRole('button', { name: 'Send files' }).click();
     await st.getByRole('heading', { name: 'Payment details sent' }).waitFor();
-    const statusUrl = await st.getByLabel('Your clearance status', { exact: true }).inputValue();
+    const statusUrl = await st.getByLabel('Your payment status', { exact: true }).inputValue();
     check(/\/fees\/status#fcs_/.test(statusUrl), 'the student gets a private status link');
     await st.goto(statusUrl);
     await st.getByText('Waiting for the bank statement').waitFor();

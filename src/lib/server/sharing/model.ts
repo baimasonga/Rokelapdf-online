@@ -346,7 +346,7 @@ export interface VerifiedDocumentRow {
   revocationReason: 'issued_in_error' | 'superseded' | 'payment_reversed' | 'fraud_suspected' | 'other' | null;
 }
 
-/** A fee clearance desk: an upload request for bank payment claims (docs/receipt-processing.md). Never deleted. */
+/** A receipt processing desk: an upload request for bank payment claims (docs/receipt-processing.md). Never deleted. */
 export interface FeeDeskRow {
   id: string;
   orgId: string;
@@ -355,12 +355,16 @@ export interface FeeDeskRow {
   title: string;
   /** Workspace name when the desk was created, printed on certificates. */
   institution: string;
-  /** Banks students can choose from; a statement is imported for one of them. */
+  /** What payers identify themselves with ("Student ID", "Member ID"); null asks only for a name. */
+  payerIdLabel: string | null;
+  /** Heading printed on certificates ("Fee clearance certificate", "Payment confirmation"). */
+  certificateTitle: string;
+  /** Banks payers can choose from; a statement is imported for one of them. */
   banks: string[];
   currency: 'NLe' | 'USD';
   /** Minor units (cents). A certificate is refused for a smaller payment. */
   amountDue: number | null;
-  /** How many days a statement's date may differ from the date the student declared. */
+  /** How many days a statement's date may differ from the date the payer declared. */
   dateToleranceDays: number;
   createdBy: string;
   createdAt: Date;
@@ -376,18 +380,19 @@ export interface FeeStatementLine {
   date: string;
   fileName: string;
   fileSha256: string;
-  /** The student ID appears in the line's reference or description. */
-  studentIdFound: boolean;
+  /** The payer's ID appears in the line's reference or description. */
+  payerIdFound: boolean;
 }
 
-/** A student's declared bank payment on a fee desk. Never deleted; the declared payment is frozen once submitted. */
+/** A payer's declared bank payment on a receipt desk. Never deleted; the declared payment is frozen once submitted. */
 export interface FeeClaimRow {
   id: string;
   orgId: string;
   deskId: string;
   submissionId: string;
-  studentId: string;
-  studentName: string;
+  /** Null when the desk asks only for a name. */
+  payerId: string | null;
+  payerName: string;
   bank: string;
   reference: string;
   /** Upper-case letters and digits of the reference, for matching. */
@@ -399,7 +404,7 @@ export interface FeeClaimRow {
   /** YYYY-MM-DD, as declared. */
   paidOn: string;
   status: 'draft' | 'submitted' | 'matched' | 'cleared' | 'rejected';
-  /** Hash of the student's status link secret, set on submission. */
+  /** Hash of the payer's status link secret, set on submission. */
   statusSecretHash: string | null;
   matchMethod: 'statement' | 'manual' | null;
   matchNote: string | null;

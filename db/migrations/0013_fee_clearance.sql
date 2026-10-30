@@ -1,7 +1,7 @@
--- University fee clearance (docs/receipt-processing.md). A fee desk is an upload request whose submitters are students
--- declaring a bank payment (with a photo of the bank receipt); finance matches the claims against the bank's
--- statement and issues each cleared student a verified clearance certificate. Claims are financial records: never
--- deleted, the declared payment is frozen once submitted, and clearance and rejection are final.
+-- Receipt processing (docs/receipt-processing.md). A desk is an upload request whose submitters declare a bank payment
+-- (with a photo of the bank receipt): students paying fees by default, or customers, members or tenants. Finance
+-- matches the claims against the bank's statement and issues each confirmed payer a verified certificate. Claims are
+-- financial records: never deleted, the declared payment is frozen once submitted, and clearance and rejection are final.
 BEGIN;
 CREATE TABLE fee_desks (
   id                   text NOT NULL PRIMARY KEY,
@@ -9,6 +9,9 @@ CREATE TABLE fee_desks (
   request_id           text NOT NULL UNIQUE,
   title                text NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
   institution          text NOT NULL CHECK (length(institution) BETWEEN 1 AND 200),
+  -- What payers are asked to identify themselves with ("Student ID", "Member ID"); null asks only for a name.
+  payer_id_label       text CHECK (length(payer_id_label) BETWEEN 1 AND 40),
+  certificate_title    text NOT NULL CHECK (length(certificate_title) BETWEEN 1 AND 80),
   banks                jsonb NOT NULL CHECK (jsonb_typeof(banks) = 'array' AND jsonb_array_length(banks) BETWEEN 1 AND 20),
   currency             text NOT NULL CHECK (currency IN ('NLe','USD')),
   amount_due           bigint CHECK (amount_due > 0),
@@ -25,8 +28,8 @@ CREATE TABLE fee_claims (
   org_id                text NOT NULL REFERENCES organizations(id),
   desk_id               text NOT NULL,
   submission_id         text NOT NULL UNIQUE,
-  student_id            text NOT NULL CHECK (length(student_id) BETWEEN 1 AND 60),
-  student_name          text NOT NULL CHECK (length(student_name) BETWEEN 1 AND 200),
+  payer_id              text CHECK (length(payer_id) BETWEEN 1 AND 60),
+  payer_name            text NOT NULL CHECK (length(payer_name) BETWEEN 1 AND 200),
   bank                  text NOT NULL CHECK (length(bank) BETWEEN 1 AND 100),
   reference             text NOT NULL CHECK (length(reference) BETWEEN 1 AND 60),
   reference_key         text NOT NULL CHECK (reference_key ~ '^[A-Z0-9]{4,60}$'),
@@ -78,7 +81,8 @@ BEGIN
     RAISE EXCEPTION 'fee desks are never deleted' USING ERRCODE = '42501';
   END IF;
   IF NEW.id <> OLD.id OR NEW.org_id <> OLD.org_id OR NEW.request_id <> OLD.request_id OR NEW.created_by <> OLD.created_by
-     OR NEW.created_at <> OLD.created_at OR NEW.institution <> OLD.institution OR NEW.currency <> OLD.currency THEN
+     OR NEW.created_at <> OLD.created_at OR NEW.institution <> OLD.institution
+     OR NEW.payer_id_label IS DISTINCT FROM OLD.payer_id_label OR NEW.certificate_title <> OLD.certificate_title OR NEW.currency <> OLD.currency THEN
     RAISE EXCEPTION 'fee desk identity is immutable' USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
@@ -92,7 +96,7 @@ BEGIN
     RAISE EXCEPTION 'fee claims are never deleted' USING ERRCODE = '42501';
   END IF;
   IF NEW.id <> OLD.id OR NEW.org_id <> OLD.org_id OR NEW.desk_id <> OLD.desk_id OR NEW.submission_id <> OLD.submission_id
-     OR NEW.created_at <> OLD.created_at OR NEW.student_id <> OLD.student_id OR NEW.student_name <> OLD.student_name
+     OR NEW.created_at <> OLD.created_at OR NEW.payer_id IS DISTINCT FROM OLD.payer_id OR NEW.payer_name <> OLD.payer_name
      OR NEW.bank <> OLD.bank OR NEW.reference <> OLD.reference OR NEW.reference_key <> OLD.reference_key
      OR NEW.amount <> OLD.amount OR NEW.paid_on <> OLD.paid_on THEN
     RAISE EXCEPTION 'a declared payment is immutable' USING ERRCODE = '23514';

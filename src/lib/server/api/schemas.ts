@@ -198,7 +198,7 @@ export const decisionBody = z
 export const shortCodeParams = z.object({ code: z.string().regex(/^[A-Za-z0-9-]{3,64}$/) }).strict();
 export const confidentialParams = z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{16}$/) }).strict();
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-export const feePaymentBody = z.object({ student_id: str(60), bank: str(100), reference: str(60), amount: str(20), paid_on: isoDay }).strict();
+export const feePaymentBody = z.object({ payer_id: str(60).optional(), bank: str(100), reference: str(60), amount: str(20), paid_on: isoDay }).strict();
 export const submissionStartBody = z.object({ grant, name: str(200), email: email.optional(), payment: feePaymentBody.optional() }).strict();
 export const submissionUploadBody = z.object({ requirement_key: z.string().regex(/^[a-z0-9_-]{1,40}$/), name: str(255), size }).strict();
 export const submissionUploadParams = z.object({ token: urlToken, uploadId: id }).strict();
@@ -256,6 +256,8 @@ export const feeDeskBody = z
     deadline: date,
     banks: z.array(str(100)).min(1).max(20),
     currency: z.enum(['NLe', 'USD']),
+    payer_id_label: str(40).nullable().optional(),
+    certificate_title: str(80).optional(),
     amount_due: z.string().max(20).optional(),
     date_tolerance_days: z.number().int().min(0).max(31).optional(),
     password: password.optional(),

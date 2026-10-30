@@ -21,17 +21,19 @@ const STATES: Record<string, string> = {
 type View =
   { k: 'loading' } | { k: 'password'; wrong: boolean } | { k: 'gone'; title: string; text: string } | { k: 'start' } | { k: 'files'; sub: any } | { k: 'sent' };
 
-function feeFields(desk: { banks: string[]; currency: string; amount_due: number | null }): FieldSpec[] {
+function feeFields(desk: { payer_id_label: string | null; banks: string[]; currency: string; amount_due: number | null }): FieldSpec[] {
+  // Students paying fees by default: their name must match the student record.
+  const student = desk.payer_id_label === 'Student ID';
   return [
-    { name: 'name', label: 'Full name, as on your student record', autoComplete: 'name' },
-    { name: 'student_id', label: 'Student ID' },
+    { name: 'name', label: student ? 'Full name, as on your student record' : 'Full name', autoComplete: 'name' },
+    ...(desk.payer_id_label ? [{ name: 'payer_id', label: desk.payer_id_label }] : []),
     { name: 'bank', label: 'Bank you paid into', type: 'select', options: desk.banks.map((b) => [b, b]) },
     { name: 'reference', label: 'Transaction reference on the receipt', placeholder: 'FT26281ABC12' },
     {
       name: 'amount',
       label: `Amount paid (${desk.currency})`,
       placeholder: desk.amount_due ? (desk.amount_due / 100).toFixed(2) : '1500.00',
-      ...(desk.amount_due ? { hint: `The fee is ${formatAmount(desk.amount_due, desk.currency)}.` } : {}),
+      ...(desk.amount_due ? { hint: `The amount due is ${formatAmount(desk.amount_due, desk.currency)}.` } : {}),
     },
     { name: 'paid_on', label: 'Date of payment', type: 'date' },
     { name: 'email', label: 'Your email', type: 'email', optional: true, autoComplete: 'email' },
@@ -50,7 +52,7 @@ export default function UploadRequestPage() {
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState<Record<string, File | undefined>>({});
   const [syncNeeded, setSyncNeeded] = useState(false);
-  // Fee desks (docs/receipt-processing.md): the student's private link to follow their clearance.
+  // Receipt desks (docs/receipt-processing.md): the payer's private link to follow their claim.
   const [feeStatusUrl, setFeeStatusUrl] = useState('');
   const h = useCallback((s = secret) => ({ 'x-submission-secret': s }), [secret]);
 
@@ -194,7 +196,13 @@ export default function UploadRequestPage() {
               }
               submit={info.fee_desk ? 'Continue to the receipt' : 'Start'}
               onSubmit={async (v) => {
-                const payment = info.fee_desk && { student_id: v.student_id, bank: v.bank, reference: v.reference, amount: v.amount, paid_on: v.paid_on };
+                const payment = info.fee_desk && {
+                  ...(v.payer_id ? { payer_id: v.payer_id } : {}),
+                  bank: v.bank,
+                  reference: v.reference,
+                  amount: v.amount,
+                  paid_on: v.paid_on,
+                };
                 const r = await api(`${base}/submissions`, {
                   auth: false,
                   body: { grant: info.grant, name: v.name, ...(v.email ? { email: v.email } : {}), ...(payment ? { payment } : {}) },
@@ -343,12 +351,12 @@ export default function UploadRequestPage() {
           {feeStatusUrl ? (
             <>
               <p>
-                The finance office will check your payment against the bank statement. Keep this private link: it shows when you are cleared, and you download
-                your clearance certificate from it. Anyone with the link can see your claim.
+                {info.fee_desk.institution} will check your payment against its bank statement. Keep this private link: it shows when your payment is confirmed,
+                and you download your {info.fee_desk.certificate_title.toLowerCase()} from it. Anyone with the link can see your claim.
               </p>
-              <CopyField value={feeStatusUrl} label="Your clearance status" />
+              <CopyField value={feeStatusUrl} label="Your payment status" />
               <p>
-                <a href={feeStatusUrl}>Open my clearance status</a>
+                <a href={feeStatusUrl}>Open my payment status</a>
               </p>
             </>
           ) : (

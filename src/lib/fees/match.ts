@@ -43,6 +43,12 @@ export function parseAmount(raw: string | number): number | undefined {
   return negative ? -minor : minor;
 }
 
+/** "fee-clearance-certificate-FBC-2024-123.pdf": the certificate's download name, the same for the payer and finance. */
+export function certificateFileName(certificateTitle: string, payer: string): string {
+  const part = (v: string) => v.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'certificate';
+  return `${part(certificateTitle).toLowerCase()}-${part(payer)}.pdf`;
+}
+
 export function formatAmount(minor: number, currency: string): string {
   const sign = minor < 0 ? '-' : '';
   const abs = Math.abs(minor);
@@ -73,13 +79,13 @@ export interface StatementLine {
 export interface ClaimToMatch {
   id: string;
   referenceKey: string;
-  studentId: string;
+  payerId: string | null;
   amount: number;
   paidOn: string;
 }
 
 export interface MatchResult {
-  matches: Array<{ claimId: string; line: number; studentIdFound: boolean }>;
+  matches: Array<{ claimId: string; line: number; payerIdFound: boolean }>;
   /** Claims whose reference is on the statement but whose amount or date is not. */
   issues: Array<{ claimId: string; issue: string }>;
 }
@@ -114,11 +120,11 @@ export function matchStatement(
     if (exact.length) {
       const { l, i } = exact[0]!;
       taken.add(i);
-      const sid = referenceKey(c.studentId);
+      const sid = referenceKey(c.payerId ?? '');
       out.matches.push({
         claimId: c.id,
         line: i,
-        studentIdFound: sid.length >= 3 && (referenceKey(l.description).includes(sid) || referenceKey(l.reference).includes(sid)),
+        payerIdFound: sid.length >= 3 && (referenceKey(l.description).includes(sid) || referenceKey(l.reference).includes(sid)),
       });
       continue;
     }

@@ -5,13 +5,23 @@ import { api, apiBlob, enc } from '@/lib/client/api';
 import { downloadCsv } from '@/lib/client/csv';
 import { inDays, splitList, when } from '@/lib/client/format';
 import { sha256Hex } from '@/lib/client/sha256';
-import { STATEMENT_BATCH, formatAmount } from '@/lib/fees/match';
+import { STATEMENT_BATCH, certificateFileName, formatAmount } from '@/lib/fees/match';
 import { guessColumns, readStatement, statementLines, type Columns, type Grid } from '@/lib/fees/statement';
 import { ownerDownload, useLoad, useWs } from './context';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Receipt processing (docs/receipt-processing.md): students claim bank payments through a fee desk; finance matches them against
-// the bank statement (read on this device) and issues verified clearance certificates.
+// Receipt processing (docs/receipt-processing.md): payers (students by default; customers, members, tenants or anyone
+// else) claim bank payments through a receipt desk; finance matches them against the bank statement (read on this
+// device) and issues verified certificates.
+
+/** Who pays: sets what payers identify themselves with and what the certificate is called. Students come first. */
+const PAYERS: Array<{ key: string; label: string; idLabel: string | null; certificate: string }> = [
+  { key: 'students', label: 'Students paying fees', idLabel: 'Student ID', certificate: 'Fee clearance certificate' },
+  { key: 'customers', label: 'Customers paying invoices', idLabel: 'Customer or invoice number', certificate: 'Payment confirmation' },
+  { key: 'members', label: 'Members paying dues', idLabel: 'Member ID', certificate: 'Membership payment confirmation' },
+  { key: 'tenants', label: 'Tenants paying rent', idLabel: 'Unit or tenancy number', certificate: 'Rent payment confirmation' },
+  { key: 'other', label: 'Someone else', idLabel: null, certificate: 'Payment confirmation' },
+];
 
 const CERTIFICATE_BATCH = 50;
 const REJECT_REASONS: Array<[string, string]> = [
@@ -55,11 +65,11 @@ function FeeDeskList() {
   const available = overview && overview.limits.upload_requests && overview.limits.verified_documents;
   return (
     <>
-      <Panel title="Open a fee desk">
+      <Panel title="Open a receipt desk">
         <p>
-          Students enter their student ID and the details on their bank receipt, and upload a photo of it. You then upload the bank&apos;s statement: payments
-          are matched by reference, amount and date, and each cleared student gets a certificate with a QR code that registry, exams, hostel and library staff
-          can scan.
+          People who paid you at the bank (students paying fees, or customers, members and tenants) enter the details on their bank receipt and upload a photo
+          of it. You then upload the bank&apos;s statement: payments are matched by reference, amount and date, and each confirmed payer gets a certificate with
+          a QR code that anyone can scan. For students, that is a fee clearance certificate that registry, exams, hostel and library staff can check.
         </p>
         {!overview ? (
           <Muted>Loading…</Muted>
@@ -68,12 +78,22 @@ function FeeDeskList() {
         ) : (
           <Form
             fields={[
-              { name: 'title', label: 'What is being cleared', placeholder: '2026/27 first semester tuition' },
+              { name: 'who', label: 'Who pays', type: 'select', options: PAYERS.map((x) => [x.key, x.label]) },
+              {
+                name: 'id_label',
+                label: 'What payers identify themselves with',
+                optional: true,
+                placeholder: 'Registration number',
+                hint: 'Leave empty to ask only for a name.',
+                show: (v) => v.who === 'other',
+              },
+              { name: 'certificate', label: 'Certificate title', value: 'Payment confirmation', show: (v) => v.who === 'other' },
+              { name: 'title', label: 'What is being paid for', placeholder: '2026/27 first semester tuition' },
               {
                 name: 'banks',
-                label: 'Banks students pay into',
+                label: 'Banks payers pay into',
                 placeholder: 'Rokel Commercial Bank, Sierra Leone Commercial Bank',
-                hint: 'Separate bank names with commas. Students choose one; you import each bank’s statement separately.',
+                hint: 'Separate bank names with commas. Payers choose one; you import each bank’s statement separately.',
               },
               {
                 name: 'currency',
@@ -84,7 +104,7 @@ function FeeDeskList() {
                   ['USD', 'US dollars (USD)'],
                 ],
               },
-              { name: 'amount_due', label: 'Fee due', optional: true, placeholder: '1500.00', hint: 'No certificate is issued for a smaller payment.' },
+              { name: 'amount_due', label: 'Amount due', optional: true, placeholder: '1500.00', hint: 'No certificate is issued for a smaller payment.' },
               { name: 'days', label: 'Accept claims for (days)', type: 'number', value: '60', min: 1, max: 366 },
               {
                 name: 'tolerance',
@@ -98,8 +118,10 @@ function FeeDeskList() {
               { name: 'password', label: 'Page password', type: 'password', optional: true, autoComplete: 'new-password' },
               { name: 'notify', label: 'Email me when a claim arrives', type: 'checkbox' },
             ]}
-            submit="Open fee desk"
+            submit="Open receipt desk"
             onSubmit={async (f) => {
+              const who = PAYERS.find((x) => x.key === f.who) ?? PAYERS[0]!;
+              const custom = who.key === 'other';
               const banks = splitList(f.banks);
               if (!banks.length) throw new Error('List at least one bank.');
               const d = await api(`${P}/fee-desks`, {
@@ -107,6 +129,8 @@ function FeeDeskList() {
                   title: f.title,
                   banks,
                   currency: f.currency,
+                  payer_id_label: custom ? f.id_label || null : who.idLabel,
+                  certificate_title: custom ? f.certificate || who.certificate : who.certificate,
                   ...(f.amount_due ? { amount_due: f.amount_due } : {}),
                   deadline: inDays(f.days || 60),
                   date_tolerance_days: Number(f.tolerance || 3),
@@ -119,7 +143,7 @@ function FeeDeskList() {
           />
         )}
       </Panel>
-      <Panel title="Fee desks">
+      <Panel title="Receipt desks">
         {error ? (
           <p role="alert">{error.message}</p>
         ) : !data ? (
@@ -137,7 +161,7 @@ function FeeDeskList() {
             ])}
           />
         ) : (
-          <Empty>No fee desks yet.</Empty>
+          <Empty>No receipt desks yet.</Empty>
         )}
       </Panel>
     </>
@@ -158,16 +182,18 @@ function FeeDesk({ id }: { id: string }) {
     return (d?.claims ?? []).filter(
       (c: any) =>
         (filter === 'all' || (filter === 'open' ? c.status === 'submitted' || c.status === 'matched' : c.status === filter)) &&
-        (!term || [c.student_name, c.student_id, c.reference].some((s: string) => s.toLowerCase().includes(term))),
+        (!term || [c.payer_name, c.payer_id ?? '', c.reference].some((s: string) => s.toLowerCase().includes(term))),
     );
   }, [d, filter, q]);
-  if (error) return <Panel title="Fee desk">{error.message}</Panel>;
+  if (error) return <Panel title="Receipt desk">{error.message}</Panel>;
   if (!d) return <Muted>Loading…</Muted>;
   const money = (n: number) => formatAmount(n, d.currency);
+  const idLabel: string = d.payer_id_label ?? 'ID';
   const matched = d.claims.filter((c: any) => c.status === 'matched' && (d.amount_due === null || c.amount >= d.amount_due));
 
   const issueAll = async () => {
-    if (!confirmAction(`Issue ${matched.length} clearance certificate${matched.length === 1 ? '' : 's'}? Each one is public at its QR code.`)) return;
+    if (!confirmAction(`Issue ${matched.length} certificate${matched.length === 1 ? '' : 's'} (${d.certificate_title})? Each one is public at its QR code.`))
+      return;
     let done = 0;
     const skipped: string[] = [];
     for (let i = 0; i < matched.length; i += CERTIFICATE_BATCH) {
@@ -186,16 +212,18 @@ function FeeDesk({ id }: { id: string }) {
         title={d.title}
         actions={
           <Button kind="ghost" onClick={() => go('fees')}>
-            ← All fee desks
+            ← All receipt desks
           </Button>
         }
       >
-        <CopyField value={d.request.url} label="Link for students" />
+        <CopyField value={d.request.url} label="Link for payers" />
         <Details
           items={[
             ['Accepting claims', d.request.accepting ? `Yes, until ${when(d.request.deadline)}` : 'No'],
             ['Banks', d.banks.join(', ')],
-            ['Fee due', d.amount_due === null ? 'Any amount' : money(d.amount_due)],
+            ['Payers give', d.payer_id_label ? `Name and ${d.payer_id_label}` : 'Name only'],
+            ['Certificate', d.certificate_title],
+            ['Amount due', d.amount_due === null ? 'Any amount' : money(d.amount_due)],
             ['Statement date may differ by', `${d.date_tolerance_days} day${d.date_tolerance_days === 1 ? '' : 's'}`],
             ['Claims', `${d.counts.submitted} waiting · ${d.counts.matched} confirmed · ${d.counts.cleared} cleared · ${d.counts.rejected} rejected`],
           ]}
@@ -210,7 +238,7 @@ function FeeDesk({ id }: { id: string }) {
       </Panel>
       {!d.claims_visible ? (
         <Panel title="Claims">
-          <p className="muted">Only the person who opened this desk and the workspace owners and admins can see students&apos; payments.</p>
+          <p className="muted">Only the person who opened this desk and the workspace owners and admins can see payers&apos; claims.</p>
         </Panel>
       ) : (
         <>
@@ -222,10 +250,10 @@ function FeeDesk({ id }: { id: string }) {
                 <Button
                   onClick={() =>
                     downloadCsv(`${d.title.replace(/[^A-Za-z0-9]+/g, '-')}-claims.csv`, [
-                      ['Student name', 'Student ID', 'Bank', 'Reference', 'Amount', 'Paid on', 'Status', 'Confirmed by', 'Certificate code', 'Submitted'],
+                      ['Name', idLabel, 'Bank', 'Reference', 'Amount', 'Paid on', 'Status', 'Confirmed by', 'Certificate code', 'Submitted'],
                       ...d.claims.map((c: any) => [
-                        c.student_name,
-                        c.student_id,
+                        c.payer_name,
+                        c.payer_id ?? '',
                         c.bank,
                         c.reference,
                         (c.amount / 100).toFixed(2),
@@ -261,18 +289,18 @@ function FeeDesk({ id }: { id: string }) {
               </label>
               <label htmlFor="fee-q">
                 <span>Search</span>
-                <input id="fee-q" value={q} placeholder="Name, student ID or reference" onChange={(e) => setQ(e.target.value)} />
+                <input id="fee-q" value={q} placeholder={`Name, ${idLabel} or reference`} onChange={(e) => setQ(e.target.value)} />
               </label>
             </div>
-            <p className="muted">Names, student IDs and receipts are entered by students. Only the bank statement confirms a payment.</p>
+            <p className="muted">Names, IDs and receipts are entered by the payers. Only the bank statement confirms a payment.</p>
             {claims.length ? (
               <Table
-                head={['Student', 'Payment', 'Receipt', 'Status', '']}
+                head={['Paid by', 'Payment', 'Receipt', 'Status', '']}
                 rows={claims.map((c: any) => [
                   <span key="s">
-                    <strong>{c.student_name}</strong>
+                    <strong>{c.payer_name}</strong>
                     <br />
-                    <span className="muted small">{c.student_id}</span>
+                    <span className="muted small">{c.payer_id}</span>
                   </span>,
                   <span key="p">
                     {money(c.amount)} · {c.paid_on}
@@ -301,7 +329,7 @@ function FeeDesk({ id }: { id: string }) {
                     <span className="muted small">
                       {c.status === 'matched' || c.status === 'cleared'
                         ? c.match_method === 'statement'
-                          ? `On ${c.statement_line.file_name}, ${c.statement_line.date}${c.statement_line.student_id_found ? ', with the student ID' : ''}`
+                          ? `On ${c.statement_line.file_name}, ${c.statement_line.date}${c.statement_line.payer_id_found ? `, with the ${idLabel}` : ''}`
                           : `Confirmed by hand: ${c.match_note}`
                         : c.status === 'rejected'
                           ? (REJECT_REASONS.find(([k]) => k === c.rejection_reason)?.[1] ?? '')
@@ -320,7 +348,7 @@ function FeeDesk({ id }: { id: string }) {
                         <Button
                           onClick={async () =>
                             save(
-                              `fee-clearance-${c.student_id.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`,
+                              certificateFileName(d.certificate_title, c.payer_id ?? c.payer_name),
                               await apiBlob(`${P}/fee-claims/${enc(c.id)}/certificate`),
                             )
                           }
@@ -336,7 +364,7 @@ function FeeDesk({ id }: { id: string }) {
                 ])}
               />
             ) : (
-              <Empty>{d.claims.length ? 'No claims match.' : 'No claims yet. Share the link for students.'}</Empty>
+              <Empty>{d.claims.length ? 'No claims match.' : 'No claims yet. Share the link with the people who pay you.'}</Empty>
             )}
           </Panel>
         </>
@@ -345,7 +373,7 @@ function FeeDesk({ id }: { id: string }) {
         {approving && (
           <>
             <p>
-              Confirm the payment of <strong>{money(approving.amount)}</strong> by {approving.student_name} ({approving.bank}, {approving.reference}) only after
+              Confirm the payment of <strong>{money(approving.amount)}</strong> by {approving.payer_name} ({approving.bank}, {approving.reference}) only after
               checking it with the bank, for example in its online portal. Your note is kept in the audit log and the certificate says the finance office
               confirmed it.
             </p>
@@ -365,13 +393,13 @@ function FeeDesk({ id }: { id: string }) {
         {rejecting && (
           <>
             <p>
-              Rejecting {rejecting.student_name}&apos;s claim is final. The student sees the reason on their status page, and the bank reference can be claimed
+              Rejecting {rejecting.payer_name}&apos;s claim is final. The payer sees the reason on their status page, and the bank reference can be claimed
               again, for example by the person who really paid.
             </p>
             <Form
               fields={[
                 { name: 'reason', label: 'Reason', type: 'select', options: REJECT_REASONS },
-                { name: 'message', label: 'Message to the student', type: 'textarea', optional: true },
+                { name: 'message', label: 'Message to the payer', type: 'textarea', optional: true },
               ]}
               submit="Reject claim"
               kind="danger"
@@ -468,7 +496,7 @@ function StatementImport({ desk, base, onDone }: { desk: any; base: string; onDo
     <Panel title="Match a bank statement">
       <p className="muted">
         Download the account statement from the bank as CSV or Excel (.xlsx). It is read on this device: only credit lines are sent to be matched, and only the
-        lines that confirm a payment are kept, on the student&apos;s claim.
+        lines that confirm a payment are kept, on the payer&apos;s claim.
       </p>
       <div className="form">
         <label htmlFor="st-file">

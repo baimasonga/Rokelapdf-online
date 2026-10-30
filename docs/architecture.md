@@ -48,7 +48,7 @@ tables — `share_documents`, `share_versions`, `share_blobs` (every stored obje
 (aggregate analytics), `share_notifications`, `share_usage` (quotas), `share_jobs`, `share_brands`, `share_domains`,
 `abuse_reports`, `share_attempts` (password-guess throttling), `verified_documents` (QR-verified PDFs: code, published
 details and the stamped file's SHA-256; never deleted, see [verified-documents.md](verified-documents.md)), `fee_desks` and
-`fee_claims` (receipt processing: students' declared bank payments, statement matches and certificates; never deleted, see
+`fee_claims` (receipt processing: payers' declared bank payments, statement matches and certificates; never deleted, see
 [receipt-processing.md](receipt-processing.md)).
 
 ## Documents, versions and links

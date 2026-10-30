@@ -21,7 +21,7 @@ and downloads use short-lived signed URLs directly against R2.
 - [Deploying on Supabase + Cloudflare R2 + Railway](docs/deploy.md) — step by step, with a first-deploy checklist
 - [Security model](docs/security.md) — trust boundaries, controls, honest limits, retention
 - [Cost model and phased plan](docs/plan.md)
-- [Verified documents](docs/verified-documents.md) and [receipt processing](docs/receipt-processing.md) (university fee clearance)
+- [Verified documents](docs/verified-documents.md) and [receipt processing](docs/receipt-processing.md) (bank receipts; university fee clearance by default)
 
 ## Development
 

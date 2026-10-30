@@ -456,6 +456,8 @@ export function buildRouter(): Router {
         deadline: new Date(b.deadline),
         banks: b.banks,
         currency: b.currency,
+        payerIdLabel: b.payer_id_label,
+        certificateTitle: b.certificate_title,
         amountDue: b.amount_due,
         dateToleranceDays: b.date_tolerance_days,
         password: b.password,
@@ -520,7 +522,7 @@ export function buildRouter(): Router {
     const { code } = parse(s.shortCodeParams, x.params);
     return sh(x).unlockShortLink(x.req.headers.get('host') ?? undefined, code, parse(s.shortUnlockBody, await x.body()), await x.publicCtx());
   });
-  // A student's own fee claim, through the private status link they received (the secret travels in a header).
+  // A payer's own claim, through the private status link they received (the secret travels in a header).
   const claimSecret = (x: Ctx) => (x.req.headers.get('x-claim-secret') ?? '').slice(0, 100);
   r.add('GET', '/api/v1/public/fee-claims/status', 'public', async (x) => sh(x).feeClaimStatus(claimSecret(x)));
   r.add('GET', '/api/v1/public/fee-claims/certificate', 'public', async (x) => pdfResponse(await sh(x).feeClaimCertificate(claimSecret(x))));
@@ -529,7 +531,7 @@ export function buildRouter(): Router {
   r.add('POST', `${R}/submissions`, 'public', async (x) => {
     const b = parse(s.submissionStartBody, await x.body());
     const p = b.payment;
-    const payment = p && { studentId: p.student_id, bank: p.bank, reference: p.reference, amount: p.amount, paidOn: p.paid_on };
+    const payment = p && { payerId: p.payer_id, bank: p.bank, reference: p.reference, amount: p.amount, paidOn: p.paid_on };
     return created(await sh(x).startSubmission(tok(x), { grant: b.grant, name: b.name, email: b.email, payment }, await x.publicCtx()));
   });
   r.add('GET', `${R}/submission`, 'public', async (x) => sh(x).submissionStatus(tok(x), secret(x)));
