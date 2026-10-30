@@ -1,6 +1,8 @@
 import type { Mailer } from '../mail';
 import { inviteEmailHtml, shareEmailHtml } from '../share-email';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { buildFeeCertificate, type FeeCertificateFacts } from '../../fees/certificate';
+import { FEE_CURRENCIES, STATEMENT_BATCH, formatAmount, isIsoDate, matchStatement, parseAmount, referenceKey, type StatementLine } from '../../fees/match';
 import { newId } from '../kernel';
 import { DomainError, type Clock, type UserPrincipal } from '../kernel';
 import type {
@@ -11,6 +13,8 @@ import type {
   DomainRow,
   EventKind,
   EventRow,
+  FeeClaimRow,
+  FeeDeskRow,
   JobRow,
   LinkRow,
   Requirement,
@@ -25,6 +29,7 @@ import type {
   VerifiedDocumentRow,
   VersionRow,
 } from './model';
+import { FEE_REJECTION_REASONS } from './model';
 import {
   DOCUMENT_EXTS,
   FILE_KINDS,
@@ -133,6 +138,24 @@ export interface SharingDeps {
   organization?: (orgId: string) => Promise<{ name: string; kind: 'personal' | 'team' } | undefined>;
 }
 
+export interface UploadRequestInput {
+  title: string;
+  instructions?: string | undefined;
+  requirements: Array<{
+    key: string;
+    label: string;
+    accept?: string[] | undefined;
+    required?: boolean | undefined;
+    maxFiles?: number | undefined;
+  }>;
+  deadline: Date;
+  maxFileBytes: number;
+  maxTotalBytes: number;
+  password?: string | undefined;
+  notify?: boolean | undefined;
+  retentionDays?: number | null | undefined;
+}
+
 /** Request facts for public endpoints. Only coarse, non-identifying attributes are ever stored. */
 export interface PublicContext {
   principal?: UserPrincipal | undefined;
@@ -149,6 +172,25 @@ const VERIFICATION_RESERVED_LABELS = new Set(['document', 'issuedby', 'issuer', 
 const VERIFICATION_RESERVATION_MS = 60 * 60 * 1000;
 export const VERIFICATION_REVOCATION_REASONS = ['issued_in_error', 'superseded', 'payment_reversed', 'fraud_suspected', 'other'] as const;
 const invalid = (m: string) => new DomainError('invalid_request', m);
+const duplicatePayment = () => new DomainError('conflict', 'This bank payment has already been submitted. If it is your payment, contact the finance office.');
+/** Certificates issued per request (each is a PDF built on the server). */
+const FEE_CERTIFICATE_BATCH = 50;
+const FEE_RECEIPT_TYPES = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'pdf'];
+const FEE_REASON_TEXT: Record<(typeof FEE_REJECTION_REASONS)[number], string> = {
+  not_on_statement: 'The payment was not found on the bank statement.',
+  amount_differs: 'The amount does not match the bank statement.',
+  duplicate: 'This payment was already used for another claim.',
+  unreadable_receipt: 'The bank receipt could not be read.',
+  other: 'The finance office could not confirm this payment.',
+};
+
+export interface FeePaymentInput {
+  studentId: string;
+  bank: string;
+  reference: string;
+  amount: string;
+  paidOn: string;
+}
 const quota = (what: string) => new DomainError('quota_exceeded', `${what} limit reached for this plan`);
 const unavailable = (state: string) => new DomainError('link_unavailable', 'this link is no longer available', { state });
 
@@ -2361,26 +2403,16 @@ export class SharingService {
     return `${this.#c.publicOrigin}/r/${this.#d.keys.token('request', r.id, r.salt)}`;
   }
 
-  async createUploadRequest(
+  createUploadRequest(p: UserPrincipal, orgId: string, input: UploadRequestInput) {
+    return this.#createUploadRequest(p, orgId, input);
+  }
+
+  /** `within` runs in the same transaction after the request is inserted (fee desks; docs/fee-clearance.md). */
+  async #createUploadRequest(
     p: UserPrincipal,
     orgId: string,
-    input: {
-      title: string;
-      instructions?: string | undefined;
-      requirements: Array<{
-        key: string;
-        label: string;
-        accept?: string[] | undefined;
-        required?: boolean | undefined;
-        maxFiles?: number | undefined;
-      }>;
-      deadline: Date;
-      maxFileBytes: number;
-      maxTotalBytes: number;
-      password?: string | undefined;
-      notify?: boolean | undefined;
-      retentionDays?: number | null | undefined;
-    },
+    input: UploadRequestInput,
+    within?: (tx: SharingTx, request: UploadRequestRow, ctx: { now: Date; limits: SharingLimits }) => Promise<void>,
   ) {
     const t = title(input.title);
     const instructions = text(input.instructions, 4000, 'instructions');
@@ -2452,6 +2484,7 @@ export class SharingService {
           password: !!passwordHash,
         },
       );
+      await within?.(tx, row, { now, limits });
       return this.#requestView(row, now);
     });
   }
@@ -2628,6 +2661,7 @@ export class SharingService {
       maxFileBytes: r.maxFileBytes,
       maxTotalBytes: r.maxTotalBytes,
       branding: await this.#brand(r.orgId),
+      feeDesk: await this.#publicFeeDesk(r.id),
       grant: this.#d.keys.grant({ k: 'request', s: r.id, u: null, exp }),
       notices: [
         'Your files are visible only to the requester. Other people using this page cannot see them, and you cannot see theirs.',
@@ -2636,7 +2670,11 @@ export class SharingService {
     };
   }
 
-  async startSubmission(token: string, input: { grant: string; name: string; email?: string | undefined }, ctx: PublicContext) {
+  async startSubmission(
+    token: string,
+    input: { grant: string; name: string; email?: string | undefined; payment?: FeePaymentInput | undefined },
+    ctx: PublicContext,
+  ) {
     const r = await this.#requestByToken(token);
     const now = this.#now();
     const claims = this.#d.keys.verifyGrant(input.grant, now.getTime());
@@ -2644,6 +2682,10 @@ export class SharingService {
     this.#requestAccepting(r, now);
     const name = title(input.name, 'name');
     const email = input.email ? normalizeEmail(input.email) : null;
+    const desk = await this.#d.store.findUnique('feeDesk', 'requestId', r.id);
+    if (!desk && input.payment) throw invalid('this request does not take payment details');
+    if (desk && !input.payment) throw invalid('enter the details of your bank payment');
+    const payment = desk ? this.#feePayment(desk, input.payment!, now) : undefined;
     const secret = newSubmissionSecret();
     const sub: SubmissionRow = {
       id: newId('sbm'),
@@ -2658,6 +2700,44 @@ export class SharingService {
     };
     await this.#d.store.transaction(async (tx) => {
       await tx.insert('submission', sub);
+      if (desk && payment) {
+        // Refused early so the student need not upload first; the unique live key decides at submission.
+        if ((await tx.list('feeClaim', r.orgId, { activeKey: payment.activeKey }, { limit: 1 })).length) throw duplicatePayment();
+        await tx.insert('feeClaim', {
+          id: newId('fcl'),
+          orgId: r.orgId,
+          deskId: desk.id,
+          submissionId: sub.id,
+          studentId: payment.studentId,
+          studentName: name,
+          bank: payment.bank,
+          reference: payment.reference,
+          referenceKey: payment.referenceKey,
+          activeKey: null,
+          amount: payment.amount,
+          paidOn: payment.paidOn,
+          status: 'draft',
+          statusSecretHash: null,
+          matchMethod: null,
+          matchNote: null,
+          statementLine: null,
+          statementLineKey: null,
+          matchIssue: null,
+          matchedAt: null,
+          matchedBy: null,
+          rejectionReason: null,
+          rejectionMessage: null,
+          rejectedAt: null,
+          rejectedBy: null,
+          verifiedDocumentId: null,
+          certificate: null,
+          clearedAt: null,
+          clearedBy: null,
+          createdAt: now,
+          submittedAt: null,
+          updatedAt: now,
+        });
+      }
       await this.#recordEvent(tx, { orgId: r.orgId, subjectType: 'request', subjectId: r.id }, 'upload', ctx, { declaredName: name });
     });
     return { submissionId: sub.id, submissionSecret: secret };
@@ -2807,6 +2887,7 @@ export class SharingService {
         .map((q) => q.key);
       if (missing.length) throw new DomainError('conflict', 'required files are missing', { missing });
       await tx.update('submission', r.orgId, sub.id, { status: 'submitted', submittedAt: now });
+      const fee = await this.#submitFeeClaim(tx, r.orgId, sub.id, now);
       await this.#recordEvent(tx, { orgId: r.orgId, subjectType: 'request', subjectId: r.id }, 'submitted', ctx, { declaredName: sub.submitterName });
       await this.#audit(
         tx,
@@ -2825,7 +2906,7 @@ export class SharingService {
         `${sub.submitterName} (unverified name) sent ${files.length} file(s) to your upload request "${r.title}".`,
         r.notify,
       );
-      return { submissionId: sub.id, status: 'submitted' as const, submittedAt: now };
+      return { submissionId: sub.id, status: 'submitted' as const, submittedAt: now, ...(fee ? { feeStatusUrl: fee } : {}) };
     });
   }
 
@@ -3210,6 +3291,471 @@ export class SharingService {
       revokedAt: v.revokedAt,
       revocationReason: v.revocationReason,
     };
+  }
+
+  // =============================================================================================
+  // Fee clearance (docs/fee-clearance.md)
+  // =============================================================================================
+
+  /** Validates a student's declared payment against the desk. */
+  #feePayment(desk: FeeDeskRow, input: FeePaymentInput, now: Date) {
+    const studentId = text(input.studentId, 60, 'student ID');
+    if (!studentId) throw invalid('student ID is required');
+    const bank = desk.banks.find((b) => b === input.bank);
+    if (!bank) throw invalid('choose one of the listed banks');
+    const reference = text(input.reference, 60, 'bank reference');
+    const key = referenceKey(reference ?? '');
+    if (!reference || key.length < 4) throw invalid('enter the transaction reference printed on your bank receipt');
+    const amount = parseAmount(String(input.amount ?? ''));
+    if (amount === undefined || amount <= 0) throw invalid('enter the amount you paid, for example 1500.00');
+    const paidOn = String(input.paidOn ?? '');
+    if (!isIsoDate(paidOn)) throw invalid('enter the payment date');
+    if (paidOn > now.toISOString().slice(0, 10)) throw invalid('the payment date cannot be in the future');
+    return { studentId, bank, reference, referenceKey: key, amount, paidOn, activeKey: `${bank}|${key}` };
+  }
+
+  /** On submission, a fee claim becomes live and its student gets a private status link. */
+  async #submitFeeClaim(tx: SharingTx, orgId: string, submissionId: string, now: Date): Promise<string | undefined> {
+    const claim = await tx.findUnique('feeClaim', 'submissionId', submissionId);
+    if (!claim) return undefined;
+    const activeKey = `${claim.bank}|${claim.referenceKey}`;
+    if ((await tx.list('feeClaim', orgId, { activeKey }, { limit: 1 })).length) throw duplicatePayment();
+    const secret = `fcs_${randomBytes(32).toString('base64url')}`;
+    try {
+      await tx.update('feeClaim', orgId, claim.id, { status: 'submitted', activeKey, statusSecretHash: tokenHash(secret), submittedAt: now, updatedAt: now });
+    } catch (e) {
+      if (e instanceof Error && e.message === 'duplicate:feeClaim') throw duplicatePayment();
+      throw e;
+    }
+    await this.#audit(tx, { type: 'anonymous' }, orgId, 'fee.claim.submitted', { type: 'fee_claim', id: claim.id }, { desk_id: claim.deskId });
+    // The secret is in the fragment, so it never reaches server logs or other sites.
+    return `${this.#c.publicOrigin}/fees/status#${secret}`;
+  }
+
+  async #publicFeeDesk(requestId: string) {
+    const d = await this.#d.store.findUnique('feeDesk', 'requestId', requestId);
+    return d ? { institution: d.institution, banks: d.banks, currency: d.currency, amountDue: d.amountDue } : null;
+  }
+
+  #feeDeskView(d: FeeDeskRow, r: UploadRequestRow, now: Date, claims?: FeeClaimRow[]) {
+    const counts = { submitted: 0, matched: 0, cleared: 0, rejected: 0 };
+    for (const c of claims ?? []) if (c.status !== 'draft') counts[c.status]++;
+    return {
+      id: d.id,
+      title: d.title,
+      institution: d.institution,
+      banks: d.banks,
+      currency: d.currency,
+      amountDue: d.amountDue,
+      dateToleranceDays: d.dateToleranceDays,
+      createdBy: d.createdBy,
+      createdAt: d.createdAt,
+      request: this.#requestView(r, now),
+      ...(claims ? { counts } : {}),
+    };
+  }
+
+  /** A desk stays reachable after its upload request is deleted: claims and certificates outlive the receipt photos. */
+  async #feeDesk(orgId: string, id: string, tx: SharingRepo = this.#d.store) {
+    const d = await tx.get('feeDesk', orgId, id);
+    const r = d && (await tx.get('uploadRequest', orgId, d.requestId));
+    if (!d || !r) throw notFound();
+    return { d, r };
+  }
+
+  /** A fee desk: an upload request for bank payment claims, from a team workspace that can issue verified documents. */
+  async createFeeDesk(
+    p: UserPrincipal,
+    orgId: string,
+    input: {
+      title: string;
+      instructions?: string | undefined;
+      deadline: Date;
+      banks: string[];
+      currency: string;
+      amountDue?: string | undefined;
+      dateToleranceDays?: number | undefined;
+      password?: string | undefined;
+      notify?: boolean | undefined;
+      retentionDays?: number | null | undefined;
+    },
+  ) {
+    const banks = [...new Set(input.banks.map((b) => text(b, 100, 'bank name')).filter((b): b is string => !!b))];
+    if (!banks.length || banks.length > 20) throw invalid('list 1–20 banks students can pay into');
+    if (banks.some((b) => b.includes('|'))) throw invalid('bank names cannot contain "|"');
+    if (!(FEE_CURRENCIES as readonly string[]).includes(input.currency)) throw invalid('unknown currency');
+    const amountDue = input.amountDue ? parseAmount(input.amountDue) : null;
+    if (amountDue !== null && (amountDue === undefined || amountDue <= 0)) throw invalid('the amount due must be a positive amount');
+    const tolerance = input.dateToleranceDays ?? 3;
+    if (!Number.isInteger(tolerance) || tolerance < 0 || tolerance > 31) throw invalid('the date tolerance must be 0–31 days');
+    await this.#d.authorize(p, orgId, 'share:create');
+    const limits = await this.limits(orgId);
+    if (!limits.verifiedDocuments) throw new DomainError('forbidden', 'fee clearance needs verified documents in this plan');
+    const org = await this.#d.organization?.(orgId);
+    if (!org) throw notFound();
+    if (org.kind !== 'team') throw new DomainError('forbidden', 'fee clearance runs from a team workspace');
+    const fileBytes = Math.min(limits.maxFileBytes, 15 * 1024 * 1024);
+    let desk: FeeDeskRow | undefined;
+    const request = await this.#createUploadRequest(
+      p,
+      orgId,
+      {
+        title: input.title,
+        instructions:
+          input.instructions ??
+          'Enter your student ID and the details printed on your bank receipt, then upload a clear photo or scan of the receipt. The finance office checks every payment against the bank statement before issuing your clearance certificate.',
+        requirements: [{ key: 'receipt', label: 'Photo or scan of your bank receipt', accept: FEE_RECEIPT_TYPES, required: true, maxFiles: 2 }],
+        deadline: input.deadline,
+        maxFileBytes: fileBytes,
+        maxTotalBytes: fileBytes * 2,
+        password: input.password,
+        notify: input.notify,
+        retentionDays: input.retentionDays,
+      },
+      async (tx, r, { now }) => {
+        desk = {
+          id: newId('fdsk'),
+          orgId,
+          requestId: r.id,
+          title: r.title,
+          institution: org.name,
+          banks,
+          currency: input.currency as FeeDeskRow['currency'],
+          amountDue,
+          dateToleranceDays: tolerance,
+          createdBy: p.userId,
+          createdAt: now,
+        };
+        await tx.insert('feeDesk', desk);
+        await this.#audit(
+          tx,
+          { type: 'user', id: p.userId },
+          orgId,
+          'fee.desk.created',
+          { type: 'fee_desk', id: desk.id },
+          { request_id: r.id, banks: banks.length },
+        );
+      },
+    );
+    const r = (await this.#d.store.get('uploadRequest', orgId, request.id))!;
+    return this.#feeDeskView(desk!, r, this.#now(), []);
+  }
+
+  async listFeeDesks(p: UserPrincipal, orgId: string) {
+    await this.#d.authorize(p, orgId, 'share:read');
+    const now = this.#now();
+    const out = [];
+    for (const d of await this.#d.store.list('feeDesk', orgId, {}, { limit: 200 })) {
+      const r = await this.#d.store.get('uploadRequest', orgId, d.requestId);
+      if (r) out.push(this.#feeDeskView(d, r, now));
+    }
+    return out;
+  }
+
+  #feeClaimView(c: FeeClaimRow, cert?: VerifiedDocumentRow) {
+    return {
+      id: c.id,
+      submissionId: c.submissionId,
+      studentId: c.studentId,
+      studentName: c.studentName,
+      bank: c.bank,
+      reference: c.reference,
+      amount: c.amount,
+      paidOn: c.paidOn,
+      status: c.status,
+      matchMethod: c.matchMethod,
+      matchNote: c.matchNote,
+      statementLine: c.statementLine,
+      matchIssue: c.matchIssue,
+      matchedAt: c.matchedAt,
+      rejectionReason: c.rejectionReason,
+      rejectionMessage: c.rejectionMessage,
+      rejectedAt: c.rejectedAt,
+      certificate: c.certificate
+        ? { code: c.certificate.code, url: c.certificate.url, status: cert?.status ?? 'active', revocationReason: cert?.revocationReason ?? null }
+        : null,
+      clearedAt: c.clearedAt,
+      submittedAt: c.submittedAt,
+    };
+  }
+
+  /** The desk with its claims and receipt files: for the desk's creator and the workspace's owners and admins only. */
+  async getFeeDesk(p: UserPrincipal, orgId: string, id: string) {
+    await this.#d.authorize(p, orgId, 'share:read');
+    const { d, r } = await this.#feeDesk(orgId, id);
+    const s = this.#d.store;
+    const all = (await s.list('feeClaim', orgId, { deskId: id }, { limit: 10_000 })).filter((c) => c.status !== 'draft');
+    const view = this.#feeDeskView(d, r, this.#now(), all);
+    if (!(await this.#isManager(p, orgId, d.createdBy))) return { ...view, claimsVisible: false, claims: [] };
+    const files = await s.list('submissionFile', orgId, { requestId: r.id, status: 'current' }, { limit: 10_000, order: 'oldest' });
+    const certs = new Map<string, VerifiedDocumentRow>();
+    for (const c of all)
+      if (c.verifiedDocumentId) {
+        const v = await s.get('verifiedDocument', orgId, c.verifiedDocumentId);
+        if (v) certs.set(v.id, v);
+      }
+    const claims = [];
+    for (const c of all) {
+      const receipts = [];
+      for (const f of files.filter((x) => x.submissionId === c.submissionId)) {
+        const b = await s.get('blob', orgId, f.blobId);
+        receipts.push({ id: f.id, name: f.name, size: f.size, status: fileStatus(b?.status ?? 'deleted') });
+      }
+      claims.push({ ...this.#feeClaimView(c, c.verifiedDocumentId ? certs.get(c.verifiedDocumentId) : undefined), receipts });
+    }
+    return { ...view, claimsVisible: true, claims };
+  }
+
+  async #requireDeskManager(p: UserPrincipal, orgId: string, d: FeeDeskRow) {
+    await this.#requireManager(p, orgId, d.createdBy);
+  }
+
+  /**
+   * Matches the desk's submitted claims for `bank` against credit lines of that bank's statement, read on the finance
+   * officer's device. Only matching lines are kept (on their claims); the rest of the statement is not stored.
+   */
+  async importFeeStatement(
+    p: UserPrincipal,
+    orgId: string,
+    deskId: string,
+    input: { bank: string; fileName: string; fileSha256: string; lines: StatementLine[] },
+  ) {
+    if (!Array.isArray(input.lines) || input.lines.length > STATEMENT_BATCH) throw invalid(`send at most ${STATEMENT_BATCH} statement lines at a time`);
+    const fileName = title(input.fileName, 'file name');
+    const fileSha256 = String(input.fileSha256 ?? '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(fileSha256)) throw invalid('fileSha256 must be 64 hexadecimal characters');
+    const lines = input.lines.map((l, i) => {
+      if (!isIsoDate(String(l.date)) || !Number.isSafeInteger(l.amount) || l.amount <= 0 || l.amount > 1e13)
+        throw invalid(`statement line ${i + 1} is invalid`);
+      return {
+        date: l.date,
+        amount: l.amount,
+        reference: text(l.reference, 120, 'reference') ?? '',
+        description: text(l.description, 140, 'description') ?? '',
+      };
+    });
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
+      const { d } = await this.#feeDesk(orgId, deskId, tx);
+      await this.#requireDeskManager(p, orgId, d);
+      if (!d.banks.includes(input.bank)) throw invalid('choose one of the desk’s banks');
+      const claims = await tx.list('feeClaim', orgId, { deskId }, { limit: 10_000 });
+      const usedKeys = new Set(claims.map((c) => c.statementLineKey).filter(Boolean));
+      const keys = lines.map((l) =>
+        createHash('sha256')
+          .update(`${input.bank}\n${l.date}\n${l.amount}\n${referenceKey(l.reference)}\n${referenceKey(l.description)}`)
+          .digest('hex'),
+      );
+      const used = new Set(keys.flatMap((k, i) => (usedKeys.has(k) ? [i] : [])));
+      const open = claims.filter((c) => c.status === 'submitted' && c.bank === input.bank);
+      const result = matchStatement(open, lines, d.dateToleranceDays, d.currency, used);
+      const byId = new Map(open.map((c) => [c.id, c]));
+      for (const m of result.matches) {
+        const l = lines[m.line]!;
+        await tx.update('feeClaim', orgId, m.claimId, {
+          status: 'matched',
+          matchMethod: 'statement',
+          statementLine: { ...l, fileName, fileSha256, studentIdFound: m.studentIdFound },
+          statementLineKey: keys[m.line]!,
+          matchIssue: null,
+          matchedAt: now,
+          matchedBy: p.userId,
+          updatedAt: now,
+        });
+      }
+      for (const x of result.issues)
+        if (byId.get(x.claimId)?.matchIssue !== x.issue) await tx.update('feeClaim', orgId, x.claimId, { matchIssue: x.issue, updatedAt: now });
+      await this.#audit(
+        tx,
+        { type: 'user', id: p.userId },
+        orgId,
+        'fee.statement.imported',
+        { type: 'fee_desk', id: deskId },
+        { bank: input.bank, file_sha256: fileSha256, lines: lines.length, matched: result.matches.length, issues: result.issues.length },
+      );
+      return {
+        lines: lines.length,
+        matched: result.matches.map((m) => ({ claimId: m.claimId, studentIdFound: m.studentIdFound })),
+        issues: result.issues,
+        stillOpen: open.length - result.matches.length,
+      };
+    });
+  }
+
+  async #claimForDecision(p: UserPrincipal, orgId: string, tx: SharingTx, id: string) {
+    const c = await tx.getForUpdate('feeClaim', orgId, id);
+    if (!c || c.status === 'draft') throw notFound();
+    const { d } = await this.#feeDesk(orgId, c.deskId, tx);
+    await this.#requireDeskManager(p, orgId, d);
+    return { c, d };
+  }
+
+  /** Confirms a payment checked another way (for example in the bank's portal). The note is kept for audit. */
+  async approveFeeClaim(p: UserPrincipal, orgId: string, id: string, input: { note: string }) {
+    const note = text(input.note, 500, 'note');
+    if (!note || note.length < 3) throw invalid('say how you confirmed this payment');
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
+      const { c } = await this.#claimForDecision(p, orgId, tx, id);
+      if (c.status !== 'submitted') throw new DomainError('conflict', `this claim is already ${c.status}`);
+      const patch: Partial<FeeClaimRow> = { status: 'matched', matchMethod: 'manual', matchNote: note, matchedAt: now, matchedBy: p.userId, updatedAt: now };
+      await tx.update('feeClaim', orgId, id, patch);
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'fee.claim.approved', { type: 'fee_claim', id }, undefined, note);
+      return this.#feeClaimView({ ...c, ...patch });
+    });
+  }
+
+  /** Final. Frees the bank reference (and any statement line) for the real payer's claim. */
+  async rejectFeeClaim(p: UserPrincipal, orgId: string, id: string, input: { reason: (typeof FEE_REJECTION_REASONS)[number]; message?: string | undefined }) {
+    if (!FEE_REJECTION_REASONS.includes(input.reason)) throw invalid('unknown rejection reason');
+    const message = text(input.message, 500, 'message');
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now }) => {
+      const { c } = await this.#claimForDecision(p, orgId, tx, id);
+      if (c.status !== 'submitted' && c.status !== 'matched') throw new DomainError('conflict', `this claim is already ${c.status}`);
+      const patch: Partial<FeeClaimRow> = {
+        status: 'rejected',
+        activeKey: null,
+        statementLineKey: null,
+        rejectionReason: input.reason,
+        rejectionMessage: message,
+        rejectedAt: now,
+        rejectedBy: p.userId,
+        updatedAt: now,
+      };
+      await tx.update('feeClaim', orgId, id, patch);
+      await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'fee.claim.rejected', { type: 'fee_claim', id }, { reason: input.reason });
+      return this.#feeClaimView({ ...c, ...patch });
+    });
+  }
+
+  /**
+   * Issues a verified clearance certificate for each matched claim: the PDF is built here from the recorded facts and
+   * its SHA-256 registered as an active verified document (docs/verified-documents.md).
+   */
+  async issueFeeCertificates(p: UserPrincipal, orgId: string, deskId: string, input: { claimIds: string[] }) {
+    const ids = [...new Set(input.claimIds)];
+    if (!ids.length || ids.length > FEE_CERTIFICATE_BATCH) throw invalid(`issue 1–${FEE_CERTIFICATE_BATCH} certificates at a time`);
+    return this.#mutate(p, orgId, 'share:create', async (tx, { now, limits }) => {
+      if (!limits.verifiedDocuments) throw new DomainError('forbidden', 'verified documents are not included in this plan');
+      const { d } = await this.#feeDesk(orgId, deskId, tx);
+      await this.#requireDeskManager(p, orgId, d);
+      const issued = [];
+      const skipped = [];
+      for (const id of ids) {
+        const c = await tx.getForUpdate('feeClaim', orgId, id);
+        if (!c || c.deskId !== deskId) throw notFound();
+        if (c.status !== 'matched') {
+          skipped.push({ claimId: id, reason: `the claim is ${c.status}, not matched` });
+          continue;
+        }
+        if (d.amountDue !== null && c.amount < d.amountDue) {
+          skipped.push({ claimId: id, reason: `${formatAmount(c.amount, d.currency)} is less than the ${formatAmount(d.amountDue, d.currency)} due` });
+          continue;
+        }
+        const code = verificationCode();
+        const facts: FeeCertificateFacts = {
+          institution: d.institution,
+          title: d.title,
+          studentName: c.studentName,
+          studentId: c.studentId,
+          amount: formatAmount(c.amount, d.currency),
+          paidOn: c.paidOn,
+          bank: c.bank,
+          reference: c.reference,
+          confirmedBy: c.matchMethod === 'statement' ? 'statement' : 'manual',
+          clearedOn: now.toISOString().slice(0, 10),
+          code,
+          url: `${this.#c.publicOrigin}/v/${code}`,
+        };
+        const sha256 = createHash('sha256')
+          .update(await buildFeeCertificate(facts))
+          .digest('hex');
+        const doc: VerifiedDocumentRow = {
+          id: newId('vdoc'),
+          orgId,
+          code,
+          title: `Fee clearance — ${d.title}`.slice(0, 200),
+          details: [
+            { label: 'Student name', value: c.studentName },
+            { label: 'Student ID', value: c.studentId },
+            { label: 'Amount paid', value: facts.amount },
+            { label: 'Payment date', value: c.paidOn },
+            { label: 'Payment confirmed', value: facts.confirmedBy === 'statement' ? 'Against the bank statement' : 'By the finance office' },
+          ],
+          issuerName: d.institution,
+          sha256,
+          status: 'active',
+          createdBy: p.userId,
+          createdAt: now,
+          issuedAt: now,
+          revokedAt: null,
+          revokedBy: null,
+          revocationReason: null,
+        };
+        await tx.insert('verifiedDocument', doc);
+        await tx.update('feeClaim', orgId, id, {
+          status: 'cleared',
+          verifiedDocumentId: doc.id,
+          certificate: facts,
+          clearedAt: now,
+          clearedBy: p.userId,
+          updatedAt: now,
+        });
+        await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'share.verification.issued', { type: 'verified_document', id: doc.id }, { sha256 });
+        await this.#audit(tx, { type: 'user', id: p.userId }, orgId, 'fee.claim.cleared', { type: 'fee_claim', id }, { verified_document_id: doc.id });
+        issued.push({ claimId: id, code, url: facts.url });
+      }
+      return { issued, skipped };
+    });
+  }
+
+  /** Rebuilds a certificate and checks it is byte for byte the one registered. */
+  async #certificatePdf(c: FeeClaimRow) {
+    if (c.status !== 'cleared' || !c.certificate || !c.verifiedDocumentId) throw notFound();
+    const v = await this.#d.store.get('verifiedDocument', c.orgId, c.verifiedDocumentId);
+    const bytes = await buildFeeCertificate(c.certificate);
+    if (!v || createHash('sha256').update(bytes).digest('hex') !== v.sha256)
+      throw new DomainError('conflict', 'this certificate can no longer be reproduced exactly; contact Rokela PDF support');
+    return { bytes, name: `fee-clearance-${c.studentId.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`, revoked: v.status === 'revoked' };
+  }
+
+  async feeCertificate(p: UserPrincipal, orgId: string, id: string) {
+    await this.#d.authorize(p, orgId, 'share:read');
+    const c = await this.#d.store.get('feeClaim', orgId, id);
+    if (!c) throw notFound();
+    const { d } = await this.#feeDesk(orgId, c.deskId);
+    await this.#requireDeskManager(p, orgId, d);
+    return this.#certificatePdf(c);
+  }
+
+  async #claimBySecret(secret: string) {
+    if (!/^fcs_[A-Za-z0-9_-]{43}$/.test(secret)) throw notFound();
+    const c = await this.#d.store.findUnique('feeClaim', 'statusSecretHash', tokenHash(secret));
+    if (!c) throw notFound();
+    return c;
+  }
+
+  /** The student's own claim, through the private link they received on submission. */
+  async feeClaimStatus(secret: string) {
+    const c = await this.#claimBySecret(secret);
+    const d = (await this.#d.store.get('feeDesk', c.orgId, c.deskId))!;
+    const v = c.verifiedDocumentId ? await this.#d.store.get('verifiedDocument', c.orgId, c.verifiedDocumentId) : undefined;
+    return {
+      institution: d.institution,
+      title: d.title,
+      studentName: c.studentName,
+      studentId: c.studentId,
+      bank: c.bank,
+      reference: c.reference,
+      amount: formatAmount(c.amount, d.currency),
+      paidOn: c.paidOn,
+      status: c.status,
+      submittedAt: c.submittedAt,
+      rejection: c.rejectionReason ? { reason: c.rejectionReason, text: FEE_REASON_TEXT[c.rejectionReason], message: c.rejectionMessage } : null,
+      certificate: c.certificate ? { code: c.certificate.code, url: c.certificate.url, status: v?.status ?? 'active', clearedAt: c.clearedAt } : null,
+    };
+  }
+
+  async feeClaimCertificate(secret: string) {
+    return this.#certificatePdf(await this.#claimBySecret(secret));
   }
 
   // =============================================================================================

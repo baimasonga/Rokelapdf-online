@@ -62,7 +62,16 @@ export function Empty({ children, icon: Icon = Inbox, action }: { children: Reac
 }
 export const Muted = ({ children }: { children: ReactNode }) => <p className="muted">{children}</p>;
 
-const BADGE: Record<string, string> = { active: 'ok', available: 'ok', published: 'ok', open: 'ok', approved: 'ok', new: 'info' };
+const BADGE: Record<string, string> = {
+  active: 'ok',
+  available: 'ok',
+  published: 'ok',
+  open: 'ok',
+  approved: 'ok',
+  cleared: 'ok',
+  new: 'info',
+  confirmed: 'info',
+};
 export function Badge({ state }: { state: string }) {
   return <span className={`badge ${BADGE[state] ?? 'off'}`}>{state.replace(/_/g, ' ')}</span>;
 }

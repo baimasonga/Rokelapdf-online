@@ -10,6 +10,7 @@ import {
   FileInput,
   FilePen,
   FileText,
+  GraduationCap,
   History,
   House,
   Link2,
@@ -36,6 +37,7 @@ import { ShareLinks } from './links';
 import { ShortLinks } from './short-links';
 import { SignatureRequests } from './signatures';
 import { VerifiedDocuments } from './verified';
+import { FeeClearance } from './fees';
 import { Requests } from './requests';
 import { Notifications } from './notifications';
 import { Members } from './members';
@@ -56,6 +58,7 @@ const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['members', 'Members', Users, 'Who can work in this team workspace.'],
   ['signatures', 'Request signatures', FilePen, 'Send a fixed PDF for signing and collect the signed copy.'],
   ['verified', 'Verified documents', BadgeCheck, 'Issue PDFs with a QR code anyone can scan to confirm they are genuine.'],
+  ['fees', 'Fee clearance', GraduationCap, 'Match students’ bank payments to the statement and issue clearance certificates.'],
   ['settings', 'Settings', Settings, 'Branding, custom domains and workspace limits.'],
   ['activity', 'Activity', History, 'Audit history and workspace data exports.'],
   ['monitoring', 'Monitoring', Activity, 'Warrior delivery status and backlog.'],
@@ -130,6 +133,7 @@ export function WorkspaceApp() {
     requests: Requests,
     signatures: SignatureRequests,
     verified: VerifiedDocuments,
+    fees: FeeClearance,
     notifications: Notifications,
     members: Members,
     settings: WorkspaceSettings,
