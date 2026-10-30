@@ -1,4 +1,4 @@
--- University fee clearance (docs/fee-clearance.md). A fee desk is an upload request whose submitters are students
+-- University fee clearance (docs/receipt-processing.md). A fee desk is an upload request whose submitters are students
 -- declaring a bank payment (with a photo of the bank receipt); finance matches the claims against the bank's
 -- statement and issues each cleared student a verified clearance certificate. Claims are financial records: never
 -- deleted, the declared payment is frozen once submitted, and clearance and rejection are final.

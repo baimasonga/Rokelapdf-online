@@ -1109,8 +1109,8 @@ async function main() {
     check((await vp.getByText(/^\s*Exact match/).count()) === 0, 'a genuine copy of a revoked document is shown as a warning, not a match');
     await checker.close();
 
-    step('Fee clearance: student claim, statement match, certificate');
-    await p.getByRole('button', { name: 'Fee clearance', exact: true }).click();
+    step('Receipt processing: student claim, statement match, certificate');
+    await p.getByRole('button', { name: 'Receipt processing', exact: true }).click();
     await p.getByLabel('What is being cleared').fill('2026/27 first semester tuition');
     await p.getByLabel('Banks students pay into').fill('Rokel Commercial Bank, Sierra Leone Commercial Bank');
     await p.getByLabel(/^Fee due/).fill('1500');

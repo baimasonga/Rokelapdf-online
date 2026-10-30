@@ -2407,7 +2407,7 @@ export class SharingService {
     return this.#createUploadRequest(p, orgId, input);
   }
 
-  /** `within` runs in the same transaction after the request is inserted (fee desks; docs/fee-clearance.md). */
+  /** `within` runs in the same transaction after the request is inserted (fee desks; docs/receipt-processing.md). */
   async #createUploadRequest(
     p: UserPrincipal,
     orgId: string,
@@ -3294,7 +3294,7 @@ export class SharingService {
   }
 
   // =============================================================================================
-  // Fee clearance (docs/fee-clearance.md)
+  // Fee clearance (docs/receipt-processing.md)
   // =============================================================================================
 
   /** Validates a student's declared payment against the desk. */

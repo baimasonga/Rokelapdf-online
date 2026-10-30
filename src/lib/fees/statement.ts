@@ -1,4 +1,4 @@
-// Reads a bank statement export (CSV or Excel .xlsx) on the finance officer's device (docs/fee-clearance.md). Only the
+// Reads a bank statement export (CSV or Excel .xlsx) on the finance officer's device (docs/receipt-processing.md). Only the
 // credit lines are sent for matching, never the file. Old binary .xls files are not read: save them as .xlsx or CSV.
 import { strFromU8, unzipSync } from 'fflate';
 import { isIsoDate, parseAmount, type StatementLine } from './match';

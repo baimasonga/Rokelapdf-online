@@ -1,4 +1,4 @@
-// Fee clearance certificate (docs/fee-clearance.md). Built on the server from the facts recorded at clearance, so the
+// Fee clearance certificate, issued by receipt processing (docs/receipt-processing.md). Built on the server from the facts recorded at clearance, so the
 // same facts always give the same bytes: the verification record holds this file's SHA-256, and the student's and
 // finance's downloads are rebuilt rather than stored. Changing this layout changes every certificate's bytes; the
 // golden digest in tests/unit/fee-certificate.test.ts makes that a deliberate decision.

@@ -58,7 +58,7 @@ const TABS: Array<[Tab, string, LucideIcon, string]> = [
   ['members', 'Members', Users, 'Who can work in this team workspace.'],
   ['signatures', 'Request signatures', FilePen, 'Send a fixed PDF for signing and collect the signed copy.'],
   ['verified', 'Verified documents', BadgeCheck, 'Issue PDFs with a QR code anyone can scan to confirm they are genuine.'],
-  ['fees', 'Fee clearance', GraduationCap, 'Match students’ bank payments to the statement and issue clearance certificates.'],
+  ['fees', 'Receipt processing', GraduationCap, 'Check students’ bank receipts against the statement and issue clearance certificates.'],
   ['settings', 'Settings', Settings, 'Branding, custom domains and workspace limits.'],
   ['activity', 'Activity', History, 'Audit history and workspace data exports.'],
   ['monitoring', 'Monitoring', Activity, 'Warrior delivery status and backlog.'],

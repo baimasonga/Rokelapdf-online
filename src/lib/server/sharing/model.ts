@@ -346,7 +346,7 @@ export interface VerifiedDocumentRow {
   revocationReason: 'issued_in_error' | 'superseded' | 'payment_reversed' | 'fraud_suspected' | 'other' | null;
 }
 
-/** A fee clearance desk: an upload request for bank payment claims (docs/fee-clearance.md). Never deleted. */
+/** A fee clearance desk: an upload request for bank payment claims (docs/receipt-processing.md). Never deleted. */
 export interface FeeDeskRow {
   id: string;
   orgId: string;

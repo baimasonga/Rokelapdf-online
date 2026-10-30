@@ -1,4 +1,4 @@
-# University fee clearance
+# Receipt processing (university fee clearance)
 
 Status: implemented (30 October 2026). Builds on [verified documents](verified-documents.md) (phase 1) and upload
 requests.
@@ -18,7 +18,7 @@ a finance officer confirms the payment by hand and records how.
 ## Flow
 
 1. **Open a desk.** In a team workspace with upload requests and verified documents, a finance officer opens
-   **Fee clearance** and creates a desk: what is being cleared ("2026/27 first semester tuition"), the banks students
+   **Receipt processing** and creates a desk: what is being cleared ("2026/27 first semester tuition"), the banks students
    pay into, the currency, an optional fee due, how long claims are accepted, and how many days a statement date may
    differ from the receipt date (default 3). The desk is an upload request underneath, so its link, password,
    deadline, file checks, retention and notifications work as for any upload request.
@@ -71,7 +71,7 @@ and makes clearance and rejection final.
 
 Certificates are not stored. They are rebuilt from the recorded facts for each download, and the server refuses
 to serve one whose SHA-256 differs from the registered digest. `buildFeeCertificate` is deterministic, and a
-golden digest in `tests/unit/fee-clearance.test.ts` fails if a code or dependency change would alter the bytes;
+golden digest in `tests/unit/receipt-processing.test.ts` fails if a code or dependency change would alter the bytes;
 changing the layout therefore needs a plan for certificates already issued.
 
 ## Security and privacy

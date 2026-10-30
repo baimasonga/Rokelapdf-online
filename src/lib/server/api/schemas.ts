@@ -248,7 +248,7 @@ export const verificationIssueBody = z.object({ sha256: z.string().regex(/^[0-9a
 export const verificationRevokeBody = z.object({ reason: z.enum(['issued_in_error', 'superseded', 'payment_reversed', 'fraud_suspected', 'other']) }).strict();
 export const verificationCodeParams = z.object({ code: z.string().min(20).max(40) }).strict();
 
-// Fee clearance (docs/fee-clearance.md).
+// Fee clearance (docs/receipt-processing.md).
 export const feeDeskBody = z
   .object({
     title: str(200),

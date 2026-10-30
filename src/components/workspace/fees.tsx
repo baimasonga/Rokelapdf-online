@@ -10,7 +10,7 @@ import { guessColumns, readStatement, statementLines, type Columns, type Grid } 
 import { ownerDownload, useLoad, useWs } from './context';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Fee clearance (docs/fee-clearance.md): students claim bank payments through a fee desk; finance matches them against
+// Receipt processing (docs/receipt-processing.md): students claim bank payments through a fee desk; finance matches them against
 // the bank statement (read on this device) and issues verified clearance certificates.
 
 const CERTIFICATE_BATCH = 50;
@@ -41,8 +41,8 @@ export function FeeClearance() {
   const { nav, P, workspace } = useWs();
   if (workspace.kind !== 'team')
     return (
-      <Panel title="Fee clearance">
-        <Empty>Fee clearance runs from a team workspace, so certificates name your institution. Create or switch to a team.</Empty>
+      <Panel title="Receipt processing">
+        <Empty>Receipt processing runs from a team workspace, so certificates name your institution. Create or switch to a team.</Empty>
       </Panel>
     );
   return nav.id ? <FeeDesk key={`${P}:${nav.id}`} id={nav.id} /> : <FeeDeskList key={P} />;
@@ -64,7 +64,7 @@ function FeeDeskList() {
         {!overview ? (
           <Muted>Loading…</Muted>
         ) : !available ? (
-          <p>Fee clearance needs upload requests and verified documents, which are not included in this workspace&apos;s plan.</p>
+          <p>Receipt processing needs upload requests and verified documents, which are not included in this workspace&apos;s plan.</p>
         ) : (
           <Form
             fields={[

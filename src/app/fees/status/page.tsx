@@ -6,7 +6,7 @@ import { Button, Details, Muted, Panel } from '@/components/ui';
 import { ApiError, api, apiBlob } from '@/lib/client/api';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// The private status link a student receives after claiming a fee payment (docs/fee-clearance.md). The secret is in
+// The private status link a student receives after claiming a fee payment (docs/receipt-processing.md). The secret is in
 // the URL fragment, which browsers never send to the server; this page sends it in a header.
 
 type View = { k: 'loading' } | { k: 'missing' } | { k: 'error' } | { k: 'ok'; v: any };

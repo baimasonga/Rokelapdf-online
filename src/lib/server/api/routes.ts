@@ -445,7 +445,7 @@ export function buildRouter(): Router {
     sh(x).revokeVerification(me(x), ids(x).orgId, ids(x).id, parse(s.verificationRevokeBody, await x.body())),
   );
 
-  // ---- fee clearance (docs/fee-clearance.md) ------------------------------------------------------------
+  // ---- fee clearance (docs/receipt-processing.md) ------------------------------------------------------------
   r.add('GET', `${P}/fee-desks`, 'user', async (x) => ({ items: await sh(x).listFeeDesks(me(x), org(x)) }));
   r.add('POST', `${P}/fee-desks`, 'user', async (x) => {
     const b = parse(s.feeDeskBody, await x.body());

@@ -69,7 +69,7 @@ const line = (o: Partial<{ date: string; amount: number; reference: string; desc
   ...o,
 });
 
-describe('fee clearance', () => {
+describe('receipt processing', () => {
   it('takes claims, matches the bank statement and issues certificates the student can download and anyone can check', async () => {
     env = await sharingEnv();
     const d = await desk();

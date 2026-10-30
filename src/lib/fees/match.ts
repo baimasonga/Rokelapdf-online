@@ -1,4 +1,4 @@
-// Fee clearance rules shared by the server and the browser (docs/fee-clearance.md): reference normalization, money in
+// Receipt processing rules shared by the server and the browser (docs/receipt-processing.md): reference normalization, money in
 // minor units, and matching declared payments against bank statement lines. No dependencies; pure functions.
 
 export const FEE_CURRENCIES = ['NLe', 'USD'] as const;

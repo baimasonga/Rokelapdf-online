@@ -50,7 +50,7 @@ export default function UploadRequestPage() {
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState<Record<string, File | undefined>>({});
   const [syncNeeded, setSyncNeeded] = useState(false);
-  // Fee desks (docs/fee-clearance.md): the student's private link to follow their clearance.
+  // Fee desks (docs/receipt-processing.md): the student's private link to follow their clearance.
   const [feeStatusUrl, setFeeStatusUrl] = useState('');
   const h = useCallback((s = secret) => ({ 'x-submission-secret': s }), [secret]);
 
