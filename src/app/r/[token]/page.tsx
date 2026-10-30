@@ -77,6 +77,8 @@ export default function UploadRequestPage() {
 
   const refresh = async (s = secret) => {
     const sub = await api(`${base}/submission`, { auth: false, headers: h(s) });
+    // Also recovers the payer's status link when the answer to sending was lost.
+    if (sub.fee_status_url) setFeeStatusUrl(sub.fee_status_url);
     setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
     setSyncNeeded(false);
   };
@@ -90,6 +92,7 @@ export default function UploadRequestPage() {
       try {
         const sub = await api(`${base}/submission`, { auth: false, headers: h() });
         if (active && !uploading.current) {
+          if (sub.fee_status_url) setFeeStatusUrl(sub.fee_status_url);
           setView(sub.status === 'submitted' ? { k: 'sent' } : { k: 'files', sub });
           setSyncNeeded(false);
         }
@@ -326,6 +329,8 @@ export default function UploadRequestPage() {
                   if (sent.fee_status_url) setFeeStatusUrl(sent.fee_status_url);
                   await refresh();
                 } catch (e) {
+                  // Sent already (the answer to an earlier attempt was lost): show what was sent, with the status link.
+                  if ((e as ApiError).code === 'conflict' && /already sent/.test((e as Error).message)) return void (await refresh());
                   const missing = (e as ApiError).details?.missing as string[] | undefined;
                   if (missing) throw new Error(`Still needed: ${missing.map((k) => info.requirements.find((r: any) => r.key === k)?.label ?? k).join(', ')}`);
                   throw e;

@@ -48,11 +48,12 @@ a finance officer confirms the payment by hand and records how.
 3. **Match the statement.** The officer downloads the account statement from the bank as CSV or Excel (.xlsx) and
    chooses it in the desk. It is read **on the officer's device**: the header row and the date, credit, reference
    and description columns are guessed and can be corrected; dates are day-first unless ticked otherwise. Only
-   credit lines (date, amount, reference, description) are sent, in batches of 200, and only lines that confirm a
+   credit lines (date, amount, reference, description) are sent, in requests of at most 200 lines and 60,000 characters (under the API's 64 KiB body limit), and only lines that confirm a
    claim are kept, on that claim, with the file's name and SHA-256. The rest of the statement is not stored.
    - A claim matches a line naming its reference (exactly in the reference column, or, for references of 6+
      characters, inside the reference or narrative), for exactly the declared amount, dated within the tolerance.
-   - A line confirms one claim only, even across repeated or overlapping statements.
+   - A line confirms one claim only, even across repeated or overlapping statements and across the workspace's
+     desks (the same statement imported into two desks cannot confirm two claims).
    - When the reference is found but the amount or date differs, the claim stays waiting and shows why.
    - The desk notes when the student ID also appears on the line (extra confidence; not required).
 4. **Decide the rest.** The officer can **confirm** a waiting claim by hand (a note on how is required and kept in
@@ -81,7 +82,7 @@ has SELECT, INSERT and UPDATE only).
 - `fee_claims`: the declared payment (payer name and optional ID, bank, reference and its normalized key, amount in minor
   units, payment date), status (`draft` → `submitted` → `matched` → `cleared`, or `rejected`), `active_key` (bank +
   reference while live, unique per workspace), the status-link secret hash, the match (method, note, statement
-  line and its fingerprint, unique per desk), the latest match issue, rejection reason and message, and the
+  line and its fingerprint, unique per workspace), the latest match issue, rejection reason and message, and the
   certificate (verified document id and the facts printed on it).
 
 The trigger freezes the declared payment once submitted, allows only the transitions above, records a match once
@@ -96,8 +97,9 @@ changing the layout therefore needs a plan for certificates already issued.
 
 - **Claims and receipts** are visible only to the desk's creator and the workspace's owners and admins, like
   upload request submissions. Other members see that the desk exists and its counts.
-- **The status link** is the student's only credential: 256 random bits, stored hashed, sent in a header. Anyone
-  holding it can see that claim and download its certificate; nothing else.
+- **The status link** is the student's only credential: 256 bits derived one-way from the submission's own secret
+  (so a page whose answer to "send" was lost gets the same link back when it asks for the submission's state),
+  stored hashed, sent in a header. Anyone holding it can see that claim and download its certificate; nothing else.
 - **Public certificate details** are the student's name and ID, the amount and payment date. They are needed by
   the offices that check clearance, and are reachable only through the unguessable code printed on the
   certificate. The bank reference is printed on the certificate but not published.

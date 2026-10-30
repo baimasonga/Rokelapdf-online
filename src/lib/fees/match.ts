@@ -7,6 +7,28 @@ export type FeeCurrency = (typeof FEE_CURRENCIES)[number];
 /** Statement lines one request may carry (the API body limit is 64 KB). */
 export const STATEMENT_BATCH = 200;
 
+/**
+ * Splits statement lines into requests that fit the API's 64 KiB body limit: at most STATEMENT_BATCH lines and
+ * `maxChars` of JSON each, counting `overhead` (the rest of the request body) once per batch.
+ */
+export function statementBatches<T>(lines: readonly T[], overhead: number, maxChars = 60_000): T[][] {
+  const out: T[][] = [];
+  let batch: T[] = [];
+  let size = overhead;
+  for (const line of lines) {
+    const n = JSON.stringify(line).length + 1;
+    if (batch.length && (batch.length >= STATEMENT_BATCH || size + n > maxChars)) {
+      out.push(batch);
+      batch = [];
+      size = overhead;
+    }
+    batch.push(line);
+    size += n;
+  }
+  if (batch.length) out.push(batch);
+  return out;
+}
+
 /** Upper-case letters and digits only: "ft-2026/0012 34" and "FT2026001234" are the same reference. */
 export function referenceKey(raw: string): string {
   return raw

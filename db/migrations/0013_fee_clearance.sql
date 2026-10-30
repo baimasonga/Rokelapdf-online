@@ -67,8 +67,8 @@ CREATE TABLE fee_claims (
   CHECK ((status = 'rejected') = (rejection_reason IS NOT NULL AND rejected_at IS NOT NULL AND rejected_by IS NOT NULL)),
   UNIQUE (id, org_id),
   UNIQUE (org_id, active_key),
-  -- A statement line confirms one payment only.
-  UNIQUE (desk_id, statement_line_key),
+  -- A statement line confirms one payment only, across every desk of the workspace.
+  UNIQUE (org_id, statement_line_key),
   FOREIGN KEY (desk_id, org_id) REFERENCES fee_desks (id, org_id),
   FOREIGN KEY (submission_id, org_id) REFERENCES upload_submissions (id, org_id),
   FOREIGN KEY (verified_document_id, org_id) REFERENCES verified_documents (id, org_id)

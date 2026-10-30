@@ -2878,7 +2878,9 @@ export class SharingService {
         uploadId: b?.status === 'uploading' ? b.id : null,
       });
     }
-    return { submissionId: sub.id, status: sub.status, files: out };
+    // A payer whose submission went through but whose answer was lost gets their status link here.
+    const claim = sub.status === 'submitted' ? await this.#d.store.findUnique('feeClaim', 'submissionId', sub.id) : undefined;
+    return { submissionId: sub.id, status: sub.status, files: out, ...(claim?.statusSecretHash ? { feeStatusUrl: this.#feeStatusUrl(secret).url } : {}) };
   }
 
   async submit(token: string, secret: string, ctx: PublicContext) {
@@ -2897,7 +2899,7 @@ export class SharingService {
         .map((q) => q.key);
       if (missing.length) throw new DomainError('conflict', 'required files are missing', { missing });
       await tx.update('submission', r.orgId, sub.id, { status: 'submitted', submittedAt: now });
-      const fee = await this.#submitFeeClaim(tx, r.orgId, sub.id, now);
+      const fee = await this.#submitFeeClaim(tx, r.orgId, sub.id, secret, now);
       await this.#recordEvent(tx, { orgId: r.orgId, subjectType: 'request', subjectId: r.id }, 'submitted', ctx, { declaredName: sub.submitterName });
       await this.#audit(
         tx,
@@ -3327,12 +3329,23 @@ export class SharingService {
   }
 
   /** On submission, a claim becomes live and its payer gets a private status link. */
-  async #submitFeeClaim(tx: SharingTx, orgId: string, submissionId: string, now: Date): Promise<string | undefined> {
+  /**
+   * The payer's status-link secret, derived from their submission secret: if the answer to the submission is lost, the
+   * page asks for the submission's state with the same secret and gets the same link back. One-way, so the status link
+   * never reveals the submission secret.
+   */
+  #feeStatusUrl(submissionSecret: string) {
+    const secret = `fcs_${createHash('sha256').update(`fee-status:${submissionSecret}`).digest('base64url')}`;
+    // The secret is in the fragment, so it never reaches server logs or other sites.
+    return { secret, url: `${this.#c.publicOrigin}/fees/status#${secret}` };
+  }
+
+  async #submitFeeClaim(tx: SharingTx, orgId: string, submissionId: string, submissionSecret: string, now: Date): Promise<string | undefined> {
     const claim = await tx.findUnique('feeClaim', 'submissionId', submissionId);
     if (!claim) return undefined;
     const activeKey = `${claim.bank}|${claim.referenceKey}`;
     if ((await tx.list('feeClaim', orgId, { activeKey }, { limit: 1 })).length) throw duplicatePayment();
-    const secret = `fcs_${randomBytes(32).toString('base64url')}`;
+    const { secret, url } = this.#feeStatusUrl(submissionSecret);
     try {
       await tx.update('feeClaim', orgId, claim.id, { status: 'submitted', activeKey, statusSecretHash: tokenHash(secret), submittedAt: now, updatedAt: now });
     } catch (e) {
@@ -3340,8 +3353,7 @@ export class SharingService {
       throw e;
     }
     await this.#audit(tx, { type: 'anonymous' }, orgId, 'fee.claim.submitted', { type: 'fee_claim', id: claim.id }, { desk_id: claim.deskId });
-    // The secret is in the fragment, so it never reaches server logs or other sites.
-    return `${this.#c.publicOrigin}/fees/status#${secret}`;
+    return url;
   }
 
   async #publicFeeDesk(requestId: string) {
@@ -3572,14 +3584,18 @@ export class SharingService {
       await this.#requireDeskManager(p, orgId, d);
       if (!d.banks.includes(input.bank)) throw invalid('choose one of the desk’s banks');
       const claims = await tx.list('feeClaim', orgId, { deskId }, { limit: 10_000 });
-      const usedKeys = new Set(claims.map((c) => c.statementLineKey).filter(Boolean));
+      const open = claims.filter((c) => c.status === 'submitted' && c.bank === input.bank);
       const keys = lines.map((l) =>
         createHash('sha256')
           .update(`${input.bank}\n${l.date}\n${l.amount}\n${referenceKey(l.reference)}\n${referenceKey(l.description)}`)
           .digest('hex'),
       );
-      const used = new Set(keys.flatMap((k, i) => (usedKeys.has(k) ? [i] : [])));
-      const open = claims.filter((c) => c.status === 'submitted' && c.bank === input.bank);
+      // A statement line confirms one payment in the whole workspace, not just this desk: the same statement may be
+      // imported into several desks. Only lines that could match (an open claim's amount) are looked up.
+      const amounts = new Set(open.map((c) => c.amount));
+      const used = new Set<number>();
+      for (const [i, k] of keys.entries())
+        if (amounts.has(lines[i]!.amount) && (await tx.list('feeClaim', orgId, { statementLineKey: k }, { limit: 1 })).length) used.add(i);
       const result = matchStatement(open, lines, d.dateToleranceDays, d.currency, used);
       const byId = new Map(open.map((c) => [c.id, c]));
       for (const m of result.matches) {

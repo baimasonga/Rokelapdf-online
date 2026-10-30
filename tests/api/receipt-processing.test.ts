@@ -257,6 +257,43 @@ describe('receipt processing', () => {
     expect((await status(p.secret!)).body).toMatchObject({ payer_id_label: null, payer_id: null, certificate_title: 'Payment confirmation' });
   });
 
+  it('gives the payer the same status link again when the answer to sending was lost', async () => {
+    env = await sharingEnv();
+    const d = await desk();
+    const R = `/api/v1/public/upload-requests/${tokenOf(d.created.body.request.url)}`;
+    const a = await student(R, 'Aminata Kamara', pay());
+    // Sending again: refused, but the submission's state carries the same link.
+    expect((await env.call('POST', `${R}/submission/submit`, { headers: a.h!, body: {} })).status).toBe(409);
+    const state = await env.call('GET', `${R}/submission`, { headers: a.h! });
+    expect(state.body).toMatchObject({ status: 'submitted', fee_status_url: a.submit!.body.fee_status_url });
+    expect((await status(a.secret!)).body.payer_name).toBe('Aminata Kamara');
+    // An unsent submission has no link yet.
+    const draft = await student(R, 'Ibrahim Sesay', pay({ payer_id: 'FBC/2024/456', reference: 'FT99999999' }), { submit: false });
+    expect((await env.call('GET', `${R}/submission`, { headers: draft.h! })).body.fee_status_url).toBeUndefined();
+  });
+
+  it('never lets one statement line confirm claims on two desks', async () => {
+    env = await sharingEnv();
+    const d = await desk();
+    const second = await env.call('POST', `${d.P}/fee-desks`, { token: d.owner.token, body: { ...d.body, title: 'Hostel fees' } });
+    const R1 = `/api/v1/public/upload-requests/${tokenOf(d.created.body.request.url)}`;
+    const R2 = `/api/v1/public/upload-requests/${tokenOf(second.body.request.url)}`;
+    await student(R1, 'Aminata Kamara', pay({ reference: 'FT12345678' }));
+    await student(R2, 'Someone Else', pay({ payer_id: 'FBC/2024/999', reference: 'ABCDEF' }));
+    // One credit names both references: it can confirm only one of the claims.
+    const body = {
+      bank: BANKS[0],
+      file_name: 'rcb.csv',
+      file_sha256: 'd'.repeat(64),
+      lines: [line({ reference: 'FT12345678', description: 'PAYMENT ABCDEF' })],
+    };
+    const first = await env.call('POST', `${d.P}/fee-desks/${d.created.body.id}/statements`, { token: d.owner.token, body });
+    expect(first.body.matched).toHaveLength(1);
+    const other = await env.call('POST', `${d.P}/fee-desks/${second.body.id}/statements`, { token: d.owner.token, body });
+    expect(other.status).toBe(200);
+    expect(other.body).toMatchObject({ matched: [], still_open: 1 });
+  });
+
   it('runs only from a team workspace that can issue verified documents', async () => {
     env = await sharingEnv();
     const noVerify = await desk({ share_upload_requests: true });

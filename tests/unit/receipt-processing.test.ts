@@ -5,7 +5,7 @@ import { strToU8, zipSync } from 'fflate';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it } from 'vitest';
 import { buildFeeCertificate, type FeeCertificateFacts } from '@/lib/fees/certificate';
-import { formatAmount, matchStatement, parseAmount, referenceKey } from '@/lib/fees/match';
+import { STATEMENT_BATCH, formatAmount, matchStatement, parseAmount, referenceKey, statementBatches } from '@/lib/fees/match';
 import { guessColumns, parseCsv, parseStatementDate, parseXlsx, readStatement, statementLines } from '@/lib/fees/statement';
 
 const jsQR = ((jsQRModule as unknown as { default?: unknown }).default ?? jsQRModule) as unknown as (
@@ -72,6 +72,33 @@ describe('statement matching', () => {
     expect(matchStatement([claim('x', 'AB12')], [line('', 150_000, '2026-10-01', 'XAB12Y')], 3, 'NLe').matches).toEqual([]);
     expect(matchStatement([claim('x', 'FT0001')], [line('FT0001', -150_000)], 3, 'NLe')).toEqual({ matches: [], issues: [] });
     expect(matchStatement([claim('x', 'FT0001')], [line('FT0001')], 3, 'NLe', new Set([0])).matches).toEqual([]);
+  });
+});
+
+describe('statement batches', () => {
+  it('keeps every request under the 64 KiB body limit, even with the longest allowed lines', () => {
+    const head = { bank: 'Sierra Leone Commercial Bank', file_name: 'statement-october-2026.xlsx', file_sha256: 'a'.repeat(64) };
+    const lines = Array.from({ length: 450 }, (_, i) => ({
+      date: '2026-10-01',
+      amount: 1_234_567_890 + i,
+      reference: `R${i}`.padEnd(120, 'X'),
+      description: 'D'.padEnd(140, 'Y'),
+    }));
+    // A fixed count of 200 such lines is too big for one request.
+    expect(JSON.stringify({ ...head, lines: lines.slice(0, STATEMENT_BATCH) }).length).toBeGreaterThan(64 * 1024);
+    const batches = statementBatches(lines, JSON.stringify({ ...head, lines: [] }).length);
+    for (const b of batches) {
+      expect(b.length).toBeLessThanOrEqual(STATEMENT_BATCH);
+      expect(JSON.stringify({ ...head, lines: b }).length).toBeLessThanOrEqual(60_000);
+    }
+    expect(batches.flat()).toEqual(lines);
+    // Short lines still go 200 at a time.
+    expect(
+      statementBatches(
+        Array.from({ length: 401 }, () => ({ a: 1 })),
+        100,
+      ).map((b) => b.length),
+    ).toEqual([200, 200, 1]);
   });
 });
 

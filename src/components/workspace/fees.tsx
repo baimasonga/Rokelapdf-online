@@ -5,7 +5,7 @@ import { api, apiBlob, enc } from '@/lib/client/api';
 import { downloadCsv } from '@/lib/client/csv';
 import { inDays, splitList, when } from '@/lib/client/format';
 import { sha256Hex } from '@/lib/client/sha256';
-import { STATEMENT_BATCH, certificateFileName, formatAmount } from '@/lib/fees/match';
+import { certificateFileName, formatAmount, statementBatches } from '@/lib/fees/match';
 import { guessColumns, readStatement, statementLines, type Columns, type Grid } from '@/lib/fees/statement';
 import { ownerDownload, useLoad, useWs } from './context';
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -471,11 +471,12 @@ function StatementImport({ desk, base, onDone }: { desk: any; base: string; onDo
     const matchedIds = new Set<string>();
     const issueIds = new Set<string>();
     try {
-      for (let i = 0; i < preview.lines.length; i += STATEMENT_BATCH) {
-        setBusy(`Matching lines ${i + 1}–${Math.min(i + STATEMENT_BATCH, preview.lines.length)} of ${preview.lines.length}…`);
-        const r = await api(`${base}/statements`, {
-          body: { bank, file_name: file.name.slice(0, 200), file_sha256: file.sha256, lines: preview.lines.slice(i, i + STATEMENT_BATCH) },
-        });
+      const head = { bank, file_name: file.name.slice(0, 200), file_sha256: file.sha256 };
+      let done = 0;
+      for (const lines of statementBatches(preview.lines, JSON.stringify({ ...head, lines: [] }).length)) {
+        setBusy(`Matching lines ${done + 1}–${done + lines.length} of ${preview.lines.length}…`);
+        done += lines.length;
+        const r = await api(`${base}/statements`, { body: { ...head, lines } });
         total.lines += r.lines;
         for (const m of r.matched) matchedIds.add(m.claim_id);
         for (const x of r.issues) issueIds.add(x.claim_id);

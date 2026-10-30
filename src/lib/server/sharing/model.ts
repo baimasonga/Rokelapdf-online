@@ -527,7 +527,7 @@ export const UNIQUE_TOGETHER: Partial<Record<Kind, readonly string[][]>> = {
   shortLink: [['lookupKey']],
   verifiedDocument: [['code']],
   feeDesk: [['requestId']],
-  feeClaim: [['submissionId'], ['statusSecretHash'], ['verifiedDocumentId'], ['orgId', 'activeKey'], ['deskId', 'statementLineKey']],
+  feeClaim: [['submissionId'], ['statusSecretHash'], ['verifiedDocumentId'], ['orgId', 'activeKey'], ['orgId', 'statementLineKey']],
   domain: [['orgId', 'hostname']],
   version: [['documentId', 'number']],
   review: [['versionId', 'reviewerUserId']],
