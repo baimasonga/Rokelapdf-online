@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Rokela PDF poster</title>
+<style>
+@font-face{font-family:Inter;src:url(../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2) format('woff2');font-weight:100 900}
+@font-face{font-family:Fraunces;src:url(../../node_modules/@fontsource-variable/fraunces/files/fraunces-latin-wght-normal.woff2) format('woff2');font-weight:100 900}
+@font-face{font-family:Fraunces;font-style:italic;src:url(../../node_modules/@fontsource-variable/fraunces/files/fraunces-latin-wght-italic.woff2) format('woff2');font-weight:100 900}
+:root{--navy:#082451;--navy2:#041638;--blue:#123c78;--coral:#ff6759;--coral2:#cc3438;--ink:#0f1b33;--muted:#5b6b85;--bg:#f5f7fb;--line:#dce7f4}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1200px;font-family:Inter,sans-serif;color:var(--ink);background:var(--bg)}
+.hero{position:relative;overflow:hidden;background:radial-gradient(900px 600px at 85% 15%,#1b4f99 0,transparent 60%),radial-gradient(700px 500px at 0% 100%,#3a1f4f 0,transparent 60%),linear-gradient(160deg,var(--navy2),var(--navy) 60%,#0c3064);color:#fff;padding:64px 72px 0;height:860px}
+.brand{display:flex;align-items:center;gap:16px}
+.brand img{width:64px;height:64px;border-radius:16px}
+.brand b{font-size:30px;letter-spacing:-.5px}.brand b span{color:var(--coral)}
+.pill{margin-left:auto;font-size:15px;font-weight:600;padding:9px 16px;border-radius:99px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18)}
+.eyebrow{margin-top:70px;font-size:16px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--coral)}
+h1{font-family:Fraunces,serif;font-weight:600;font-size:82px;line-height:1.02;letter-spacing:-2px;margin-top:18px;max-width:640px}
+h1 em{font-style:italic;color:var(--coral)}
+.lead{margin-top:26px;font-size:22px;line-height:1.5;color:#cfdcf0;max-width:540px}
+.stats{display:flex;gap:14px;margin-top:40px;max-width:700px}
+.stat{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:16px 20px;min-width:130px}
+.stat b{display:block;font-family:Fraunces,serif;font-size:38px;font-weight:600}
+.stat span{font-size:14px;color:#b9c9e4}
+.phone{position:absolute;right:70px;top:150px;width:340px;border-radius:44px;padding:12px;background:#0b1428;box-shadow:0 40px 80px rgba(0,0,0,.45),0 0 0 2px rgba(255,255,255,.08)}
+.phone img{display:block;width:100%;border-radius:34px}
+.doc{position:absolute;right:330px;top:430px;width:300px;border-radius:14px;box-shadow:0 30px 60px rgba(0,0,0,.45);transform:rotate(-6deg)}
+.badge{position:absolute;left:72px;top:712px;background:#fff;color:var(--ink);border-radius:16px;padding:14px 18px;font-size:15px;font-weight:600;box-shadow:0 20px 40px rgba(0,0,0,.3);display:flex;gap:10px;align-items:center}
+.badge i{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#16a34a;color:#fff;font-style:normal}
+section{padding:56px 72px 0}
+h2{font-family:Fraunces,serif;font-size:40px;font-weight:600;letter-spacing:-.8px}
+h2 small{display:block;font-family:Inter;font-size:17px;font-weight:500;color:var(--muted);letter-spacing:0;margin-top:8px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:28px}
+.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:24px 24px 22px;box-shadow:0 1px 2px rgba(8,36,81,.04)}
+.ico{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:#f0f5fb;color:var(--blue);margin-bottom:16px}
+.ico.c{background:#fff4f1;color:var(--coral2)}
+.ico svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.card h3{font-size:20px;letter-spacing:-.3px}
+.card p{margin-top:8px;font-size:15.5px;line-height:1.5;color:var(--muted)}
+.card.new{border-color:#ffb3a9;background:linear-gradient(180deg,#fff,#fff8f6)}
+.tag{display:inline-block;margin-left:8px;font-size:11px;font-weight:800;letter-spacing:1px;color:#fff;background:var(--coral2);border-radius:99px;padding:3px 8px;vertical-align:3px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.tools span{font-size:14px;font-weight:600;padding:8px 13px;border-radius:99px;background:#fff;border:1px solid var(--line);color:var(--blue)}
+.foot{margin-top:56px;background:var(--navy2);color:#cfdcf0;padding:36px 72px;display:flex;align-items:center;gap:28px}
+.foot .stack{display:flex;flex-wrap:wrap;gap:8px;flex:1}
+.foot .stack span{font-size:13.5px;font-weight:600;padding:7px 12px;border-radius:8px;background:rgba(255,255,255,.08);color:#e6eefb}
+.foot .url{text-align:right}
+.foot .url b{display:block;font-size:26px;color:#fff;letter-spacing:-.3px}
+.foot .url span{font-size:14px}
+</style></head><body>
+<div class="hero">
+  <div class="brand"><img src="../../public/brand/rokela-icon.png" alt=""><b>Rokela <span>PDF</span></b><div class="pill">Made in Freetown, Sierra Leone</div></div>
+  <div class="eyebrow">PDF tools · Web + Android</div>
+  <h1>Every PDF task, done <em>beautifully.</em></h1>
+  <p class="lead">Edit, sign, merge and convert documents in the browser or on your phone. No watermarks, nothing to install, and your files stay with you.</p>
+  <div class="stats">
+    <div class="stat"><b>38</b><span>PDF tools</span></div>
+    <div class="stat"><b>0</b><span>uploads for most tools</span></div>
+    <div class="stat"><b>5</b><span>OCR languages</span></div>
+  </div>
+  <div class="phone"><img src="../../public/brand/home/phone-signed.webp" alt=""></div>
+  <div class="badge"><i>✓</i>Signed on the phone. Nothing uploaded.</div>
+</div>
+
+<section>
+  <h2>Everything in one place<small>From a single page edit to a whole finance office’s paperwork.</small></h2>
+  <div class="grid">
+    <div class="card"><div class="ico"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div><h3>PDF editor</h3><p>Add and replace text, highlight, draw, cover, insert images, Unicode fonts and true redaction.</p></div>
+    <div class="card"><div class="ico"><svg viewBox="0 0 24 24"><path d="M3 17c3-3 5 2 8-1s2-7 5-7 3 4 5 2"/><path d="M3 21h18"/></svg></div><h3>Sign, stamp & forms</h3><p>Draw, type or upload signatures, company stamps, fill and create forms, and request signatures.</p></div>
+    <div class="card"><div class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/><path d="M17 15l3 3-3 3"/></svg></div><h3>Office conversion & OCR</h3><p>PDF to and from Word, Excel and PowerPoint, PDF to and from images, and searchable text in five languages.</p></div>
+    <div class="card"><div class="ico"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></div><h3>Rokela Send</h3><p>Send big files by email or link, with passwords, expiry, download limits and who-downloaded-what.</p></div>
+    <div class="card"><div class="ico"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></div><h3>Short links & QR</h3><p>Branded short links, custom domains, editable destinations, QR codes and click stats.</p></div>
+    <div class="card"><div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg></div><h3>Upload requests</h3><p>Collect documents from anyone with a checklist, deadline and password. Files are virus-checked.</p></div>
+    <div class="card"><div class="ico c"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5Z"/><path d="m9 12 2 2 4-4"/></svg></div><h3>Verified documents</h3><p>Issue PDFs with a QR code anyone can scan to confirm they are genuine and still valid.</p></div>
+    <div class="card new"><div class="ico c"><svg viewBox="0 0 24 24"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 1 .7V2l-1 .7-3-2-3 2-3-2-3 2Z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><h3>Receipt processing<span class="tag">NEW</span></h3><p>Match students’ bank receipts to the bank statement and issue fee clearance certificates.</p></div>
+    <div class="card"><div class="ico c"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></div><h3>Receipt Maker</h3><p>Receipts, invoices and quotations for small businesses, synced between web and phone.</p></div>
+  </div>
+  <div class="tools">
+    <span>Merge</span><span>Split</span><span>Compress</span><span>Rotate</span><span>Crop</span><span>Organize pages</span><span>Watermark</span><span>Page numbers</span><span>Flatten</span><span>Protect</span><span>Unlock</span><span>Redact</span><span>JPG to PDF</span><span>PDF to JPG</span><span>OCR</span><span>Stamp many PDFs</span><span>Seam stamp</span><span>+ 21 more</span>
+  </div>
+</section>
+
+<div class="foot">
+  <div class="stack"><span>Next.js 16</span><span>TypeScript</span><span>pdf-lib</span><span>pdf.js</span><span>Tesseract OCR</span><span>Supabase</span><span>PostgreSQL</span><span>Cloudflare R2</span><span>Railway</span><span>Capacitor (Android)</span></div>
+  <div class="url"><b>rokelapdf.com</b><span>github.com/baimasonga/Rokelapdf-online</span></div>
+</div>
+</body></html>
